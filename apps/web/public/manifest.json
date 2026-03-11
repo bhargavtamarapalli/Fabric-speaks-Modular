@@ -1,0 +1,21 @@
+{
+  "name": "Fabric Speaks",
+  "short_name": "Fabric Speaks",
+  "description": "Premium fabric-first apparel",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#0D7377",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+    "name": "@fs/db-migrate",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "migrate": "node-pg-migrate up"
+    },
+    "dependencies": {
+        "node-pg-migrate": "^7.0.0",
+        "pg": "^8.11.3"
+    }
+}

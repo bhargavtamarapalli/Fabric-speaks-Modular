@@ -1,0 +1,1788 @@
+
+FABRIC SPEAKS
+Low-Level Design Document
+Version 1.0 — Full Technical Specification
+
+
+
+1. What This Document Covers
+The LLD translates HLD v3 architectural decisions into developer-ready specifications. Every table, service method, error code, queue job, and cache key is defined here. Developers should be able to write code directly from this document without needing to interpret HLD intentions.
+
+
+
+
+2. Database Schema — Complete DDL
+PostgreSQL 15. All entities use UUID v4 primary keys except display_order and sequential join table fields. GIN indexes on all JSONB columns used in queries. Row-level locks on stock reservation and coupon redemption.
+
+2.1 Design Rules Applied (from Security Design v1)
+
+
+2.2 Core Entities
+
+users
+CREATE TABLE users (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  mobile          VARCHAR(15) NOT NULL,
+  mobile_hash     VARCHAR(64) GENERATED ALWAYS AS (encode(sha256((mobile || 'fs_salt')::bytea), 'hex')) STORED,
+  name            VARCHAR(100),
+  email           VARCHAR(255),
+  firebase_uid    VARCHAR(128) UNIQUE NOT NULL,
+  role            VARCHAR(30) NOT NULL DEFAULT 'customer'
+                    CHECK (role IN ('customer','superAdmin','inventoryManager','supportAgent')),
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  deleted_at      TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX users_mobile_active_idx ON users(mobile) WHERE is_deleted = false;
+CREATE INDEX users_firebase_uid_idx ON users(firebase_uid);
+-- NOTE: mobile stored plaintext (required for OTP). Masked in all logs as 07XXXXXXX99.
+-- On account deletion: mobile → sha256 hash, name/email → NULL, is_deleted = true.
+
+addresses
+CREATE TABLE addresses (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  label           VARCHAR(50),              -- 'Home', 'Office', custom
+  full_name       VARCHAR(100) NOT NULL,
+  mobile          VARCHAR(15) NOT NULL,
+  line1           TEXT NOT NULL,
+  line2           TEXT,
+  city            VARCHAR(100) NOT NULL,
+  state           VARCHAR(100) NOT NULL,
+  pincode         VARCHAR(10) NOT NULL,
+  is_default      BOOLEAN NOT NULL DEFAULT false,
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX addresses_user_id_idx ON addresses(user_id) WHERE is_deleted = false;
+
+brands + categories
+CREATE TABLE brands (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name            VARCHAR(100) NOT NULL,
+  slug            VARCHAR(120) UNIQUE NOT NULL,
+  story           TEXT,
+  logo_url        TEXT,
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ 
+CREATE TABLE categories (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name            VARCHAR(100) NOT NULL,
+  slug            VARCHAR(120) UNIQUE NOT NULL,
+  parent_id       UUID REFERENCES categories(id),
+  image_url       TEXT,
+  seo_meta_json   JSONB,
+  display_order   SMALLINT NOT NULL DEFAULT 0,
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX categories_parent_id_idx ON categories(parent_id);
+
+products + variants
+CREATE TABLE products (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  brand_id        UUID NOT NULL REFERENCES brands(id),
+  category_id     UUID NOT NULL REFERENCES categories(id),
+  name            VARCHAR(200) NOT NULL,
+  slug            VARCHAR(250) UNIQUE NOT NULL,
+  description     TEXT,
+  fabric_details  TEXT,
+  care_guide      TEXT,
+  attributes      JSONB NOT NULL DEFAULT '{}',
+  -- e.g. {"fabric":"linen","gsm":180,"composition":"100% linen"}
+  manual_badges_json JSONB,
+  -- e.g. [{"type":"best_seller"},{"type":"premium"}]
+  duplicate_of    UUID REFERENCES products(id),
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX products_brand_id_idx ON products(brand_id) WHERE is_deleted = false;
+CREATE INDEX products_category_id_idx ON products(category_id) WHERE is_deleted = false;
+CREATE INDEX products_attributes_gin ON products USING GIN(attributes);
+CREATE INDEX products_slug_idx ON products(slug);
+ 
+CREATE TABLE variants (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id      UUID NOT NULL REFERENCES products(id),
+  sku             VARCHAR(100) UNIQUE NOT NULL,
+  size            VARCHAR(20),
+  colour          VARCHAR(50),
+  size_label      VARCHAR(30),       -- display label e.g. 'M (38-40 in)'
+  base_price      NUMERIC(10,2) NOT NULL CHECK (base_price > 0),
+  price_override  NUMERIC(10,2),
+  sale_price      NUMERIC(10,2),
+  sale_active     BOOLEAN NOT NULL DEFAULT false,
+  qty             INTEGER NOT NULL DEFAULT 0 CHECK (qty >= 0),
+  badges_json     JSONB,             -- auto-computed badges: New, Sale, Low Stock
+  images_json     JSONB NOT NULL DEFAULT '[]',
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Pricing precedence (enforced in service, not DB):
+-- IF sale_active THEN sale_price ELSIF price_override IS NOT NULL THEN price_override ELSE base_price
+CREATE INDEX variants_product_id_idx ON variants(product_id) WHERE is_deleted = false;
+CREATE INDEX variants_sku_idx ON variants(sku);
+CREATE INDEX variants_sale_active_idx ON variants(sale_active) WHERE sale_active = true;
+
+2.3 Commerce Entities
+
+orders + order_items
+CREATE TYPE order_status AS ENUM
+  ('PLACED','CONFIRMED','PACKED','SHIPPED','DELIVERED','CANCELLED','RETURN_REQUESTED','RETURNED');
+ 
+CREATE TYPE payment_method_type AS ENUM ('UPI','CARD','NETBANKING','COD');
+ 
+CREATE TABLE orders (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID NOT NULL REFERENCES users(id),
+  status              order_status NOT NULL DEFAULT 'PLACED',
+  payment_method      payment_method_type NOT NULL,
+  subtotal            NUMERIC(10,2) NOT NULL,
+  discount_amount     NUMERIC(10,2) NOT NULL DEFAULT 0,
+  gst_amount          NUMERIC(10,2) NOT NULL DEFAULT 0,
+  total_amount        NUMERIC(10,2) NOT NULL,
+  coupon_id           UUID REFERENCES coupons(id),
+  shiprocket_order_id VARCHAR(100),
+  tracking_url        TEXT,
+  is_cod_confirmed    BOOLEAN NOT NULL DEFAULT false,
+  cod_confirm_by      TIMESTAMPTZ,   -- PLACED + 30min window
+  cod_fraud_flag      BOOLEAN NOT NULL DEFAULT false,
+  replacement_of      UUID REFERENCES orders(id),
+  notes               TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX orders_user_id_idx ON orders(user_id);
+CREATE INDEX orders_status_idx ON orders(status);
+CREATE INDEX orders_created_at_idx ON orders(created_at DESC);
+ 
+CREATE TABLE order_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id        UUID NOT NULL REFERENCES orders(id),
+  variant_id      UUID NOT NULL REFERENCES variants(id),
+  product_id      UUID NOT NULL REFERENCES products(id),
+  quantity        SMALLINT NOT NULL CHECK (quantity > 0),
+  unit_price      NUMERIC(10,2) NOT NULL,   -- locked at order time
+  gst_rate        NUMERIC(5,4) NOT NULL,    -- e.g. 0.12 for 12%
+  gst_amount      NUMERIC(10,2) NOT NULL,
+  delivery_address_id UUID NOT NULL REFERENCES addresses(id),
+  gift_note       TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX order_items_order_id_idx ON order_items(order_id);
+CREATE INDEX order_items_variant_id_idx ON order_items(variant_id);
+
+payments
+CREATE TYPE payment_status AS ENUM ('PENDING','CAPTURED','FAILED','REFUNDED','PARTIALLY_REFUNDED');
+ 
+CREATE TABLE payments (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id            UUID NOT NULL REFERENCES orders(id),
+  user_id             UUID NOT NULL REFERENCES users(id),
+  razorpay_order_id   VARCHAR(100) UNIQUE,
+  razorpay_payment_id VARCHAR(100) UNIQUE,  -- idempotency key
+  amount              NUMERIC(10,2) NOT NULL,
+  currency            CHAR(3) NOT NULL DEFAULT 'INR',
+  status              payment_status NOT NULL DEFAULT 'PENDING',
+  method_hint         VARCHAR(50),     -- 'upi', 'card' (no raw card data ever)
+  failure_reason      TEXT,
+  refund_id           VARCHAR(100),
+  refund_amount       NUMERIC(10,2),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX payments_order_id_idx ON payments(order_id);
+CREATE INDEX payments_user_id_idx ON payments(user_id);
+-- NOTE: No raw card data stored. Razorpay tokenises. method_hint is display only.
+
+coupons + coupon_redemptions
+CREATE TYPE discount_type AS ENUM ('PERCENT','FIXED');
+ 
+CREATE TABLE coupons (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code              VARCHAR(50) UNIQUE NOT NULL,
+  discount_type     discount_type NOT NULL,
+  discount_value    NUMERIC(10,2) NOT NULL CHECK (discount_value > 0),
+  max_discount      NUMERIC(10,2),        -- cap for percent type
+  min_order_amount  NUMERIC(10,2) NOT NULL DEFAULT 0,
+  max_uses_total    INTEGER,
+  max_uses_per_user SMALLINT NOT NULL DEFAULT 1,
+  uses_count        INTEGER NOT NULL DEFAULT 0,
+  valid_from        TIMESTAMPTZ NOT NULL,
+  valid_until       TIMESTAMPTZ NOT NULL,
+  is_active         BOOLEAN NOT NULL DEFAULT true,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX coupons_code_idx ON coupons(code) WHERE is_active = true;
+ 
+CREATE TABLE coupon_redemptions (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  coupon_id   UUID NOT NULL REFERENCES coupons(id),
+  user_id     UUID NOT NULL REFERENCES users(id),
+  order_id    UUID NOT NULL REFERENCES orders(id),
+  redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX coupon_redemptions_user_coupon_idx ON coupon_redemptions(user_id, coupon_id);
+-- Prevents double-redemption. SELECT FOR UPDATE on coupons row during redemption.
+
+returns + return_items
+CREATE TYPE return_type AS ENUM ('WRONG_ITEM','DAMAGED','SIZE_EXCHANGE','CHANGED_MIND','OTHER');
+CREATE TYPE return_status AS ENUM
+  ('REQUESTED','APPROVED','REJECTED','PICKUP_SCHEDULED','PICKED_UP','INSPECTED','COMPLETED','FAST_TRACKED');
+ 
+CREATE TABLE return_requests (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id        UUID NOT NULL REFERENCES orders(id),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  return_type     return_type NOT NULL,
+  status          return_status NOT NULL DEFAULT 'REQUESTED',
+  is_fast_track   BOOLEAN NOT NULL DEFAULT false,
+  replacement_order_id UUID REFERENCES orders(id),
+  shiprocket_return_id VARCHAR(100),
+  resolved_at     TIMESTAMPTZ,
+  agent_notes     TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX return_requests_order_id_idx ON return_requests(order_id);
+CREATE INDEX return_requests_user_id_idx ON return_requests(user_id);
+ 
+CREATE TABLE return_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  return_id       UUID NOT NULL REFERENCES return_requests(id),
+  order_item_id   UUID NOT NULL REFERENCES order_items(id),
+  quantity        SMALLINT NOT NULL CHECK (quantity > 0),
+  reason          TEXT,
+  photo_urls      JSONB,              -- Firebase Storage paths
+  inspection_notes TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX return_items_return_id_idx ON return_items(return_id);
+
+2.4 Content Entities
+
+collections + collection_products
+CREATE TYPE collection_type AS ENUM ('smart','manual');
+ 
+CREATE TABLE collections (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                  VARCHAR(150) NOT NULL,
+  slug                  VARCHAR(180) UNIQUE NOT NULL,
+  type                  collection_type NOT NULL DEFAULT 'smart',
+  rules_json            JSONB,          -- only for smart type
+  -- e.g. [{"field":"fabric_type","op":"eq","value":"linen"},{"field":"sale_active","op":"eq","value":true}]
+  hero_image_mobile_url TEXT,
+  hero_image_desktop_url TEXT,
+  description           TEXT,
+  seo_meta_json         JSONB,
+  scheduled_at          TIMESTAMPTZ,
+  is_active             BOOLEAN NOT NULL DEFAULT true,
+  is_deleted            BOOLEAN NOT NULL DEFAULT false,
+  created_by            UUID REFERENCES users(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX collections_slug_idx ON collections(slug) WHERE is_deleted = false;
+CREATE INDEX collections_rules_gin ON collections USING GIN(rules_json);
+ 
+CREATE TABLE collection_products (
+  id              SERIAL PRIMARY KEY,
+  collection_id   UUID NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  product_id      UUID NOT NULL REFERENCES products(id),
+  display_order   SMALLINT NOT NULL DEFAULT 0,
+  added_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX collection_products_unique ON collection_products(collection_id, product_id);
+CREATE INDEX collection_products_collection_id ON collection_products(collection_id, display_order);
+
+content_pages + nav_items + homepage_config
+CREATE TYPE content_status AS ENUM ('draft','published','archived');
+ 
+CREATE TABLE content_pages (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title             VARCHAR(200) NOT NULL,
+  slug              VARCHAR(250) UNIQUE NOT NULL,
+  body_html         TEXT,               -- DOMPurify sanitised on save
+  hero_image_url    TEXT,
+  related_product_ids JSONB DEFAULT '[]',
+  seo_meta_json     JSONB,
+  status            content_status NOT NULL DEFAULT 'draft',
+  published_at      TIMESTAMPTZ,
+  is_deleted        BOOLEAN NOT NULL DEFAULT false,
+  created_by        UUID REFERENCES users(id),
+  updated_by        UUID REFERENCES users(id),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX content_pages_slug_idx ON content_pages(slug) WHERE is_deleted = false;
+CREATE INDEX content_pages_status_idx ON content_pages(status) WHERE is_deleted = false;
+ 
+CREATE TYPE nav_link_type AS ENUM ('category','collection','url');
+ 
+CREATE TABLE nav_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label           VARCHAR(100) NOT NULL,
+  link_type       nav_link_type NOT NULL,
+  link_target     VARCHAR(255) NOT NULL,
+  display_order   SMALLINT NOT NULL DEFAULT 0,
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  highlight_color VARCHAR(7),          -- hex e.g. #C0392B for Sale
+  parent_id       UUID REFERENCES nav_items(id),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX nav_items_active_order ON nav_items(display_order) WHERE is_active = true;
+ 
+CREATE TYPE homepage_section AS ENUM
+  ('announcement_bar','hero_banner','shop_by_fabric','new_arrivals',
+   'featured_collection','brand_spotlight','fabric_story','deal_of_day');
+ 
+CREATE TABLE homepage_config (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  section         homepage_section UNIQUE NOT NULL,
+  is_active       BOOLEAN NOT NULL DEFAULT false,
+  config_json     JSONB NOT NULL DEFAULT '{}',
+  display_order   SMALLINT NOT NULL DEFAULT 0,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by      UUID REFERENCES users(id)
+);
+
+2.5 Operational Entities
+
+stock_adjustments + expected_stock
+CREATE TYPE adjustment_reason AS ENUM
+  ('damaged','miscounted','theft','return_restocked',
+   'supplier_short_shipped','initial_stock','correction','other');
+ 
+CREATE TABLE stock_adjustments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  variant_id      UUID NOT NULL REFERENCES variants(id),
+  before_qty      INTEGER NOT NULL,
+  after_qty       INTEGER NOT NULL CHECK (after_qty >= 0),
+  reason          adjustment_reason NOT NULL,  -- NOT NULL: enforced at DB + API level
+  notes           TEXT,
+  adjusted_by     UUID NOT NULL REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- INSERT-only at Repository layer. No UPDATE or DELETE methods on this table.
+CREATE INDEX stock_adjustments_variant_id ON stock_adjustments(variant_id, created_at DESC);
+ 
+CREATE TABLE expected_stock (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  variant_id      UUID NOT NULL REFERENCES variants(id),
+  expected_qty    INTEGER NOT NULL CHECK (expected_qty > 0),
+  expected_date   DATE NOT NULL,
+  notes           TEXT,
+  is_received     BOOLEAN NOT NULL DEFAULT false,
+  received_at     TIMESTAMPTZ,
+  created_by      UUID NOT NULL REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX expected_stock_date_idx ON expected_stock(expected_date) WHERE is_received = false;
+
+stock_notifications + wishlists
+CREATE TABLE stock_notifications (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  variant_id      UUID NOT NULL REFERENCES variants(id),
+  notified_at     TIMESTAMPTZ,
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX stock_notif_user_variant ON stock_notifications(user_id, variant_id)
+  WHERE is_active = true;
+ 
+CREATE TABLE wishlists (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  variant_id      UUID NOT NULL REFERENCES variants(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX wishlists_user_variant ON wishlists(user_id, variant_id);
+CREATE INDEX wishlists_user_id ON wishlists(user_id);
+
+2.6 Notification Entities
+
+consent_log (INSERT-ONLY)
+CREATE TYPE consent_channel AS ENUM ('whatsapp','email','sms','push');
+CREATE TYPE consent_source AS ENUM
+  ('order_confirm','register','preferences_page','checkout','notify_me');
+ 
+CREATE TABLE consent_log (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID NOT NULL REFERENCES users(id),
+  channel           consent_channel NOT NULL,
+  notification_type VARCHAR(100) NOT NULL,
+  opted_in_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  opted_out_at      TIMESTAMPTZ,
+  ip_address        INET NOT NULL,
+  source            consent_source NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- CRITICAL: INSERT-ONLY repository. No UPDATE or DELETE methods exist.
+-- Opt-out: INSERT new row with opted_out_at set. Previous opt-in row unchanged.
+-- This preserves full timeline: when user consented, from which screen, when withdrawn.
+-- TRAI + DPDPA compliance depends on this immutability.
+CREATE INDEX consent_log_user_id ON consent_log(user_id, channel, notification_type);
+CREATE INDEX consent_log_opted_out ON consent_log(user_id) WHERE opted_out_at IS NOT NULL;
+
+broadcast_campaigns + broadcast_analytics + notification_log
+CREATE TYPE campaign_status AS ENUM ('draft','scheduled','sending','sent','failed');
+ 
+CREATE TABLE broadcast_campaigns (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  template_id         VARCHAR(100) NOT NULL,
+  audience_filter_json JSONB NOT NULL DEFAULT '{}',
+  message_preview     TEXT NOT NULL,
+  scheduled_at        TIMESTAMPTZ,
+  sent_at             TIMESTAMPTZ,
+  status              campaign_status NOT NULL DEFAULT 'draft',
+  sent_by             UUID NOT NULL REFERENCES users(id),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ 
+CREATE TABLE broadcast_analytics (
+  campaign_id     UUID PRIMARY KEY REFERENCES broadcast_campaigns(id),
+  sent            INTEGER NOT NULL DEFAULT 0,
+  delivered       INTEGER NOT NULL DEFAULT 0,
+  read            INTEGER NOT NULL DEFAULT 0,
+  clicked         INTEGER NOT NULL DEFAULT 0,
+  converted       INTEGER NOT NULL DEFAULT 0,
+  capped          INTEGER NOT NULL DEFAULT 0,  -- users skipped by frequency cap
+  last_updated    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ 
+CREATE TABLE notification_log (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  channel         consent_channel NOT NULL,
+  template_id     VARCHAR(100) NOT NULL,
+  status          VARCHAR(30) NOT NULL,   -- 'queued','sent','delivered','failed'
+  wa_message_id   VARCHAR(100),           -- Meta message ID for delivery tracking
+  error_code      VARCHAR(50),
+  sent_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX notification_log_user_id ON notification_log(user_id, sent_at DESC);
+
+2.7 Admin Entities
+
+admin_audit_log + banners + reviews + event_log
+CREATE TABLE admin_audit_log (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id        UUID NOT NULL REFERENCES users(id),
+  action          VARCHAR(100) NOT NULL,   -- e.g. 'product.deactivate', 'stock.adjust'
+  entity_type     VARCHAR(50) NOT NULL,    -- e.g. 'product', 'variant'
+  entity_id       UUID NOT NULL,
+  before_json     JSONB,
+  after_json      JSONB,
+  ip_address      INET,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- INSERT-only. No updates or deletes on audit log.
+CREATE INDEX audit_log_admin_id ON admin_audit_log(admin_id, created_at DESC);
+CREATE INDEX audit_log_entity ON admin_audit_log(entity_type, entity_id);
+ 
+CREATE TABLE banners (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title           VARCHAR(200) NOT NULL,
+  image_mobile_url TEXT NOT NULL,
+  image_desktop_url TEXT NOT NULL,
+  link_url        TEXT,
+  utm_params      TEXT,
+  starts_at       TIMESTAMPTZ NOT NULL,
+  ends_at         TIMESTAMPTZ,
+  is_active       BOOLEAN NOT NULL DEFAULT false,
+  created_by      UUID REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ 
+CREATE TABLE reviews (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id      UUID NOT NULL REFERENCES products(id),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  order_id        UUID NOT NULL REFERENCES orders(id),
+  rating          SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  body            TEXT,
+  size_worn       VARCHAR(20),
+  fabric_tags     JSONB,
+  photo_urls      JSONB,
+  is_approved     BOOLEAN NOT NULL DEFAULT false,
+  is_deleted      BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX reviews_product_id_idx ON reviews(product_id) WHERE is_approved = true AND is_deleted = false;
+ 
+CREATE TABLE event_log (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID REFERENCES users(id),     -- NULL for guest events
+  session_id      VARCHAR(100),
+  event_type      VARCHAR(60) NOT NULL,
+  -- view_product | add_to_cart | wishlist_add | purchase | search_term
+  -- collection_view | content_page_view | notify_me_set | filter_used
+  entity_id       UUID,
+  entity_type     VARCHAR(50),
+  metadata_json   JSONB,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Partitioned by month in production. Retention: 2 years.
+-- IP addresses hashed in metadata_json before storage.
+CREATE INDEX event_log_user_id ON event_log(user_id, created_at DESC);
+CREATE INDEX event_log_event_type ON event_log(event_type, created_at DESC);
+
+
+3. Repository Pattern — Interface Contracts
+Every database interaction goes through a repository class. Controllers call Service methods. Services call Repository methods. Direct DB access from controllers or route handlers is not permitted.
+
+
+3.1 Base Repository Interface
+
+// types/repository.ts
+export interface IBaseRepository<T, CreateDto, UpdateDto> {
+  findById(id: string): Promise<T | null>;
+  findAll(filters?: Partial<T>): Promise<T[]>;
+  create(dto: CreateDto): Promise<T>;
+  update(id: string, dto: UpdateDto): Promise<T>;
+  softDelete(id: string): Promise<void>;  // sets is_deleted=true, deleted_at=now()
+}
+ 
+// Soft delete is applied in every read via a base query wrapper:
+// SELECT * FROM {table} WHERE is_deleted = false AND ...
+// This is enforced in the Repository base class, not per-method.
+ 
+// IDOR-safe user-scoped read interface (for orders, payments, returns, addresses):
+export interface IUserScopedRepository<T> {
+  // user_id ALWAYS comes from JWT claims passed down from middleware
+  // NEVER from request body or URL parameters
+  findByIdForUser(id: string, requestingUserId: string): Promise<T | null>;
+  findAllForUser(requestingUserId: string, filters?: object): Promise<T[]>;
+}
+ 
+// 404 (not 403) when IDOR check fails: do not reveal resource existence
+// Example: order belongs to User B, User A requests it → return null → 404
+
+3.2 Key Repository Class Interfaces
+
+// repositories/order.repository.ts
+export class OrderRepository implements IUserScopedRepository<Order> {
+ 
+  // User-scoped: always includes user_id in WHERE clause
+  async findByIdForUser(orderId: string, userId: string): Promise<Order | null> {
+    return db.query(
+      `SELECT * FROM orders WHERE id = $1 AND user_id = $2 AND is_deleted = false`,
+      [orderId, userId]   // userId from JWT claims, never from request body
+    );
+  }
+ 
+  // Admin-only: no user_id filter — role check happens before calling this
+  async findByIdAsAdmin(orderId: string): Promise<Order | null> {
+    return db.query(
+      `SELECT * FROM orders WHERE id = $1`,
+      [orderId]
+    );
+  }
+ 
+  async getOrdersForDailyOps(status: OrderStatus): Promise<Order[]> {
+    return db.readReplica.query(   // read replica for admin reporting
+      `SELECT * FROM orders WHERE status = $1 AND created_at > now() - interval '48 hours'
+       ORDER BY created_at DESC LIMIT 100`,
+      [status]
+    );
+  }
+ 
+  async getCodOrdersInConfirmWindow(): Promise<Order[]> {
+    return db.readReplica.query(
+      `SELECT * FROM orders WHERE payment_method = 'COD'
+         AND status = 'PLACED'
+         AND created_at > now() - interval '30 minutes'
+         AND is_cod_confirmed = false`
+    );
+  }
+}
+ 
+// repositories/consent_log.repository.ts
+export class ConsentLogRepository {
+ 
+  // ONLY public method: INSERT new row
+  async insertConsent(dto: CreateConsentDto): Promise<ConsentLog> {
+    return db.query(
+      `INSERT INTO consent_log
+       (user_id, channel, notification_type, opted_in_at, opted_out_at, ip_address, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [dto.userId, dto.channel, dto.notificationType,
+       dto.optedInAt, dto.optedOutAt ?? null, dto.ipAddress, dto.source]
+    );
+  }
+ 
+  // Read-only check: is user currently opted in?
+  async isOptedIn(userId: string, channel: string, type: string): Promise<boolean> {
+    const latest = await db.query(
+      `SELECT opted_out_at FROM consent_log
+       WHERE user_id=$1 AND channel=$2 AND notification_type=$3
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, channel, type]
+    );
+    if (!latest) return false;       // no consent record = not opted in
+    return latest.opted_out_at === null;  // opted_out_at null = still active
+  }
+  // NO update() method. NO delete() method. By design.
+}
+ 
+// repositories/stock_adjustment.repository.ts
+export class StockAdjustmentRepository {
+ 
+  async insertAdjustment(dto: CreateAdjustmentDto): Promise<void> {
+    await db.transaction(async (trx) => {
+      // 1. Lock variant row for update
+      const variant = await trx.query(
+        `SELECT qty FROM variants WHERE id = $1 FOR UPDATE`, [dto.variantId]
+      );
+      // 2. Insert adjustment record
+      await trx.query(
+        `INSERT INTO stock_adjustments
+         (variant_id,before_qty,after_qty,reason,notes,adjusted_by)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [dto.variantId, variant.qty, dto.afterQty, dto.reason, dto.notes, dto.adjustedBy]
+      );
+      // 3. Update variant qty
+      await trx.query(
+        `UPDATE variants SET qty=$1, updated_at=now() WHERE id=$2`,
+        [dto.afterQty, dto.variantId]
+      );
+    });
+  }
+  // NO update() method. NO delete() method. By design.
+}
+
+3.3 Inventory — Atomic Stock Reservation
+// repositories/inventory.repository.ts (stock reservation on add-to-cart)
+ 
+async reserveStock(variantId: string, quantity: number): Promise<ReservationResult> {
+  return db.transaction(async (trx) => {
+    // Row-level lock: prevents concurrent over-sell
+    const variant = await trx.query(
+      `SELECT id, qty FROM variants WHERE id = $1 AND is_deleted = false FOR UPDATE`,
+      [variantId]
+    );
+    if (!variant) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
+    if (variant.qty < quantity) throw new AppError(ErrorCode.STOCK_UNAVAILABLE);
+    
+    // Decrement stock atomically
+    await trx.query(
+      `UPDATE variants SET qty = qty - $1, updated_at = now() WHERE id = $2`,
+      [quantity, variantId]
+    );
+    
+    // If qty reaches 0: publish STOCK_DEPLETED event via BullMQ
+    const newQty = variant.qty - quantity;
+    if (newQty === 0) {
+      await stockEventQueue.add('stock_depleted', { variantId });
+    }
+    return { reserved: true, remainingQty: newQty };
+  });
+}
+ 
+async releaseReservation(variantId: string, quantity: number): Promise<void> {
+  await db.query(
+    `UPDATE variants SET qty = qty + $1, updated_at = now() WHERE id = $2`,
+    [quantity, variantId]
+  );
+  // Also publish STOCK_REPLENISHED if qty was 0 before release
+}
+
+3.4 Pricing — Server-Side Effective Price
+// repositories/catalog.repository.ts
+// Pricing precedence: sale_price > price_override > base_price
+// ALWAYS calculated server-side. Client-sent price is NEVER used.
+ 
+async getEffectivePrice(variantId: string): Promise<PriceResult> {
+  const variant = await db.query(
+    `SELECT base_price, price_override, sale_price, sale_active FROM variants WHERE id = $1`,
+    [variantId]
+  );
+  const effectivePrice =
+    variant.sale_active && variant.sale_price != null ? variant.sale_price
+    : variant.price_override != null                  ? variant.price_override
+    : variant.base_price;
+ 
+  return {
+    effectivePrice,
+    originalPrice: variant.base_price,
+    isOnSale: variant.sale_active && variant.sale_price != null,
+    discountAmount: variant.base_price - effectivePrice,
+  };
+}
+ 
+// GST calculation (per order_item):
+// taxable_amount = effectivePrice * quantity - itemDiscount
+// gst_rate = taxable_amount <= 1000 ? 0 : taxable_amount <= 1500 ? 0.05 : 0.12
+// gst_amount = taxable_amount * gst_rate
+// total = taxable_amount + gst_amount
+
+
+4. Service Definitions — 23 Services
+Each service is a class injected with its repository and external client dependencies. Services call repositories only — never the DB directly. Service methods validate inputs via Zod before calling repositories.
+
+
+4.1 Auth Service
+class AuthService {
+  constructor(
+    private userRepo: UserRepository,
+    private consentLogRepo: ConsentLogRepository,
+    private redis: RedisClient,
+    private firebase: FirebaseAdmin,
+  ) {}
+ 
+  // OTP flow: send → verify → JWT
+  async sendOtp(mobile: string, ip: string): Promise<void>
+  // Rate limits checked in Redis: 5 per IP/10min, 3 per mobile/10min
+  // OTP single-use: stored in Redis with 2min TTL. Deleted on first verify.
+  // Response identical whether mobile exists or not (no enumeration).
+ 
+  async verifyOtp(mobile: string, otp: string): Promise<AuthResult>
+  // Returns: { jwt, role, isNewUser }
+  // JWT: httpOnly cookie set by caller (route handler)
+  // New user: role=customer, profile created in users table
+ 
+  async getJwtClaims(token: string): Promise<JwtClaims>
+  // Claims: { userId, role, mobile (masked) }
+  // Used by auth middleware on every protected route
+ 
+  async recordConsent(userId: string, dto: ConsentDto, ip: string): Promise<void>
+  // Calls ConsentLogRepository.insertConsent() — never updates existing rows
+ 
+  async revokeSession(userId: string): Promise<void>
+  // Firebase: revoke refresh tokens. Redis: delete OTP keys.
+ 
+  async deleteAccount(userId: string): Promise<void>
+  // DPDPA right to erasure: mobile→sha256hash, name/email→null, is_deleted=true
+  // GST order records retained with DELETED_USER_ID stub
+}
+
+4.2 Catalog Service
+class CatalogService {
+  constructor(
+    private productRepo: ProductRepository,
+    private variantRepo: VariantRepository,
+    private inventoryRepo: InventoryRepository,
+    private collectionService: CollectionService,
+    private wishlistRepo: WishlistRepository,
+    private notificationService: NotificationService,
+    private auditLog: AuditLogRepository,
+  ) {}
+ 
+  async listProducts(filters: ProductFilters): Promise<PaginatedProducts>
+  // GIN index query on attributes JSONB. Pagination. Sort by relevance/price/newest.
+ 
+  async getProductDetail(slug: string, userId?: string): Promise<ProductDetail>
+  // Returns: product + variants with effective_price per variant
+  // Effective price calculated via getEffectivePrice() — never client value
+  // OOS variants flagged for Notify Me widget
+ 
+  async createProduct(dto: CreateProductDto, adminId: string): Promise<Product>
+  // Validates: brand_id, category_id exist. slug unique. Images uploaded.
+  // Writes audit log entry.
+ 
+  async duplicateProduct(productId: string, adminId: string): Promise<Product>
+  // Clone: copies all fields, sets duplicate_of FK, status=draft
+  // Images: URL references copied (not re-uploaded)
+ 
+  async deactivateProduct(productId: string, adminId: string): Promise<DeactivateResult>
+  // Check: pending orders? block. Active wishlists? warn + notify via WA.
+  // On confirm: is_active=false, Notification Service: WA to wishlist users
+ 
+  async setBulkSalePrice(variantIds: string[], salePrice: number,
+                         saleActive: boolean, adminId: string): Promise<void>
+  // Updates sale_price + sale_active on variants. Triggers collection re-eval.
+  // Publishes VARIANTS_SALE_UPDATED event → Collection Service rebuilds smart collections
+}
+
+4.3 Inventory Service
+class InventoryService {
+  constructor(
+    private inventoryRepo: InventoryRepository,
+    private stockAdjustmentRepo: StockAdjustmentRepository,
+    private expectedStockRepo: ExpectedStockRepository,
+    private stockNotifQueue: BullMQQueue,
+    private notifQueue: BullMQQueue,
+  ) {}
+ 
+  async reserveStock(variantId: string, qty: number): Promise<ReservationResult>
+  // Row-level lock. Atomic decrement. Publishes STOCK_DEPLETED if reaches 0.
+ 
+  async adjustStock(dto: AdjustStockDto, adminId: string): Promise<void>
+  // Requires dto.reason (adjustment_reason enum). Enforced by Zod schema.
+  // Calls StockAdjustmentRepository.insertAdjustment() — INSERT-only.
+  // If new qty > 0 and was 0: publishes STOCK_REPLENISHED event.
+ 
+  async setExpectedStock(dto: ExpectedStockDto, adminId: string): Promise<void>
+  // Schedules BullMQ job for expected_date at 08:00 IST.
+  // Job fires: WA reminder to inventoryManager with variant + link.
+ 
+  async getStockForSupportAgent(variantId: string): Promise<{qty: number, lastUpdated: Date}>
+  // Returns qty only. No cost price, no adjustment history. Role-gated at service level.
+ 
+  async handleStockReplenished(variantId: string): Promise<void>
+  // Publishes to stockNotifQueue: query subscribers, trigger WA BACK_IN_STOCK batch.
+}
+
+4.4 Order Service
+class OrderService {
+  constructor(
+    private orderRepo: OrderRepository,
+    private orderItemRepo: OrderItemRepository,
+    private inventoryService: InventoryService,
+    private couponService: CouponService,
+    private catalogService: CatalogService,
+    private notifQueue: BullMQQueue,
+    private shiprocket: ShiprocketClient,
+  ) {}
+ 
+  async placeOrder(dto: PlaceOrderDto, userId: string): Promise<Order>
+  // CRITICAL: dto.price is IGNORED. All prices recalculated server-side.
+  // 1. Validate cart items (Zod schema — no price field allowed)
+  // 2. For each item: getEffectivePrice() from CatalogService
+  // 3. Apply coupon discount from CouponService (DB fetch only)
+  // 4. Calculate GST per slab per item
+  // 5. Reserve stock atomically per item
+  // 6. Create order + order_items in transaction
+  // 7. Queue async jobs: ORDER_CONFIRMED WA, Shiprocket sync
+ 
+  async cancelOrder(orderId: string, userId: string): Promise<void>
+  // COD only: allowed if status=PLACED AND created_at > now()-30min
+  // Releases stock reservation. Queues ORDER_CANCELLED WA.
+  // COD cancel count check: if >= 2 → set cod_fraud_flag = true on mobile
+ 
+  async updateOrderStatus(orderId: string, status: OrderStatus,
+                          adminId: string): Promise<Order>
+  // Admin override. Writes audit log. Queues WA for relevant status transitions.
+ 
+  async getDailyOpsData(): Promise<DailyOpsResult>
+  // Returns from read replica: failed payments, COD in window, Shiprocket issues,
+  // fraud flags, today's orders by status.
+}
+
+4.5 Payment Service
+class PaymentService {
+  constructor(
+    private paymentRepo: PaymentRepository,
+    private orderRepo: OrderRepository,
+    private razorpay: RazorpayClient,
+  ) {}
+ 
+  async createRazorpayOrder(orderId: string, amount: number): Promise<RazorpayOrder>
+  // amount is server-calculated — never from client
+  // Idempotency: check if Razorpay order already exists for this orderId
+ 
+  async handleWebhook(payload: Buffer, signature: string): Promise<void>
+  // HMAC SHA256 validation: computedSig = HMAC(payload, webhookSecret)
+  // if computedSig !== signature: throw 401, log attempt
+  // Idempotency check: razorpay_payment_id already processed? return, skip.
+  // On payment_captured: update order status, queue async jobs
+  // On payment_failed: update payment record, surface in Daily Ops
+ 
+  async getPaymentForSupportAgent(orderId: string): Promise<SupportPaymentView>
+  // Returns: razorpay_payment_id, status, amount, created_at.
+  // Does NOT return: raw card data, full UPI VPA, CVV.
+  // Cannot trigger refunds — support agent is read-only.
+ 
+  async triggerRefund(paymentId: string, amount: number,
+                      adminId: string): Promise<void>
+  // Admin-only role check. Calls Razorpay refund API.
+  // Refund always to original payment method.
+  // Writes audit log entry.
+}
+
+4.6 Notification Service
+class NotificationService {
+  constructor(
+    private notifLogRepo: NotificationLogRepository,
+    private consentLogRepo: ConsentLogRepository,
+    private redis: RedisClient,
+    private waClient: WhatsAppCloudAPIClient,
+    private smsClient: MSG91Client,
+    private emailClient: SMTPClient,
+    private notifQueue: BullMQQueue,
+  ) {}
+ 
+  async sendTemplate(userId: string, templateId: string,
+                     variables: Record<string,string>): Promise<void>
+  // Decision tree (see Security doc 10C):
+  // 1. Check consent: isOptedIn(userId, 'whatsapp', notifType)?
+  // 2. Check frequency cap (promotional only): Redis counter <= 2/week?
+  // 3. Check WA daily limit: Redis global counter < limit?
+  // 4. Template approved by Meta? If rejected: use fallback if critical.
+  // 5. Queue in BullMQ → WA Cloud API → log result
+  // On WA fail: email fallback for non-critical, SMS for critical order messages
+ 
+  async handleInboundWA(body: WAInboundPayload,
+                         signature: string): Promise<void>
+  // Validate X-Hub-Signature-256 HMAC
+  // Route keywords: YES, RESCHEDULE, TRACK, RETURN, HELP, SIZE, (unrecognised)
+  // Unrecognised → auto-reply + add to support queue
+ 
+  async getConversationWindowStatus(userId: string): Promise<WAWindowStatus>
+  // Returns: { isOpen: bool, expiresAt: Date | null }
+  // Based on last customer inbound message timestamp in notification_log
+  // Used by Support Panel WA Composer to show OPEN/CLOSED badge
+ 
+  async sendBroadcast(campaignId: string): Promise<void>
+  // Run audience query at send time (not at creation — data may have changed)
+  // Per user: check consent + frequency cap
+  // Queue all messages in BullMQ. Update broadcast_analytics on completion.
+}
+
+4.7 Collection Service
+class CollectionService {
+  constructor(
+    private collectionRepo: CollectionRepository,
+    private collectionProductsRepo: CollectionProductsRepository,
+    private productRepo: ProductRepository,
+    private redis: RedisClient,
+  ) {}
+ 
+  async getCollection(slug: string): Promise<CollectionPage>
+  // 1. Redis cache hit? Return immediately (TTL: 1hr)
+  // 2. Cache miss: fetch collection from DB
+  // 3. If smart: evaluate rules_json against products table
+  //    Rule keys whitelist: fabric_type|price|category_id|in_stock|sale_active|brand_id|gsm
+  //    No arbitrary code evaluation. JSON comparator only.
+  // 4. If manual: SELECT FROM collection_products ORDER BY display_order
+  // 5. Cache result. Return.
+ 
+  async onProductSaved(productId: string, changedFields: string[]): Promise<void>
+  // Called by CatalogService after every product/variant save
+  // Find all smart collections whose rules_json references any changedField
+  // Re-evaluate rules for affected collections, rebuild collection_products
+  // Invalidate Redis cache for affected collection slugs
+ 
+  async invalidateCache(collectionSlug: string): Promise<void>
+  // Called on admin collection save
+ 
+  evaluateRules(rulesJson: CollectionRule[], product: Product): boolean
+  // Pure function. Unit-testable. No DB calls.
+  // Only evaluates whitelisted keys. Throws if unknown key in rules_json.
+}
+
+4.8 Return Service
+class ReturnService {
+  constructor(
+    private returnRepo: ReturnRepository,
+    private orderRepo: OrderRepository,
+    private inventoryService: InventoryService,
+    private shiprocket: ShiprocketClient,
+    private notifQueue: BullMQQueue,
+  ) {}
+ 
+  async initiateReturn(dto: InitiateReturnDto, userId: string): Promise<ReturnRequest>
+  // Verify order belongs to user (IDOR check via OrderRepository.findByIdForUser)
+  // Order status must be DELIVERED
+  // Determine path: isFastTrack = type IN ('WRONG_ITEM','DAMAGED')
+ 
+  async processFastTrack(returnId: string): Promise<void>
+  // AUTO-APPROVE: no inspection required
+  // Parallel async jobs via BullMQ:
+  //   Job A: create replacement order → Shiprocket forward shipment
+  //          → WA WRONG_ITEM_REPLACEMENT to customer
+  //   Job B: Shiprocket reverse pickup → WA with pickup date to customer
+  // Log root cause note for admin review
+ 
+  async processStandardReturn(returnId: string,
+                               adminId: string): Promise<void>
+  // Manual review in admin panel
+  // On approve: Shiprocket pickup → inspection checklist → approve/reject
+  // On inspection approve: trigger refund or replacement via PaymentService
+  // Refund only AFTER status=PICKED_UP AND inspection=APPROVED
+}
+
+Remaining services follow the same constructor-injection pattern. Key method signatures below.
+
+
+
+5. Key Sequence Diagrams
+7 critical flows showing exact service call chains, async jobs, error branches, and security enforcement points.
+
+5.1 — OTP Authentication → JWT → Role Claim
+  Customer                  API Gateway          AuthService      Firebase       Redis
+  ─────────                 ───────────          ───────────      ────────       ─────
+  POST /auth/otp/send
+  { mobile: '9876543210' }
+       │
+       ├─────────────────────►│
+       │  IP rate limit check │──────────────────────────────────────────────►│
+       │                      │ rate_limit:otp_ip:{ip} ≤ 5/10min?             │
+       │                      │◄─ OK ────────────────────────────────────────│
+       │                      ├──────────────────►│
+       │                      │                   │ mobile rate limit check
+       │                      │                   │──────────────────────────►│
+       │                      │                   │ rate_limit:otp:{mobile}≤3?│
+       │                      │                   │◄─ OK ─────────────────────│
+       │                      │                   │ Firebase.sendOTP(mobile)
+       │                      │                   │──────────►│
+       │                      │                   │           │ OTP generated
+       │                      │                   │◄──────────│
+       │                      │                   │ Store in Redis: otp:{mobile}
+       │                      │                   │ TTL: 120s, value: hashed OTP
+       │                      │                   │──────────────────────────►│
+  ◄────────────────────────────────────────────────────── 200 OK (generic: no info)
+ 
+  POST /auth/otp/verify
+  { mobile, otp: '123456' }
+       │
+       ├─────────────────────►│
+       │                      ├──────────────────►│
+       │                      │                   │ Redis GET otp:{mobile}
+       │                      │                   │──────────────────────────►│
+       │                      │                   │◄─ hashed OTP ─────────────│
+       │                      │                   │ Compare: hash(otp) == stored?
+       │                      │                   │ Redis DEL otp:{mobile}    │ ← single-use
+       │                      │                   │──────────────────────────►│
+       │                      │                   │ Firebase: create/get user
+       │                      │                   │──────────►│
+       │                      │                   │◄──────────│ firebase_uid
+       │                      │                   │ UserRepo: upsert user record
+       │                      │                   │ Set custom claim: role=customer
+       │◄─────────────────────────────────────────│ Set-Cookie: jwt=<token>;
+       │                                          │ HttpOnly; Secure; SameSite=Strict
+       │                                          │ + XSRF-TOKEN cookie (non-httpOnly)
+
+5.2 — Place Order (Server-Side Price Calculation)
+  Customer        API Gateway      OrderService   CatalogSvc   CouponSvc  InventorySvc  PaymentSvc  BullMQ
+  ────────        ───────────      ────────────   ──────────   ─────────  ────────────  ──────────  ──────
+  POST /orders
+  {
+    cart_items: [{variant_id, qty}],
+    address_id,
+    payment_method,
+    coupon_code  // optional
+    // NOTE: no price field — ignored even if sent
+  }
+       │
+       ├──JWT validate──►│
+       │                 │ userId from JWT claims
+       │                 ├────────────────────────────────────────────────────────────────────────►│
+       │                 │                ┌─────────────────────────────────────────────┐         │
+       │                 │                │ Zod validation: PlaceOrderSchema             │         │
+       │                 │                │ - variant_id: z.string().uuid()              │         │
+       │                 │                │ - quantity: z.number().int().min(1).max(10)  │         │
+       │                 │                │ - NO price field allowed                     │         │
+       │                 │                └─────────────────────────────────────────────┘         │
+       │                 │                │
+       │                 │                │ For each cart_item:
+       │                 │                ├──────────────────►│
+       │                 │                │                   │ getEffectivePrice(variant_id)
+       │                 │                │                   │ → sale_price if sale_active
+       │                 │                │                   │   else price_override if set
+       │                 │                │                   │   else base_price
+       │                 │                │◄──────────────────│ {effectivePrice, isOnSale}
+       │                 │                │
+       │                 │                ├────────────────────────────────►│
+       │                 │                │                   validateCoupon(code, cartTotal)
+       │                 │                │◄───────────────────────────────│ {discount, finalTotal}
+       │                 │                │
+       │                 │                │ Calculate GST per item per slab
+       │                 │                │ total = subtotal - discount + gst
+       │                 │                │
+       │                 │                ├────────────────────────────────────────────►│
+       │                 │                │                   For each item: reserveStock(variant_id, qty)
+       │                 │                │                   Row-level lock. Atomic decrement.
+       │                 │                │◄───────────────────────────────────────────│ reserved
+       │                 │                │
+       │                 │                │ DB transaction:
+       │                 │                │ INSERT orders + order_items
+       │                 │                │
+       │                 │                ├───────────────────────────────────────────────────────►│
+       │                 │                │  Queue async jobs (fire-and-forget):
+       │                 │                │  - WA ORDER_CONFIRMED (or SMS fallback)
+       │                 │                │  - Shiprocket order sync
+       │                 │                │  - Razorpay order create (if not COD)
+       │◄────────────────────────────────────────────────────────────────────────────────────────
+       │  201 Created: { orderId, total, deliveryDate, paymentUrl (if not COD) }
+
+5.3 — Payment Failure → 3 Recovery Options
+  Customer          API Gateway      PaymentService    Razorpay      OrderService   BullMQ
+  ────────          ───────────      ──────────────    ────────      ────────────   ──────
+  [Razorpay UPI QR shown on frontend]
+  [User opens UPI app — UPI timeout / declined]
+ 
+  POST /webhooks/razorpay  (from Razorpay servers)
+  { event: 'payment.failed', payment_id, order_id, error_code }
+       │
+       ├──────────────►│
+       │               │ HMAC SHA256 validation:
+       │               │ computed = HMAC(rawBody, webhookSecret)
+       │               │ if computed != X-Razorpay-Signature: 401, log
+       │               │
+       │               ├──────────────────────►│
+       │               │                       │ Idempotency check:
+       │               │                       │ payment_id already processed? skip.
+       │               │                       │
+       │               │                       │ Update payment: status=FAILED
+       │               │                       │ Update order: status=PAYMENT_FAILED
+       │               │                       │
+       │               │                       ├───────────────────────────────►│
+       │               │                       │  Queue: surface in Daily Ops
+       │               │                       │  Queue: WA PAYMENT_FAILED to customer
+ 
+  [Customer sees payment failure screen]
+  GET /orders/{orderId}/payment-options
+       │
+  ◄────│── 200: {
+       │    options: [
+       │      { type: 'retry_upi',  label: 'Try again with UPI' },
+       │      { type: 'other_upi',  label: 'Try different UPI ID' },
+       │      { type: 'card',       label: 'Pay with Card/Netbanking' },
+       │      { type: 'cod',        label: 'Switch to Cash on Delivery' },
+       │    ],
+       │    existing_razorpay_order_id: 'rzp_ord_xxx'  // REUSED — not a new order
+       │  }
+ 
+  [Customer selects COD]
+  PATCH /orders/{orderId}/switch-to-cod
+       │
+       ├──────────────────────────────────────────►│
+       │                              Validate: order still in PAYMENT_FAILED state
+       │                              Update: payment_method=COD, status=PLACED
+       │                              Release: Razorpay order (cancel unused)
+       │                              Queue: WA ORDER_CONFIRMED
+  ◄────│── 200 OK: { orderId, status: 'PLACED', deliveryDate }
+
+5.4 — Sale Campaign Launch (Multi-Service Orchestration)
+  Admin (Priya)          CatalogSvc    CollectionSvc   HomepageConfigSvc   NavSvc   BroadcastSvc   BullMQ
+  ─────────────          ──────────    ─────────────   ─────────────────   ──────   ────────────   ──────
+  STEP 1: Mark variants on sale
+  PATCH /variants/bulk-sale
+  { variant_ids, sale_price, sale_active: true }
+        │
+        ├───────────────►│
+        │                │ Validate: admin role
+        │                │ Update variants: sale_price, sale_active=true
+        │                │ Publish event: VARIANTS_SALE_UPDATED
+        │                │───────────────────────────────────────────────────────────────►│
+        │                │               (async: CollectionSvc subscribes to this event)
+        │◄───────────────│ 200 OK
+ 
+  [ASYNC: CollectionService receives VARIANTS_SALE_UPDATED]
+        │                ├──────────────►│
+        │                │               │ Find smart collections with rule: sale_active=true
+        │                │               │ Rebuild collection_products for 'sale' collection
+        │                │               │ Redis.del('collection:sale')  ← cache invalidated
+        │                │               │ Next /collections/sale request: live sale items
+ 
+  STEP 2: Schedule homepage section
+  PATCH /homepage/sections/featured_collection
+  { config: { collection_slug: 'sale' }, scheduled_at: '2025-06-01T00:00:00Z' }
+        │
+        ├──────────────────────────────────────────────────────►│
+        │                                                        │ Save to DB
+        │                                                        │ BullMQ: schedule activation job
+        │                                                        │ On activation: Redis.del('homepage:config')
+ 
+  STEP 3: Activate 'Sale' nav item
+  PATCH /nav-items/{saleNavItemId}
+  { is_active: true, highlight_color: '#C0392B' }
+        │
+        ├────────────────────────────────────────────────────────────────────►│
+        │                                                         DB updated
+        │                                                         Redis.del('nav:global') ← all pages updated
+ 
+  STEP 4: Schedule WA Broadcast
+  POST /broadcasts
+  { template: BROADCAST_SALE, audience: { fabric_purchased: 'linen' }, scheduled_at: '2025-06-01T09:00:00Z' }
+        │
+        ├──────────────────────────────────────────────────────────────────────────────►│
+        │                                                              Save campaign
+        │                                                              BullMQ: schedule at 09:00
+ 
+  [Friday midnight — BullMQ jobs fire]
+  Homepage section activates → Redis invalidated → sale live on homepage
+ 
+  [Friday 9am — BullMQ broadcast job fires]
+  BroadcastCampaignService.execute(campaignId):
+    1. Run audience query NOW (not at creation time)
+    2. Per user: consent check + freq cap check
+    3. Queue WA BROADCAST_SALE via NotificationService
+    4. Update broadcast_analytics (sent, capped counts)
+
+5.5 — Back-in-Stock Notification Chain
+  Ravi (Inv Mgr)   InventoryService   StockNotifService   NotificationService   Subscribers
+  ─────────────    ────────────────   ─────────────────   ───────────────────   ───────────
+  PUT /variants/{id}/stock
+  { qty: 20 }   (reason: 'supplier_delivered')
+        │
+        ├────────────────►│
+        │                 │ StockAdjustmentRepo.insertAdjustment()
+        │                 │ before_qty: 0, after_qty: 20, reason: 'supplier_delivered'
+        │                 │
+        │                 │ variants.qty was 0 → now 20
+        │                 │ STOCK_REPLENISHED event published
+        │                 │───────────────────────────────────────────────────────────►│ (BullMQ)
+        │◄────────────────│ 200 OK
+ 
+  [ASYNC: StockNotificationService processes STOCK_REPLENISHED]
+        │                 │               │
+        │                 │               ├── Query stock_notifications
+        │                 │               │   WHERE variant_id={id} AND is_active=true
+        │                 │               │   Result: 8 subscribers
+        │                 │               │
+        │                 │               ├── For each subscriber:
+        │                 │               │   ├────────────────────►│
+        │                 │               │   │  sendTemplate(userId, 'BACK_IN_STOCK',
+        │                 │               │   │    { product: 'M Navy Linen Shirt',
+        │                 │               │   │      link: '/p/linen-shirt?v=M-Navy' })
+        │                 │               │   │  (consent check + rate limit + WA send)
+        │                 │               │   │─────────────────────────────────────────►│
+        │                 │               │   │                          WA delivered
+        │                 │               │
+        │                 │               ├── UPDATE stock_notifications:
+        │                 │               │   notified_at=now(), is_active=false
+        │                 │               │   (user will need to re-subscribe if item goes OOS again)
+
+5.6 — Wrong Item Fast-Track Return
+  Customer        SupportPanel       ReturnService    OrderService   Shiprocket   NotifService   BullMQ
+  ────────        ───────────        ─────────────    ────────────   ──────────   ────────────   ──────
+  POST /returns
+  { order_id, items: [{order_item_id, qty}], return_type: 'WRONG_ITEM' }
+       │
+       ├──JWT (userId from claims)──►│
+       │  (NOT from request body)    │
+       │                             │ findByIdForUser(order_id, userId)  ← IDOR check
+       │                             │ order.status must be 'DELIVERED'
+       │                             │
+       │                             │ return_type = WRONG_ITEM → is_fast_track = true
+       │                             │ InsertReturnRequest(is_fast_track=true, status=FAST_TRACKED)
+       │                             │
+       │◄────────────────────────────│ 201: { returnId, message: 'Replacement being arranged' }
+ 
+  [ASYNC: Fast-Track Processor triggered via BullMQ]
+       │                             │
+       │                             │── Job A (replacement dispatch): ──────────────────────────►│
+       │                             │                                  CreateReplacementOrder()
+       │                             │                                  replacement_of = original_order_id
+       │                             │                                  ─────────────►│ Shiprocket forward
+       │                             │                                  ◄─────────────│ shipment created
+       │                             │◄────────────────────────────────────────────────────────────│
+       │                             │  Queue WA: WRONG_ITEM_REPLACEMENT
+       │                             │  'Replacement dispatched. Track: [link].'
+       │──────────────────────────────────────────────────────────────────────────────────────────►│
+       │                             │  ← WA delivered to customer                                 │
+ 
+       │                             │── Job B (reverse pickup): ─────────────────────────────────►│
+       │                             │                            Shiprocket.schedulePickup(returnId)
+       │                             │◄───────────────────────────────────────────────────────────│
+       │                             │  pickup_date + time window
+       │◄────────────────────────────────────────────────────────────────────────────────────────
+       │  WA: 'Pickup for wrong item: [date], [time window]'
+ 
+  [Support Panel]
+       │                │
+       │                ├── Admin notification: 'Fast-track return #{id} — investigate root cause'
+       │                │   (if 2+ fast-track same-day: admin WA alert)
+
+5.7 — WA Broadcast with Rate Limit + Frequency Cap
+  Admin            BroadcastCampaignSvc   Redis         ConsentLogRepo   NotifQueue   WA Cloud API   MSG91
+  ─────            ────────────────────   ─────         ──────────────   ──────────   ────────────   ─────
+  [BullMQ: broadcast job fires at scheduled_at]
+ 
+  BroadcastCampaignService.execute('campaign_xyz')
+        │
+        ├── 1. Run audience query at execution time (not at creation):
+        │        SELECT users WHERE fabric_purchased = 'linen' AND opted_in = true
+        │        Result: 847 users
+        │
+        ├── 2. For each user (in batches of 50):
+        │
+        │        a) Check consent:─────────────────────────────────────►│
+        │           isOptedIn(userId, 'whatsapp', 'promotional')?
+        │           NO → skip (increment capped count)
+        │
+        │        b) Check freq cap:──────────────────────────────►│
+        │           Redis GET broadcast_freq:{userId}
+        │           value >= 2/week → skip (increment capped count)
+        │
+        │        c) Check WA daily limit:─────────────────────────►│
+        │           Redis GET wa_daily_count:{today}
+        │           >= limit? → PROMOTIONAL: skip to next day queue
+        │                       CRITICAL (order): SMS fallback
+        │
+        │        d) Check template approved by Meta:
+        │           BROADCAST_SALE status = 'APPROVED'? proceed.
+        │           REJECTED? → use FALLBACK or skip promotional.
+        │
+        │        e) Queue message:──────────────────────────────────────────────────►│
+        │           NotifQueue.add('send_wa', { userId, template, variables })
+        │
+        │        f) Increment freq cap counter:────────────────────►│
+        │           Redis INCR broadcast_freq:{userId}
+        │           TTL: 7 days (weekly reset)
+        │
+        ├── 3. Update broadcast_analytics:
+        │        sent=693, capped=154 (consent miss + freq cap), delivered=...(async)
+        │
+        └── 4. [Async delivery status updates via Meta webhook]
+                NotifService receives delivery receipts → INCR delivered/read/clicked counts
+
+
+6. Error Handling Implementation
+All errors from the Service layer are thrown as AppError instances. The API Gateway error handler catches them, maps to HTTP status, and returns a structured client-safe response. Stack traces never reach clients.
+
+6.1 ErrorCode Enum — Complete List
+// types/errors.ts
+export enum ErrorCode {
+  // Auth
+  OTP_RATE_LIMIT_MOBILE   = 'OTP_RATE_LIMIT_MOBILE',   // 429
+  OTP_RATE_LIMIT_IP       = 'OTP_RATE_LIMIT_IP',       // 429
+  OTP_INVALID             = 'OTP_INVALID',             // 401
+  OTP_EXPIRED             = 'OTP_EXPIRED',             // 401
+  JWT_INVALID             = 'JWT_INVALID',             // 401
+  JWT_EXPIRED             = 'JWT_EXPIRED',             // 401
+  INSUFFICIENT_ROLE       = 'INSUFFICIENT_ROLE',       // 403
+  ACCOUNT_DELETED         = 'ACCOUNT_DELETED',         // 403
+ 
+  // Resources
+  NOT_FOUND               = 'NOT_FOUND',               // 404
+  PRODUCT_NOT_FOUND       = 'PRODUCT_NOT_FOUND',       // 404
+  ORDER_NOT_FOUND         = 'ORDER_NOT_FOUND',         // 404 (covers IDOR: return 404 not 403)
+  VARIANT_NOT_FOUND       = 'VARIANT_NOT_FOUND',       // 404
+ 
+  // Validation
+  VALIDATION_ERROR        = 'VALIDATION_ERROR',        // 400
+  INVALID_PINCODE         = 'INVALID_PINCODE',         // 400
+  PINCODE_NOT_SERVICEABLE = 'PINCODE_NOT_SERVICEABLE', // 400
+ 
+  // Commerce
+  STOCK_UNAVAILABLE       = 'STOCK_UNAVAILABLE',       // 409
+  COUPON_EXPIRED          = 'COUPON_EXPIRED',          // 400
+  COUPON_USED             = 'COUPON_USED',             // 400
+  COUPON_NOT_FOUND        = 'COUPON_NOT_FOUND',        // 400
+  COUPON_MIN_ORDER        = 'COUPON_MIN_ORDER',        // 400 (includes shortfall amount)
+  COUPON_LIMIT_REACHED    = 'COUPON_LIMIT_REACHED',    // 400
+  ORDER_CANCEL_WINDOW_EXPIRED = 'ORDER_CANCEL_WINDOW_EXPIRED', // 400
+  ORDER_NOT_CANCELLABLE   = 'ORDER_NOT_CANCELLABLE',   // 400
+  PAYMENT_FAILED          = 'PAYMENT_FAILED',          // 402
+  PAYMENT_ALREADY_PROCESSED = 'PAYMENT_ALREADY_PROCESSED', // 409 (idempotency)
+  RETURN_NOT_ELIGIBLE     = 'RETURN_NOT_ELIGIBLE',     // 400 (order not DELIVERED)
+  RETURN_ALREADY_EXISTS   = 'RETURN_ALREADY_EXISTS',   // 409
+ 
+  // Deactivation
+  PRODUCT_HAS_PENDING_ORDERS = 'PRODUCT_HAS_PENDING_ORDERS', // 409
+ 
+  // Rate Limiting
+  RATE_LIMIT_EXCEEDED     = 'RATE_LIMIT_EXCEEDED',     // 429
+  WA_WINDOW_CLOSED        = 'WA_WINDOW_CLOSED',        // 403 (template-only)
+ 
+  // Server
+  INTERNAL_ERROR          = 'INTERNAL_ERROR',          // 500
+  EXTERNAL_SERVICE_ERROR  = 'EXTERNAL_SERVICE_ERROR',  // 502
+}
+ 
+export class AppError extends Error {
+  constructor(
+    public readonly code: ErrorCode,
+    public readonly meta?: Record<string, unknown>,  // extra safe data (shortfall amount etc.)
+    public readonly originalError?: Error,           // for Sentry — never sent to client
+  ) {
+    super(code);
+  }
+}
+
+6.2 HTTP Status Map + Error Response Shape
+// middleware/error-handler.ts
+const HTTP_STATUS_MAP: Record<ErrorCode, number> = {
+  OTP_RATE_LIMIT_MOBILE:   429,
+  OTP_RATE_LIMIT_IP:       429,
+  OTP_INVALID:             401,
+  OTP_EXPIRED:             401,
+  JWT_INVALID:             401,
+  JWT_EXPIRED:             401,
+  INSUFFICIENT_ROLE:       403,
+  ACCOUNT_DELETED:         403,
+  NOT_FOUND:               404,
+  PRODUCT_NOT_FOUND:       404,
+  ORDER_NOT_FOUND:         404,  // IDOR: same as not found — do not reveal existence
+  VARIANT_NOT_FOUND:       404,
+  VALIDATION_ERROR:        400,
+  INVALID_PINCODE:         400,
+  PINCODE_NOT_SERVICEABLE: 400,
+  STOCK_UNAVAILABLE:       409,
+  COUPON_EXPIRED:          400,
+  COUPON_USED:             400,
+  COUPON_NOT_FOUND:        400,
+  COUPON_MIN_ORDER:        400,
+  COUPON_LIMIT_REACHED:    400,
+  ORDER_CANCEL_WINDOW_EXPIRED: 400,
+  ORDER_NOT_CANCELLABLE:   400,
+  PAYMENT_FAILED:          402,
+  PAYMENT_ALREADY_PROCESSED: 409,
+  RETURN_NOT_ELIGIBLE:     400,
+  RETURN_ALREADY_EXISTS:   409,
+  PRODUCT_HAS_PENDING_ORDERS: 409,
+  RATE_LIMIT_EXCEEDED:     429,
+  WA_WINDOW_CLOSED:        403,
+  INTERNAL_ERROR:          500,
+  EXTERNAL_SERVICE_ERROR:  502,
+};
+ 
+// Error response shape (all environments):
+// NOTE: no stack trace, no internal service names, no DB error messages
+// {
+//   success: false,
+//   error: {
+//     code: 'COUPON_MIN_ORDER',          // structured code — frontend can act on it
+//     message: 'Add ₹50 more to use this coupon',  // human-readable only
+//     meta: { shortfall: 50, minOrder: 799 }  // safe metadata (no internal details)
+//   }
+// }
+ 
+export function globalErrorHandler(err: unknown, req: Request, res: Response) {
+  if (err instanceof AppError) {
+    Sentry.captureException(err.originalError ?? err, {
+      extra: { code: err.code, path: req.path },
+      // PII scrubbing applied before Sentry capture — see 6.3
+    });
+    const status = HTTP_STATUS_MAP[err.code] ?? 500;
+    return res.status(status).json({
+      success: false,
+      error: { code: err.code, message: CLIENT_MESSAGES[err.code], meta: err.meta ?? null }
+    });
+  }
+  // Unexpected error: log to Sentry, return generic 500
+  Sentry.captureException(err);
+  return res.status(500).json({
+    success: false,
+    error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.', meta: null }
+  });
+}
+
+6.3 Sentry PII Scrubbing Config
+// sentry.config.ts
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  beforeSend(event) {
+    // Scrub PII fields from request body, query, headers before sending
+    const PII_KEYS = ['mobile','phone','email','address','otp','token',
+                      'password','secret','card','cvv','upi','firebase_uid'];
+    if (event.request?.data) {
+      event.request.data = scrubObject(event.request.data, PII_KEYS);
+    }
+    if (event.extra) {
+      event.extra = scrubObject(event.extra, PII_KEYS);
+    }
+    return event;
+  },
+});
+ 
+// Mobile number masking for logs (NOT Sentry — for application logs):
+// '9876543210' → '98XXXXXX10'
+function maskMobile(mobile: string): string {
+  if (mobile.length < 4) return 'XXXXX';
+  return mobile.slice(0,2) + 'X'.repeat(mobile.length-4) + mobile.slice(-2);
+}
+// Rule: mobile is NEVER logged in plain text. Always maskMobile() before any logger call.
+
+6.4 Zod Input Schemas — Key Endpoints
+// schemas/order.schema.ts
+export const PlaceOrderSchema = z.object({
+  cart_items: z.array(z.object({
+    variant_id: z.string().uuid(),
+    quantity:   z.number().int().min(1).max(10),
+    // NOTE: no price field. Any price in body is ignored structurally.
+  })).min(1).max(20),
+  address_id:     z.string().uuid(),
+  payment_method: z.enum(['UPI','CARD','NETBANKING','COD']),
+  coupon_code:    z.string().max(50).optional(),
+});
+ 
+// schemas/stock.schema.ts
+export const AdjustStockSchema = z.object({
+  variant_id: z.string().uuid(),
+  after_qty:  z.number().int().min(0).max(99999),
+  reason:     z.nativeEnum(AdjustmentReason),  // enum — cannot be bypassed
+  notes:      z.string().max(500).optional(),
+});
+ 
+// schemas/return.schema.ts
+export const InitiateReturnSchema = z.object({
+  order_id:   z.string().uuid(),
+  return_type: z.nativeEnum(ReturnType),
+  items:      z.array(z.object({
+    order_item_id: z.string().uuid(),
+    quantity:      z.number().int().min(1),
+    reason:        z.string().max(500).optional(),
+  })).min(1),
+  // user_id: NOT in schema. Taken from JWT claims only.
+});
+ 
+// schemas/broadcast.schema.ts
+export const CreateBroadcastSchema = z.object({
+  template_id:  z.string().max(100),
+  audience_filter: z.object({
+    fabric_purchased: z.string().optional(),
+    city:             z.string().optional(),
+    all_users:        z.boolean().optional(),
+  }),
+  scheduled_at: z.string().datetime().optional(),
+});
+ 
+// General rule: Zod validate at start of every Service method.
+// If validation fails: throw AppError(ErrorCode.VALIDATION_ERROR, { issues: err.errors })
+
+
+7. Async Job Architecture — BullMQ
+9 BullMQ queues handle all post-request async work. No synchronous processing of webhooks or notification sends. Each queue has retry policy and dead letter queue.
+
+7.1 Queue Registry
+
+
+7.2 Queue Configuration
+// queue/config.ts
+const defaultJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 2000 },  // 2s, 4s, 8s
+  removeOnComplete: { age: 86400 * 7 },           // keep 7 days
+  removeOnFail: false,                             // keep failed jobs for inspection
+};
+ 
+// Scheduled jobs (homepage activation, broadcasts):
+const scheduledJobOptions: JobsOptions = {
+  ...defaultJobOptions,
+  delay: computeDelayMs(scheduledAt),  // milliseconds until fire
+};
+ 
+// Expected stock reminder pattern:
+async function scheduleStockReminder(variantId: string, expectedDate: Date) {
+  const fireAt = setToIST(expectedDate, 8, 0);  // 8:00am IST on expected_date
+  await stockQueue.add('expected_stock_reminder', { variantId },
+    { delay: fireAt.getTime() - Date.now() }
+  );
+}
+ 
+// Dead letter queue handling:
+webhookQueue.on('failed', async (job, err) => {
+  if (job.attemptsMade >= job.opts.attempts!) {
+    // Moved to DLQ. Alert admin via WA (critical) or Sentry (all).
+    await Sentry.captureException(err, { extra: { jobId: job.id, jobName: job.name } });
+    if (job.name === 'razorpay_webhook') {
+      await adminAlertService.sendWA(`Webhook processing failed: ${job.id}`);
+    }
+  }
+});
+
+
+8. Caching Strategy — Redis
+Redis is the caching and rate-limiting layer. All cache keys follow a strict naming convention. TTLs are defined per data type. Cache invalidation is explicit — no passive expiry for config data.
+
+8.1 Redis Key Registry
+
+
+8.2 Cache Invalidation Patterns
+// Pattern 1: Explicit DEL on admin save
+// Used for: nav, homepage config, collections
+// Never passive expiry for config — change must be immediate.
+ 
+async function updateNavItems(items: NavItem[], adminId: string): Promise<void> {
+  await navItemRepo.replaceAll(items, adminId);   // DB write
+  await redis.del('nav:global');                   // Explicit invalidation
+  // Next request: cache miss → fresh DB fetch → recache
+}
+ 
+// Pattern 2: Event-driven invalidation
+// Used for: collections after product save
+ 
+async function onProductSaved(productId: string, changedFields: string[]) {
+  const affectedCollections = await collectionRepo.findSmartByRuleFields(changedFields);
+  for (const collection of affectedCollections) {
+    await collectionService.rebuildSmartCollection(collection.id);
+    await redis.del(`collection:${collection.slug}`);
+  }
+}
+ 
+// Pattern 3: Cache stampede prevention
+// Used for: collection page load under high traffic
+// Problem: cache expires → 100 simultaneous requests hit DB
+ 
+async function getCollectionWithLock(slug: string): Promise<CollectionPage> {
+  const cached = await redis.get(`collection:${slug}`);
+  if (cached) return JSON.parse(cached);
+ 
+  // Acquire lock: only one request rebuilds cache
+  const lockKey = `lock:collection:${slug}`;
+  const acquired = await redis.set(lockKey, '1', 'EX', 5, 'NX');
+  if (!acquired) {
+    // Another request is building cache: wait briefly + retry
+    await sleep(200);
+    return getCollectionWithLock(slug);
+  }
+  try {
+    const data = await buildCollectionData(slug);
+    await redis.setex(`collection:${slug}`, 3600, JSON.stringify(data));
+    return data;
+  } finally {
+    await redis.del(lockKey);
+  }
+}
+
+
+9. API Contract Conventions
+Consistent request/response structure across all endpoints. Documented once here — applied everywhere.
+
+9.1 Response Envelope
+// All API responses follow this shape:
+ 
+// Success:
+// { success: true, data: <payload>, meta?: { pagination, ... } }
+ 
+// Error:
+// { success: false, error: { code, message, meta } }
+ 
+// Example: GET /products
+{
+  "success": true,
+  "data": {
+    "items": [ ... ],
+    "total": 247
+  },
+  "meta": {
+    "page": 1,
+    "limit": 24,
+    "totalPages": 11
+  }
+}
+ 
+// Example: POST /returns (error)
+{
+  "success": false,
+  "error": {
+    "code": "RETURN_NOT_ELIGIBLE",
+    "message": "Returns can only be raised for delivered orders.",
+    "meta": { "currentStatus": "SHIPPED" }
+  }
+}
+
+9.2 Pagination Convention
+// Query parameters:
+// ?page=1&limit=24&sort=created_at:desc&filter[fabric]=linen&filter[sale_active]=true
+ 
+// Defaults:
+// page: 1, limit: 24 (product listings), 10 (admin lists), 50 (analytics)
+// sort: created_at:desc
+ 
+// Cursor-based pagination for high-volume lists (notification_log, event_log):
+// GET /notifications?cursor={last_id}&limit=50
+// Response: { data: [...], nextCursor: '{last_id}' | null }
+ 
+// Filter convention: filter[field]=value
+// Multiple values: filter[status]=PLACED,CONFIRMED (comma-separated)
+// Range: filter[created_at_from]=2025-01-01&filter[created_at_to]=2025-01-31
+
+9.3 Versioning Strategy
+// URL-based versioning: /api/v1/...
+// Current: v1 only. v2 introduced when breaking changes required.
+// Breaking change = removing a field, changing a type, requiring a new mandatory field.
+// Adding optional fields or new endpoints: NOT a breaking change — no version bump.
+ 
+// Deprecation policy: v1 maintained for 6 months after v2 launch.
+// Deprecation header: Sunset: Sat, 01 Jan 2027 00:00:00 GMT
+
+9.4 Auth Header Convention
+// Cookie-based auth (primary — web/PWA):
+// Cookie: jwt=<token>; HttpOnly; Secure; SameSite=Strict
+// CSRF token in header: X-CSRF-Token: <value>
+//   (required on all POST/PATCH/DELETE requests)
+ 
+// API clients (Razorpay webhooks etc.):
+// No cookie — signature validation instead (HMAC SHA256)
+ 
+// Admin panel: same cookie auth + additional MFA claim in JWT
+// MFA claim: { mfa_verified: true, mfa_verified_at: timestamp }
+// If mfa_verified_at > 30 min ago: re-prompt MFA
+ 
+// Rate limit headers returned on all responses:
+// X-RateLimit-Limit: 500
+// X-RateLimit-Remaining: 487
+// X-RateLimit-Reset: 1735600000 (Unix timestamp)
+// On 429: Retry-After: 60 (seconds)
+
+
+10. Testing Strategy
+Three test layers: unit (service + repository logic), integration (API end-to-end with test DB), and contract (Zod schema validation). Coverage targets are enforced in CI.
+
+10.1 Coverage Targets
+
+
+10.2 Critical Test Patterns
+// TEST: IDOR enforcement (must pass for every user-scoped endpoint)
+describe('OrderRepository — IDOR enforcement', () => {
+  it('returns null when order belongs to a different user', async () => {
+    const order = await createTestOrder({ userId: 'user-A' });
+    const result = await orderRepo.findByIdForUser(order.id, 'user-B');
+    expect(result).toBeNull();  // 404 — not 403 (do not reveal existence)
+  });
+  it('returns order when user_id matches', async () => {
+    const order = await createTestOrder({ userId: 'user-A' });
+    const result = await orderRepo.findByIdForUser(order.id, 'user-A');
+    expect(result?.id).toBe(order.id);
+  });
+});
+ 
+// TEST: Server-side price — client price never used
+describe('OrderService.placeOrder — pricing', () => {
+  it('ignores any price in request body and uses DB price', async () => {
+    const variant = await createVariant({ base_price: 999, sale_active: false });
+    const order = await orderService.placeOrder({
+      cart_items: [{ variant_id: variant.id, quantity: 1 }],
+      // NOTE: no price field in schema — Zod rejects it even if sent
+    }, 'user-A');
+    expect(order.total_amount).toBe(999 + gst(999));  // not any client value
+  });
+  it('applies sale_price when sale_active is true', async () => {
+    const variant = await createVariant({ base_price:999, sale_price:699, sale_active:true });
+    const order = await orderService.placeOrder({
+      cart_items: [{ variant_id: variant.id, quantity: 1 }]
+    }, 'user-A');
+    expect(order.total_amount).toBe(699 + gst(699));
+  });
+});
+ 
+// TEST: consent_log insert-only
+describe('ConsentLogRepository — insert-only', () => {
+  it('has no update method', () => {
+    expect(consentLogRepo.update).toBeUndefined();
+  });
+  it('has no delete method', () => {
+    expect(consentLogRepo.delete).toBeUndefined();
+    expect(consentLogRepo.softDelete).toBeUndefined();
+  });
+  it('opt-out creates new row, does not modify existing row', async () => {
+    const initial = await consentLogRepo.insertConsent({ ...optInData });
+    const after   = await consentLogRepo.insertConsent({ ...optOutData });
+    const all = await db.query('SELECT * FROM consent_log WHERE user_id=$1', [userId]);
+    expect(all.rows).toHaveLength(2);  // original opt-in preserved
+    expect(all.rows[0].opted_out_at).toBeNull();
+    expect(all.rows[1].opted_out_at).not.toBeNull();
+  });
+});
+ 
+// TEST: Collection rule engine
+describe('CollectionService.evaluateRules', () => {
+  it('returns true when all rules match', () => {
+    const rules = [{ field:'fabric_type', op:'eq', value:'linen' }];
+    const product = { attributes: { fabric_type: 'linen' } };
+    expect(collectionService.evaluateRules(rules, product)).toBe(true);
+  });
+  it('throws on unknown rule field (whitelist enforcement)', () => {
+    const rules = [{ field:'eval()', op:'eq', value:'hack' }];
+    expect(() => collectionService.evaluateRules(rules, {})).toThrow('Unknown rule field');
+  });
+});
+
+Design Roadmap — Updated Status
+

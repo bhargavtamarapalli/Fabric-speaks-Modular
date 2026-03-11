@@ -1,0 +1,73 @@
+# .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ['Build & Push']
+    types: [completed]
+
+jobs:
+  deploy-staging:
+    if: github.ref == 'refs/heads/develop' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-tag
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run DB migrations
+        run: |
+          # Cloud Run job for migrations
+          gcloud run jobs execute fs-migrate-job --region=asia-south1 --wait
+
+      - name: Deploy all services to staging
+        run: |
+          TAG=$(cat image-tag.txt)
+          bash scripts/deploy.sh staging $TAG
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-tag
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Snapshot DB before deploy
+        run: |
+          gcloud sql backups create --instance=fs-postgres-prod \
+            --description='pre-deploy-${{ github.sha }}'
+
+      - name: Run DB migrations
+        run: |
+          gcloud run jobs execute fs-migrate-job-prod --region=asia-south1 --wait
+
+      - name: Deploy to production
+        run: |
+          TAG=$(cat image-tag.txt)
+          bash scripts/deploy.sh production $TAG
+
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh https://api.fabricspeaks.com
