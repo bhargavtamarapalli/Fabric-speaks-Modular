@@ -35,8 +35,8 @@ describe('PincodeService - Bulk Upload', () => {
         expect(response.processed).toBe(2);
         expect(response.errors.length).toBe(0);
         expect(mockRepo.bulkUpsert).toHaveBeenCalledWith([
-            { pincode: '110001', deliverable: true, cod_available: true, estimated_days: 3, partner: 'Shiprocket' },
-            { pincode: '400001', deliverable: true, cod_available: false, estimated_days: 4, partner: 'BlueDart' },
+            { pincode: '110001', deliverable: true, codAvailable: true, estimatedDays: 3, partner: 'Shiprocket' },
+            { pincode: '400001', deliverable: true, codAvailable: false, estimatedDays: 4, partner: 'BlueDart' },
         ]);
     });
 
@@ -70,8 +70,8 @@ describe('PincodeService - Bulk Upload', () => {
         expect(mockRepo.bulkUpsert).toHaveBeenCalledWith([{
             pincode: '110001',
             deliverable: true, // default fallback
-            cod_available: false, // default fallback
-            estimated_days: 5, // default fallback
+            codAvailable: false, // default fallback
+            estimatedDays: 5, // default fallback
             partner: 'Shiprocket' // default fallback
         }]);
     });

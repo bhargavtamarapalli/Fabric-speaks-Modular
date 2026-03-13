@@ -28,8 +28,8 @@ export class PincodeService {
             const unserviceable: PincodeRecord = {
                 pincode,
                 deliverable: false,
-                cod_available: false,
-                estimated_days: 0,
+                codAvailable: false,
+                estimatedDays: 0,
                 partner: 'None'
             };
             // Cache negative lookup to prevent DB hammering
@@ -71,8 +71,8 @@ export class PincodeService {
                 records.push({
                     pincode: String(row.pincode).trim(),
                     deliverable: row.deliverable ? String(row.deliverable).toLowerCase() === 'true' : true,
-                    cod_available: row.cod_available ? String(row.cod_available).toLowerCase() === 'true' : false,
-                    estimated_days: row.estimated_days ? parseInt(row.estimated_days, 10) : 5,
+                    codAvailable: row.cod_available ? String(row.cod_available).toLowerCase() === 'true' : false,
+                    estimatedDays: row.estimated_days ? parseInt(row.estimated_days, 10) : 5,
                     partner: row.partner ? String(row.partner).trim() : 'Shiprocket'
                 });
             } catch (err: any) {

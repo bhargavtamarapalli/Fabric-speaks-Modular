@@ -1,24 +1,11 @@
-import express from 'express';
-import cookieParser from 'cookie-parser';
-import { env } from './config/env';
-import { globalErrorHandler } from '@fs/shared/middleware';
+import { createBaseApp, globalErrorHandler, logger } from '@fs/shared';
 import { catalogRouter } from './routes/catalog.routes';
-import { logger } from '@fs/shared/logger';
+import { env } from './config/env';
 
-const app = express();
+const app = createBaseApp({ serviceName: 'catalog-service' });
 
-app.use(express.json());
-app.use(cookieParser());
-
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ success: true, service: 'catalog-service', timestamp: new Date().toISOString() });
-});
-
-// Routes
 app.use('/api/v1', catalogRouter);
 
-// Error Handler
 app.use(globalErrorHandler);
 
 const port = env.APP_PORT;

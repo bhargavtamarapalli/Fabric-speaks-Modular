@@ -1,6 +1,7 @@
+import { BaseRepository, DbClient } from '@fs/shared';
 import { Pool } from 'pg';
 import { Redis } from 'ioredis';
-import { getEffectivePrice } from '@fs/shared/pricing';
+import { getEffectivePrice } from '@fs/shared';
 
 export interface CartItem {
     variantId: string;
@@ -13,11 +14,13 @@ export interface CartItem {
     stock_qty?: number;
 }
 
-export class CartRepository {
+export class CartRepository extends BaseRepository {
     private readonly REDIS_PREFIX = 'cart:guest:';
     private readonly TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
-    constructor(private db: Pool, private redis: Redis) {}
+    constructor(db: Pool | DbClient, private redis: Redis) {
+        super(db);
+    }
 
     // ==========================================================
     // USER CART (PostgreSQL)
@@ -30,28 +33,35 @@ export class CartRepository {
                 c.quantity,
                 v.product_id as "productId",
                 v.sku,
-                v.base_price,
-                v.sale_price,
-                v.stock_qty,
-                p.name
-            FROM cart_items c
-            JOIN variants v ON c.variant_id = v.id
-            JOIN products p ON v.product_id = p.id
-            WHERE c.user_id = $1
-            ORDER BY c.added_at DESC
-        `;
-        const result = await this.db.query(query, [userId]);
-        
-        return result.rows.map(row => ({
-            variantId: row.variantId,
-            quantity: row.quantity,
-            productId: row.productId,
-            name: row.name,
-            sku: row.sku,
-            price: getEffectivePrice(row.base_price, row.sale_price),
-            stock_qty: row.stock_qty
-        }));
-    }
+            v.base_price,
+            v.sale_price,
+            v.price_override,
+            v.sale_active,
+            v.stock_qty,
+            p.name
+        FROM cart_items c
+        JOIN variants v ON c.variant_id = v.id
+        JOIN products p ON v.product_id = p.id
+        WHERE c.user_id = $1
+        ORDER BY c.added_at DESC
+    `;
+    const result = await this.query(query, [userId]);
+    
+    return result.rows.map(row => ({
+        variantId: row.variantId,
+        quantity: row.quantity,
+        productId: row.productId,
+        name: row.name,
+        sku: row.sku,
+        price: getEffectivePrice({
+            base_price: Number(row.base_price),
+            sale_price: row.sale_price ? Number(row.sale_price) : null,
+            price_override: row.price_override ? Number(row.price_override) : null,
+            sale_active: row.sale_active || false
+        }),
+        stock_qty: row.stock_qty
+    }));
+}
 
     async addUserItem(userId: string, variantId: string, quantity: number): Promise<void> {
         const query = `
@@ -62,7 +72,7 @@ export class CartRepository {
                 quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 10),
                 updated_at = now()
         `;
-        await this.db.query(query, [userId, variantId, quantity]);
+        await this.query(query, [userId, variantId, quantity]);
     }
 
     async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
@@ -71,7 +81,7 @@ export class CartRepository {
             SET quantity = $3, updated_at = now()
             WHERE user_id = $1 AND variant_id = $2
         `;
-        await this.db.query(query, [userId, variantId, quantity]);
+        await this.query(query, [userId, variantId, quantity]);
     }
 
     async removeUserItem(userId: string, variantId: string): Promise<void> {
@@ -79,12 +89,12 @@ export class CartRepository {
             DELETE FROM cart_items 
             WHERE user_id = $1 AND variant_id = $2
         `;
-        await this.db.query(query, [userId, variantId]);
+        await this.query(query, [userId, variantId]);
     }
 
     async clearUserCart(userId: string): Promise<void> {
         const query = `DELETE FROM cart_items WHERE user_id = $1`;
-        await this.db.query(query, [userId]);
+        await this.query(query, [userId]);
     }
 
     // ==========================================================

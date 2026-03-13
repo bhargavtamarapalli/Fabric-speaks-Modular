@@ -42,7 +42,7 @@ describe('Payment Service Integration Tests', () => {
     });
 
     it('should return 200 and rzp data when authenticated', async () => {
-      const mockResult = { razorpay_order_id: 'rzp_123', amount: 1000, currency: 'INR', key: 'key_123' };
+      const mockResult = { razorpayOrderId: 'rzp_123', amount: 1000, currency: 'INR', key: 'key_123' };
       (PaymentService.prototype.initiatePayment as any).mockResolvedValue(mockResult);
 
       const res = await request(app)
@@ -51,7 +51,7 @@ describe('Payment Service Integration Tests', () => {
         .send({ orderId: '550e8400-e29b-41d4-a716-446655440000', amount: 10.00 });
 
       expect(res.status).toBe(200);
-      expect(res.body.data.razorpay_order_id).toBe('rzp_123');
+      expect(res.body.data.razorpayOrderId).toBe('rzp_123');
     });
   });
 
@@ -63,9 +63,9 @@ describe('Payment Service Integration Tests', () => {
         .post('/api/payments/verify')
         .set('Authorization', 'Bearer user-token')
         .send({ 
-          razorpay_order_id: 'rzp_123', 
-          razorpay_payment_id: 'pay_123', 
-          razorpay_signature: 'sig_123' 
+          razorpayOrderId: 'rzp_123', 
+          razorpayPaymentId: 'pay_123', 
+          razorpaySignature: 'sig_123' 
         });
 
       expect(res.status).toBe(200);

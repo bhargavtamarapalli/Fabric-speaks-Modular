@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { BaseRepository } from '@fs/shared';
 
 export interface AuditLogDto {
     adminId: string;
@@ -10,11 +10,9 @@ export interface AuditLogDto {
     ipAddress?: string;
 }
 
-export class AuditLogRepository {
-    constructor(private db: Pool) {}
-
+export class AuditLogRepository extends BaseRepository {
     async insert(dto: AuditLogDto): Promise<void> {
-        await this.db.query(
+        await this.query(
             `INSERT INTO admin_audit_log 
             (admin_id, action, entity_type, entity_id, before_json, after_json, ip_address) 
             VALUES ($1, $2, $3, $4, $5, $6, $7)`,

@@ -9,12 +9,12 @@ describe('Catalog Schemas', () => {
                 slug: 'premium-linen-shirt',
                 brandId: '123e4567-e89b-12d3-a456-426614174000',
                 categoryId: '123e4567-e89b-12d3-a456-426614174001',
-                fabric_type: 'Linen',
-                gsm_weight: 180,
-                weave_type: 'Plain',
-                breathability_rating: 'High',
-                care_instructions: 'Machine wash cold',
-                fabric_origin: 'India',
+                fabricType: 'Linen',
+                gsmWeight: 180,
+                weaveType: 'Plain',
+                breathabilityRating: 'High',
+                careInstructions: 'Machine wash cold',
+                fabricOrigin: 'India',
             };
 
             const result = CreateProductSchema.safeParse(validPayload);
@@ -34,8 +34,8 @@ describe('Catalog Schemas', () => {
             expect(result.success).toBe(false);
             if (!result.success) {
                 const errors = result.error.errors.map(e => e.path[0]);
-                expect(errors).toContain('fabric_type');
-                expect(errors).toContain('gsm_weight');
+                expect(errors).toContain('fabricType');
+                expect(errors).toContain('gsmWeight');
             }
         });
         
@@ -45,12 +45,12 @@ describe('Catalog Schemas', () => {
                 slug: 'Shirt 123!', // Invalid formatting
                 brandId: '123e4567-e89b-12d3-a456-426614174000',
                 categoryId: '123e4567-e89b-12d3-a456-426614174001',
-                fabric_type: 'Cotton',
-                gsm_weight: 150,
-                weave_type: 'Jersey',
-                breathability_rating: 'Medium',
-                care_instructions: 'Wash normally',
-                fabric_origin: 'India',
+                fabricType: 'Cotton',
+                gsmWeight: 150,
+                weaveType: 'Jersey',
+                breathabilityRating: 'Medium',
+                careInstructions: 'Wash normally',
+                fabricOrigin: 'India',
             };
             const result = CreateProductSchema.safeParse(invalidPayload);
             expect(result.success).toBe(false);

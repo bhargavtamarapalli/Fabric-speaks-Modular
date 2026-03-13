@@ -1,11 +1,10 @@
 import { Router } from 'express';
+import { getDbPool, getRedisClient } from '@fs/shared';
 import { SearchController } from '../controllers/search.controller';
 import { SearchService } from '../services/search.service';
 import { SearchRepository } from '../repositories/search.repository';
-import { getDbPool } from '@fs/shared/db';
-import { getRedisClient } from '@fs/shared/redis';
 
-export const searchRouter = Router();
+const router = Router();
 
 const db = getDbPool();
 const redis = getRedisClient();
@@ -15,7 +14,9 @@ const searchService = new SearchService(searchRepo, redis);
 const searchController = new SearchController(searchService);
 
 // GET /search (FTS query + filters)
-searchRouter.get('/', searchController.search);
+router.get('/', searchController.search);
 
 // GET /search/suggestions (Typeahead)
-searchRouter.get('/suggestions', searchController.getSuggestions);
+router.get('/suggestions', searchController.getSuggestions);
+
+export default router;

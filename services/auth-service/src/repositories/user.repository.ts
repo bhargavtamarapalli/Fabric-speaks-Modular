@@ -1,4 +1,4 @@
-import { AppError, ErrorCode, getDbPool } from '@fs/shared';
+import { AppError, ErrorCode, BaseRepository } from '@fs/shared';
 import crypto from 'crypto';
 
 export interface User {
@@ -20,9 +20,7 @@ export interface IUserRepository {
     softDeleteCustomer(id: string): Promise<void>;
 }
 
-export class UserRepository implements IUserRepository {
-    private db = getDbPool();
-
+export class UserRepository extends BaseRepository implements IUserRepository {
     async findById(id: string): Promise<User | null> {
         const result = await this.db.query<User>(
             'SELECT * FROM users WHERE id = $1 AND is_deleted = false',

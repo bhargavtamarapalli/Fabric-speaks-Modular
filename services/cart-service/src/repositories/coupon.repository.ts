@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { BaseRepository } from '@fs/shared';
 
 export interface Coupon {
     id: string;
@@ -15,16 +15,14 @@ export interface Coupon {
     is_active: boolean;
 }
 
-export class CouponRepository {
-    constructor(private db: Pool) {}
-
+export class CouponRepository extends BaseRepository {
     async findByCode(code: string): Promise<Coupon | null> {
         const query = `
             SELECT * FROM coupons 
             WHERE code = $1 AND is_active = true
         `;
-        const result = await this.db.query(query, [code]);
-        return result.rows[0] || null;
+        const result = await this.query(query, [code]);
+        return (result.rows[0] as Coupon) || null;
     }
 
     async getUserRedemptionCount(couponId: string, userId: string): Promise<number> {
@@ -33,7 +31,7 @@ export class CouponRepository {
             FROM coupon_redemptions 
             WHERE coupon_id = $1 AND user_id = $2
         `;
-        const result = await this.db.query(query, [couponId, userId]);
+        const result = await this.query(query, [couponId, userId]);
         return parseInt(result.rows[0].count, 10);
     }
 }

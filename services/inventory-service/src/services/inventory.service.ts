@@ -4,13 +4,27 @@ import { AppError, ErrorCode, logger } from '@fs/shared';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 
-export class InventoryService {
-  private invRepo: InventoryRepository;
-  private expectedRepo: ExpectedStockRepository;
+export interface BulkAdjustmentError {
+  row: Record<string, any>;
+  error: string;
+}
 
-  constructor() {
-    this.invRepo = new InventoryRepository();
-    this.expectedRepo = new ExpectedStockRepository();
+export interface BulkAdjustmentResponse {
+  success: number;
+  failed: number;
+  errors: BulkAdjustmentError[];
+}
+
+export class InventoryService {
+  constructor(
+    private invRepo: InventoryRepository,
+    private expectedRepo: ExpectedStockRepository
+  ) {}
+
+  public static calculateHealthStatus(qty: number): 'CRITICAL' | 'WARNING' | 'HEALTHY' {
+    if (qty <= 0) return 'CRITICAL';
+    if (qty < 5) return 'WARNING';
+    return 'HEALTHY';
   }
 
   async listInventory(sortBy: 'asc' | 'desc' = 'asc'): Promise<VariantStock[]> {
@@ -19,28 +33,29 @@ export class InventoryService {
 
   async manualAdjustment(variantId: string, newQty: number, reason: string, adminUserId: string): Promise<VariantStock> {
     if (newQty < 0) {
-      throw new AppError('Stock quantity cannot be negative', 400, ErrorCode.VALIDATION_ERROR);
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Stock quantity cannot be negative');
     }
     if (!reason || reason.trim() === '') {
-      throw new AppError('Reason is required for manual adjustment', 400, ErrorCode.VALIDATION_ERROR);
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Reason is required for manual adjustment');
     }
     
     try {
       const updated = await this.invRepo.adjustStock(variantId, newQty, reason, adminUserId);
       logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
       return updated;
-    } catch (error: any) {
-      if (error.message.includes('not found')) {
-        throw new AppError(`Variant ${variantId} not found`, 404, ErrorCode.NOT_FOUND);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('not found')) {
+        throw new AppError(ErrorCode.NOT_FOUND, `Variant ${variantId} not found`);
       }
       throw error;
     }
   }
 
-  async bulkAdjustment(csvBuffer: Buffer, adminUserId: string): Promise<{ success: number; failed: number; errors: any[] }> {
+  async bulkAdjustment(csvBuffer: Buffer, adminUserId: string): Promise<BulkAdjustmentResponse> {
     return new Promise((resolve, reject) => {
-      const results: any[] = [];
-      const errors: any[] = [];
+      const results: Array<Record<string, any>> = [];
+      const errors: BulkAdjustmentError[] = [];
       let successCount = 0;
       let failedCount = 0;
 
@@ -63,9 +78,9 @@ export class InventoryService {
 
               await this.invRepo.adjustStock(row.variant_id, qty, row.reason, adminUserId);
               successCount++;
-            } catch (err: any) {
+            } catch (err) {
               failedCount++;
-              errors.push({ row, error: err.message });
+              errors.push({ row, error: (err as Error).message });
             }
           }
           
@@ -73,19 +88,19 @@ export class InventoryService {
           resolve({ success: successCount, failed: failedCount, errors });
         })
         .on('error', (err) => {
-          reject(new AppError('Failed to parse CSV', 400, ErrorCode.VALIDATION_ERROR));
+          reject(new AppError(ErrorCode.VALIDATION_ERROR, 'Failed to parse CSV'));
         });
     });
   }
 
   async addExpectedArrival(data: Omit<ExpectedStock, 'id' | 'status'>): Promise<ExpectedStock> {
     if (data.expected_qty <= 0) {
-      throw new AppError('Expected quantity must be greater than zero', 400, ErrorCode.VALIDATION_ERROR);
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Expected quantity must be greater than zero');
     }
     // Also validate the variant exists before allowing this
     const variant = await this.invRepo.getVariant(data.variant_id);
     if (!variant) {
-      throw new AppError(`Variant ${data.variant_id} not found`, 404, ErrorCode.NOT_FOUND);
+      throw new AppError(ErrorCode.NOT_FOUND, `Variant ${data.variant_id} not found`);
     }
 
     return this.expectedRepo.addExpectedStock(data);
@@ -97,11 +112,5 @@ export class InventoryService {
 
   async getStockHealth(): Promise<{ status: string; count: number }[]> {
     return this.invRepo.getHealthSummary();
-  }
-
-  static calculateHealthStatus(stockQty: number): string {
-    if (stockQty <= 0) return 'CRITICAL';
-    if (stockQty < 5) return 'WARNING';
-    return 'HEALTHY';
   }
 }

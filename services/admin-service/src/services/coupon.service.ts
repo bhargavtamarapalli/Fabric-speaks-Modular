@@ -1,50 +1,29 @@
-import { couponRepository } from '../repositories/coupon.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { CouponRepository, AdminCoupon } from '../repositories/coupon.repository';
+import { AppError, ErrorCode } from '@fs/shared';
 import { CouponListQueryDto, CreateCouponDto, UpdateCouponDto } from '../schemas/coupon.schemas';
 
 export class CouponService {
+  constructor(private repo: CouponRepository) {}
+
   async listCoupons(filters: CouponListQueryDto) {
-    return couponRepository.list(filters);
+    return this.repo.list(filters);
   }
 
   async createCoupon(data: CreateCouponDto, adminId: string) {
-    const existing = await couponRepository.findByCode(data.code);
+    const existing = await this.repo.findByCode(data.code);
     if (existing) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Coupon code already exists');
     }
 
-    const coupon = await couponRepository.create(data);
-
-    // RULE 6
-    await auditLogRepository.insert({
-      adminId,
-      action: 'coupon_create',
-      targetType: 'coupon',
-      targetId: coupon.id,
-      payload: { code: coupon.code }
-    });
-
+    const coupon = await this.repo.create(data);
     return coupon;
   }
 
   async updateCoupon(id: string, data: UpdateCouponDto, adminId: string) {
-    const coupon = await couponRepository.findById(id);
+    const coupon = await this.repo.findById(id);
     if (!coupon) throw new AppError(ErrorCode.NOT_FOUND, 'Coupon not found');
 
-    const updated = await couponRepository.update(id, data);
-
-    // RULE 6
-    await auditLogRepository.insert({
-      adminId,
-      action: 'coupon_update',
-      targetType: 'coupon',
-      targetId: id,
-      payload: data
-    });
-
+    const updated = await this.repo.update(id, data);
     return updated;
   }
 }
-
-export const couponService = new CouponService();

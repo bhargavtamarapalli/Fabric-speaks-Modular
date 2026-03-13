@@ -1,22 +1,17 @@
-import express from 'express';
-import cookieParser from 'cookie-parser';
-import { globalErrorHandler } from '@fs/shared';
-
-const app = express();
-const port = process.env.PORT || 4006;
-
-app.use(express.json());
-app.use(cookieParser());
-
+import { createBaseApp, globalErrorHandler, logger } from '@fs/shared';
+import { env } from './config/env';
 import orderRoutes from './routes/order.routes';
-app.use('/api', orderRoutes);
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', service: 'order-service' });
-});
+const app = createBaseApp({ serviceName: 'order-service' });
+
+app.use('/api', orderRoutes);
 
 app.use(globalErrorHandler);
 
-app.listen(port, () => {
-  console.log(`Order Service running on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(env.APP_PORT, () => {
+    logger.info(`Order Service running on port ${env.APP_PORT}`);
+  });
+}
+
+export default app;

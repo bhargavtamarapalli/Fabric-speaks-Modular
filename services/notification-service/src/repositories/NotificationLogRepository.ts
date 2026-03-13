@@ -1,5 +1,4 @@
-import { Pool } from 'pg';
-import { getDbPool } from '@fs/shared';
+import { BaseRepository } from '@fs/shared';
 import { v4 as uuidv4 } from 'uuid';
 
 export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED';
@@ -7,26 +6,20 @@ export type NotificationChannel = 'WHATSAPP' | 'SMS' | 'EMAIL';
 
 export interface NotificationLog {
   id: string;
-  user_id?: string;
-  order_id?: string;
-  event_type: string;
+  userId?: string;
+  orderId?: string;
+  eventType: string;
   recipient: string;
   channel: NotificationChannel;
   status: NotificationStatus;
-  provider_response?: any;
-  template_id?: string;
-  created_at: Date;
+  providerResponse?: Record<string, unknown>;
+  templateId?: string;
+  createdAt: Date;
 }
 
-export class NotificationLogRepository {
-  private pool: Pool;
-
-  constructor() {
-    this.pool = getDbPool();
-  }
-
+export class NotificationLogRepository extends BaseRepository {
   async createLog(
-    log: Omit<NotificationLog, 'id' | 'created_at'>
+    log: Omit<NotificationLog, 'id' | 'createdAt'>
   ): Promise<NotificationLog> {
     const id = uuidv4();
     const query = `
@@ -37,24 +30,24 @@ export class NotificationLogRepository {
     `;
     const values = [
       id,
-      log.user_id || null,
-      log.order_id || null,
-      log.event_type,
+      log.userId || null,
+      log.orderId || null,
+      log.eventType,
       log.recipient,
       log.channel,
       log.status,
-      log.provider_response ? JSON.stringify(log.provider_response) : null,
-      log.template_id || null,
+      log.providerResponse ? JSON.stringify(log.providerResponse) : null,
+      log.templateId || null,
     ];
 
-    const result = await this.pool.query(query, values);
-    return result.rows[0];
+    const result = await this.query(query, values);
+    return this.mapToCamelCase<NotificationLog>(result.rows[0]);
   }
 
   async updateStatus(
     id: string,
     status: NotificationStatus,
-    providerResponse?: any
+    providerResponse?: Record<string, unknown>
   ): Promise<NotificationLog | null> {
     const query = `
       UPDATE notification_logs 
@@ -68,7 +61,7 @@ export class NotificationLogRepository {
       id,
     ];
 
-    const result = await this.pool.query(query, values);
-    return result.rows[0] || null;
+    const result = await this.db.query(query, values);
+    return result.rows[0] ? this.mapToCamelCase<NotificationLog>(result.rows[0]) : null;
   }
 }

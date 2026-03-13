@@ -1,6 +1,20 @@
-import { SearchRepository } from '../repositories/search.repository';
+import { SearchRepository, SearchProductItem } from '../repositories/search.repository';
 import { SearchQueryDto } from '../schemas/search.schemas';
 import { Redis } from 'ioredis';
+
+export interface SearchResponse {
+    results: SearchProductItem[];
+    pagination: {
+        total: number;
+        page: number;
+        limit: number;
+        pages: number;
+    };
+}
+
+export interface SuggestionResponse {
+    results: Array<{ id: string, slug: string, name: string, thumbnail: string }>;
+}
 
 export class SearchService {
     constructor(
@@ -8,7 +22,7 @@ export class SearchService {
         private redis: Redis
     ) {}
 
-    async search(dto: SearchQueryDto, userId?: string, sessionId?: string): Promise<any> {
+    async search(dto: SearchQueryDto, userId?: string, sessionId?: string): Promise<SearchResponse> {
         // 1. Fetch from DB (FTS + Filters)
         const result = await this.searchRepo.searchProducts(dto);
 
@@ -30,7 +44,7 @@ export class SearchService {
         };
     }
 
-    async getSuggestions(q: string): Promise<any> {
+    async getSuggestions(q: string): Promise<SuggestionResponse> {
         const cacheKey = `search:suggest:${q.toLowerCase().trim()}`;
         
         // 1. Check Redis

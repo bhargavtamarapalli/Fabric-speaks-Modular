@@ -28,8 +28,8 @@ describe('PincodeService - Serviceability and COD Checks', () => {
         const cachedPincode = {
             pincode: '110001',
             deliverable: true,
-            cod_available: true,
-            estimated_days: 3,
+            codAvailable: true,
+            estimatedDays: 3,
             partner: 'Shiprocket'
         };
 
@@ -39,7 +39,7 @@ describe('PincodeService - Serviceability and COD Checks', () => {
 
         expect(mockRedis.get).toHaveBeenCalledWith('pin:110001');
         expect(mockRepo.getPincode).not.toHaveBeenCalled();
-        expect(result.cod_available).toBe(true);
+        expect(result.codAvailable).toBe(true);
     });
 
     it('should fetch from DB if not in Redis and update cache', async () => {
@@ -48,8 +48,8 @@ describe('PincodeService - Serviceability and COD Checks', () => {
         const dbRecord = {
             pincode: '400001',
             deliverable: true,
-            cod_available: false,
-            estimated_days: 4,
+            codAvailable: false,
+            estimatedDays: 4,
             partner: 'Shiprocket'
         };
 
@@ -60,7 +60,7 @@ describe('PincodeService - Serviceability and COD Checks', () => {
         expect(mockRedis.get).toHaveBeenCalledWith('pin:400001');
         expect(mockRepo.getPincode).toHaveBeenCalledWith('400001');
         expect(mockRedis.setex).toHaveBeenCalledWith('pin:400001', 86400, JSON.stringify(dbRecord));
-        expect(result.cod_available).toBe(false);
+        expect(result.codAvailable).toBe(false);
     });
 
     it('should return unserviceable default and cache it if pincode genuinely does not exist', async () => {
@@ -70,7 +70,7 @@ describe('PincodeService - Serviceability and COD Checks', () => {
         const result = await service.getServiceability('999999');
 
         expect(result.deliverable).toBe(false);
-        expect(result.cod_available).toBe(false);
+        expect(result.codAvailable).toBe(false);
         
         // ensure negative lookup is cached
         expect(mockRedis.setex).toHaveBeenCalled();

@@ -3,7 +3,7 @@ import { logger } from '@fs/shared';
 
 // Mocking Shiprocket Reverse Pickup
 export class ShiprocketService {
-  async createReversePickup(returnId: string, orderId: string): Promise<{ pickup_date: Date; awb_code: string }> {
+  async createReversePickup(returnId: string, orderId: string): Promise<{ pickupDate: Date; awbCode: string }> {
     // In a real application, you'd exchange auth token using env.SHIPROCKET_EMAIL
     // and call Shiprocket API endpoint for reverse pickup.
     
@@ -21,8 +21,8 @@ export class ShiprocketService {
     logger.info(`[Shiprocket] Pickup scheduled on ${pickupDate.toISOString()} with AWB ${mockAwb}`);
 
     return {
-      pickup_date: pickupDate,
-      awb_code: mockAwb
+      pickupDate: pickupDate,
+      awbCode: mockAwb
     };
   }
 }

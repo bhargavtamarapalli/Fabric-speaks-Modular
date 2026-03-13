@@ -1,35 +1,15 @@
-import { configRepository } from '../repositories/config.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
-import { UpdateHomepageConfigDto, UpdateNavDto } from '../schemas/nav.schemas';
+import { ConfigRepository } from '../repositories/config.repository';
 
 export class ConfigService {
-  async updateNavigation(data: UpdateNavDto, adminId: string) {
-    const updatedCount = await configRepository.updateNav(data);
+  constructor(private repo: ConfigRepository) {}
 
-    await auditLogRepository.insert({
-      adminId,
-      action: 'navigation_update',
-      targetType: 'config',
-      targetId: 'nav:global',
-      payload: { itemsCount: data.items.length }
-    });
-
-    return { updatedCount };
+  async updateHomepageConfig(data: any) {
+    await this.repo.updateConfig('homepage', data);
+    return { success: true };
   }
 
-  async updateHomepage(data: UpdateHomepageConfigDto, adminId: string) {
-    await configRepository.updateHomepage(data);
-
-    await auditLogRepository.insert({
-      adminId,
-      action: 'homepage_update',
-      targetType: 'config',
-      targetId: 'homepage:config',
-      payload: { keysUpdated: Object.keys(data) }
-    });
-
-    return { updated: true, previewUrl: 'https://preview.fabricspeaks.com?preview=1' }; // Mock URL for assignment
+  async updateNavigationConfig(data: any) {
+    await this.repo.updateConfig('navigation', data);
+    return { success: true };
   }
 }
-
-export const configService = new ConfigService();

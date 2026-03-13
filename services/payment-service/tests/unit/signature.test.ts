@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import { PaymentService } from '../../src/services/payment.service';
 import { PaymentRepository } from '../../src/repositories/payment.repository';
-import { AppError, ErrorCode } from '@fs/shared/src/errors';
+import { AppError, ErrorCode } from '@fs/shared/errors';
 
 // Mock dependencies
 vi.mock('razorpay', () => {
@@ -47,21 +47,21 @@ describe('PaymentService - Signature Verification', () => {
 
         // Mock repository to return a pending payment
         const mockRepo = {
-            getPaymentByRazorpayOrderId: vi.fn().mockResolvedValue({ status: 'PENDING', order_id: 'internal_order_1' }),
+            getPaymentByRazorpayOrderId: vi.fn().mockResolvedValue({ status: 'PENDING', orderId: 'internal_order_1' }),
             updatePayment: vi.fn().mockResolvedValue({ status: 'CAPTURED' }),
             getOrderTotal: vi.fn().mockResolvedValue(100.00)
         };
         (paymentService as any).paymentRepo = mockRepo;
 
         const result = await paymentService.verifyPayment({
-            razorpay_order_id: orderId,
-            razorpay_payment_id: paymentId,
-            razorpay_signature: signature
+            razorpayOrderId: orderId,
+            razorpayPaymentId: paymentId,
+            razorpaySignature: signature
         });
 
         expect(result.status).toBe('CAPTURED');
         expect(mockRepo.updatePayment).toHaveBeenCalledWith(orderId, {
-            razorpay_payment_id: paymentId,
+            razorpayPaymentId: paymentId,
             status: 'CAPTURED'
         });
     });
@@ -77,16 +77,16 @@ describe('PaymentService - Signature Verification', () => {
         (paymentService as any).paymentRepo = mockRepo;
 
         await expect(paymentService.verifyPayment({
-            razorpay_order_id: orderId,
-            razorpay_payment_id: paymentId,
-            razorpay_signature: tamperedSignature
+            razorpayOrderId: orderId,
+            razorpayPaymentId: paymentId,
+            razorpaySignature: tamperedSignature
         })).rejects.toThrow(AppError);
 
         try {
             await paymentService.verifyPayment({
-                razorpay_order_id: orderId,
-                razorpay_payment_id: paymentId,
-                razorpay_signature: tamperedSignature
+                razorpayOrderId: orderId,
+                razorpayPaymentId: paymentId,
+                razorpaySignature: tamperedSignature
             });
         } catch (e: any) {
             expect(e.code).toBe(ErrorCode.VALIDATION_ERROR);
@@ -100,22 +100,22 @@ describe('PaymentService - Signature Verification', () => {
         (paymentService as any).paymentRepo = mockRepo;
 
         await expect(paymentService.verifyPayment({
-            razorpay_order_id: 'missing',
-            razorpay_payment_id: 'pay_1',
-            razorpay_signature: 'sig'
+            razorpayOrderId: 'missing',
+            razorpayPaymentId: 'pay_1',
+            razorpaySignature: 'sig'
         })).rejects.toThrow('Payment record not found');
     });
 
     it('should be idempotent and return true if payment is already captured', async () => {
         const mockRepo = {
-            getPaymentByRazorpayOrderId: vi.fn().mockResolvedValue({ status: 'CAPTURED', order_id: 'order_1' })
+            getPaymentByRazorpayOrderId: vi.fn().mockResolvedValue({ status: 'CAPTURED', orderId: 'order_1' })
         };
         (paymentService as any).paymentRepo = mockRepo;
 
         const result = await paymentService.verifyPayment({
-            razorpay_order_id: 'already_done',
-            razorpay_payment_id: 'pay_1',
-            razorpay_signature: 'sig'
+            razorpayOrderId: 'already_done',
+            razorpayPaymentId: 'pay_1',
+            razorpaySignature: 'sig'
         });
 
         expect(result.status).toBe('CAPTURED');

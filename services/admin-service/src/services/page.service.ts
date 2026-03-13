@@ -1,43 +1,24 @@
-import { pageRepository } from '../repositories/page.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { PageRepository, AdminPage } from '../repositories/page.repository';
+import { AppError, ErrorCode } from '@fs/shared';
 import { CreatePageDto, PageListQueryDto, UpdatePageDto } from '../schemas/page.schemas';
 
 export class PageService {
+  constructor(private repo: PageRepository) {}
+
   async listPages(filters: PageListQueryDto) {
-    return pageRepository.list(filters);
+    return this.repo.list(filters);
   }
 
   async createPage(data: CreatePageDto, adminId: string) {
-    const page = await pageRepository.create(data);
-
-    await auditLogRepository.insert({
-      adminId,
-      action: 'page_create',
-      targetType: 'content_page',
-      targetId: page.id,
-      payload: { title: data.title, slug: page.slug }
-    });
-
+    const page = await this.repo.create(data);
     return page;
   }
 
   async updatePage(id: string, data: UpdatePageDto, adminId: string) {
-    const updated = await pageRepository.update(id, data);
+    const updated = await this.repo.update(id, data);
     if (!updated) {
        throw new AppError(ErrorCode.NOT_FOUND, 'Page not found');
     }
-
-    await auditLogRepository.insert({
-      adminId,
-      action: 'page_update',
-      targetType: 'content_page',
-      targetId: id,
-      payload: { updatedKeys: Object.keys(data) }
-    });
-
     return updated;
   }
 }
-
-export const pageService = new PageService();

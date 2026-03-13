@@ -1,9 +1,15 @@
 import { Router } from 'express';
 import { OrderController } from '../controllers/order.controller';
-import { requireAuth, requireRole } from '@fs/shared/src/middleware';
+import { OrderService } from '../services/order.service';
+import { OrderRepository } from '../repositories/order.repository';
+import { requireAuth, requireRole, getDbPool } from '@fs/shared';
 
 const router = Router();
-const orderController = new OrderController();
+
+const db = getDbPool();
+const orderRepo = new OrderRepository(db);
+const orderService = new OrderService(orderRepo);
+const orderController = new OrderController(orderService);
 
 // customer routes
 router.post('/orders', orderController.placeOrder); // ORD-01 (guest/auth)
