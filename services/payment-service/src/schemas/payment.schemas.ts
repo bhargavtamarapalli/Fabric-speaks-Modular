@@ -37,7 +37,7 @@ export type RefundPaymentParams = z.infer<typeof RefundPaymentParamsSchema>;
 
 export const RefundPaymentSchema = z.object({
   amount: z.number().positive().optional(),
-  reason: z.string().trim().min(1).optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
 });
 
 export type RefundPaymentInput = z.infer<typeof RefundPaymentSchema>;

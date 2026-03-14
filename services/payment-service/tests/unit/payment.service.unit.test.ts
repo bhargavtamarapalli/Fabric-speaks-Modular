@@ -16,11 +16,14 @@ import { PaymentService, PaymentServiceDependencies } from '../../src/services/p
 
 interface MockDependencies {
   paymentRepo: {
+    capturePaymentIfPending: ReturnType<typeof vi.fn>;
     createPayment: ReturnType<typeof vi.fn>;
+    failPaymentIfPending: ReturnType<typeof vi.fn>;
     getOrderPaymentContextForUser: ReturnType<typeof vi.fn>;
     getPaymentByOrderId: ReturnType<typeof vi.fn>;
     getPaymentByOrderIdForUser: ReturnType<typeof vi.fn>;
     getPaymentByRazorpayOrderId: ReturnType<typeof vi.fn>;
+    getPaymentByRazorpayPaymentId: ReturnType<typeof vi.fn>;
     markCodConfirmed: ReturnType<typeof vi.fn>;
     updatePayment: ReturnType<typeof vi.fn>;
     updatePaymentByOrderId: ReturnType<typeof vi.fn>;
@@ -81,11 +84,14 @@ const createDependencies = (): {
   config: PaymentServiceDependencies['config'];
 } => {
   const paymentRepo = {
+    capturePaymentIfPending: vi.fn(),
     createPayment: vi.fn(),
+    failPaymentIfPending: vi.fn(),
     getOrderPaymentContextForUser: vi.fn(),
     getPaymentByOrderId: vi.fn(),
     getPaymentByOrderIdForUser: vi.fn(),
     getPaymentByRazorpayOrderId: vi.fn(),
+    getPaymentByRazorpayPaymentId: vi.fn(),
     markCodConfirmed: vi.fn(),
     updatePayment: vi.fn(),
     updatePaymentByOrderId: vi.fn(),
@@ -156,7 +162,7 @@ describe('PaymentService', () => {
       method: 'card',
       card: { last4: '4242' },
     });
-    mocks.paymentRepo.updatePayment.mockResolvedValue(
+    mocks.paymentRepo.capturePaymentIfPending.mockResolvedValue(
       createPaymentRecord({
         status: PAYMENT_STATUS.captured,
         razorpayPaymentId: 'pay_123',
@@ -172,7 +178,7 @@ describe('PaymentService', () => {
     });
 
     expect(result.status).toBe(PAYMENT_STATUS.captured);
-    expect(mocks.paymentRepo.updatePayment).toHaveBeenCalledWith(
+    expect(mocks.paymentRepo.capturePaymentIfPending).toHaveBeenCalledWith(
       payment.razorpayOrderId,
       expect.objectContaining({
         razorpayPaymentId: 'pay_123',
@@ -181,7 +187,7 @@ describe('PaymentService', () => {
         cardLast4: '4242',
       })
     );
-    const updatePayload = mocks.paymentRepo.updatePayment.mock.calls[0][1] as Record<string, unknown>;
+    const updatePayload = mocks.paymentRepo.capturePaymentIfPending.mock.calls[0][1] as Record<string, unknown>;
     expect(Object.keys(updatePayload)).not.toContain('cardNumber');
     expect(mocks.eventQueue.add).toHaveBeenCalledWith(PAYMENT_EVENT.captured, {
       orderId: payment.orderId,
@@ -236,7 +242,40 @@ describe('PaymentService', () => {
     });
 
     expect(result).toEqual(payment);
-    expect(mocks.paymentRepo.updatePayment).not.toHaveBeenCalled();
+    expect(mocks.paymentRepo.capturePaymentIfPending).not.toHaveBeenCalled();
+    expect(mocks.eventQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('should return the captured payment without emitting an event when another request wins the verify race', async () => {
+    const { service, mocks, config } = createDependencies();
+    const pendingPayment = createPaymentRecord();
+    const capturedPayment = createPaymentRecord({
+      status: PAYMENT_STATUS.captured,
+      razorpayPaymentId: 'pay_123',
+      methodHint: 'card',
+      cardLast4: '4242',
+    });
+    const signature = crypto
+      .createHmac('sha256', config.razorpayKeySecret)
+      .update(`${pendingPayment.razorpayOrderId}|pay_123`)
+      .digest('hex');
+
+    mocks.paymentRepo.getPaymentByRazorpayOrderId
+      .mockResolvedValueOnce(pendingPayment)
+      .mockResolvedValueOnce(capturedPayment);
+    mocks.razorpayClient.payments.fetch.mockResolvedValue({
+      method: 'card',
+      card: { last4: '4242' },
+    });
+    mocks.paymentRepo.capturePaymentIfPending.mockResolvedValue(null);
+
+    const result = await service.verifyPayment({
+      razorpayOrderId: pendingPayment.razorpayOrderId!,
+      razorpayPaymentId: 'pay_123',
+      razorpaySignature: signature,
+    });
+
+    expect(result).toEqual(capturedPayment);
     expect(mocks.eventQueue.add).not.toHaveBeenCalled();
   });
 
@@ -352,7 +391,7 @@ describe('PaymentService', () => {
     mocks.paymentRepo.getPaymentByRazorpayOrderId
       .mockResolvedValueOnce(payment)
       .mockResolvedValueOnce(createPaymentRecord({ status: PAYMENT_STATUS.failed }));
-    mocks.paymentRepo.updatePayment.mockResolvedValue(
+    mocks.paymentRepo.failPaymentIfPending.mockResolvedValue(
       createPaymentRecord({
         status: PAYMENT_STATUS.failed,
         failureReason: 'issuer_declined',
@@ -371,6 +410,7 @@ describe('PaymentService', () => {
       acknowledged: true,
       processed: false,
     });
+    expect(mocks.paymentRepo.failPaymentIfPending).toHaveBeenCalledTimes(1);
     expect(mocks.eventQueue.add).toHaveBeenCalledTimes(1);
     expect(mocks.eventQueue.add).toHaveBeenCalledWith(PAYMENT_EVENT.failed, {
       orderId: payment.orderId,
@@ -415,8 +455,58 @@ describe('PaymentService', () => {
       acknowledged: true,
       processed: false,
     });
-    expect(mocks.paymentRepo.updatePayment).not.toHaveBeenCalled();
+    expect(mocks.paymentRepo.capturePaymentIfPending).not.toHaveBeenCalled();
     expect(mocks.eventQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('should store refund.processed webhooks and mark partial refunds correctly', async () => {
+    const { service, mocks, config } = createDependencies();
+    const payment = createPaymentRecord({
+      status: PAYMENT_STATUS.captured,
+      razorpayPaymentId: 'pay_123',
+    });
+    const webhookBody = JSON.stringify({
+      event: PAYMENT_EVENT.refundProcessed,
+      payload: {
+        refund: {
+          entity: {
+            id: 'rfnd_123',
+            payment_id: 'pay_123',
+            amount: 25000,
+          },
+        },
+      },
+    });
+    const signature = crypto
+      .createHmac('sha256', config.razorpayWebhookSecret)
+      .update(webhookBody)
+      .digest('hex');
+
+    mocks.paymentRepo.getPaymentByRazorpayPaymentId.mockResolvedValue(payment);
+    mocks.paymentRepo.updatePayment.mockResolvedValue(
+      createPaymentRecord({
+        status: PAYMENT_STATUS.partiallyRefunded,
+        razorpayPaymentId: 'pay_123',
+        refundId: 'rfnd_123',
+        refundAmount: 250,
+      })
+    );
+
+    const result = await service.handleWebhook({ signature, rawBody: webhookBody });
+
+    expect(result).toEqual({
+      acknowledged: true,
+      processed: true,
+      event: PAYMENT_EVENT.refundProcessed,
+    });
+    expect(mocks.paymentRepo.updatePayment).toHaveBeenCalledWith(
+      payment.razorpayOrderId,
+      expect.objectContaining({
+        status: PAYMENT_STATUS.partiallyRefunded,
+        refundId: 'rfnd_123',
+        refundAmount: 250,
+      })
+    );
   });
 
   it('should write to admin_audit_log when an admin refunds a captured payment', async () => {
@@ -449,6 +539,62 @@ describe('PaymentService', () => {
         action: 'PAYMENT_REFUND',
         entityType: 'PAYMENT',
         entityId: payment.id,
+      })
+    );
+  });
+
+  it('should reject refund requests that exceed the captured payment amount', async () => {
+    const { service, mocks } = createDependencies();
+    const payment = createPaymentRecord({
+      razorpayPaymentId: 'pay_123',
+      status: PAYMENT_STATUS.captured,
+      amount: 499.99,
+    });
+
+    mocks.paymentRepo.getPaymentByOrderId.mockResolvedValue(payment);
+
+    await expect(
+      service.refundPayment('admin-123', payment.orderId, {
+        amount: 600,
+        reason: 'too_much',
+      })
+    ).rejects.toMatchObject({
+      code: ErrorCode.VALIDATION_ERROR,
+    });
+
+    expect(mocks.razorpayClient.payments.refund).not.toHaveBeenCalled();
+  });
+
+  it('should mark partial admin refunds as PARTIALLY_REFUNDED', async () => {
+    const { service, mocks } = createDependencies();
+    const payment = createPaymentRecord({
+      razorpayPaymentId: 'pay_123',
+      status: PAYMENT_STATUS.captured,
+      amount: 499.99,
+    });
+
+    mocks.paymentRepo.getPaymentByOrderId.mockResolvedValue(payment);
+    mocks.razorpayClient.payments.refund.mockResolvedValue({ id: 'refund_partial' });
+    mocks.paymentRepo.updatePayment.mockResolvedValue(
+      createPaymentRecord({
+        status: PAYMENT_STATUS.partiallyRefunded,
+        razorpayPaymentId: 'pay_123',
+        refundId: 'refund_partial',
+        refundAmount: 199.99,
+      })
+    );
+
+    const result = await service.refundPayment('admin-123', payment.orderId, {
+      amount: 199.99,
+      reason: 'partial_refund',
+    });
+
+    expect(result.status).toBe(PAYMENT_STATUS.partiallyRefunded);
+    expect(mocks.paymentRepo.updatePayment).toHaveBeenCalledWith(
+      payment.razorpayOrderId,
+      expect.objectContaining({
+        status: PAYMENT_STATUS.partiallyRefunded,
+        refundAmount: 199.99,
       })
     );
   });

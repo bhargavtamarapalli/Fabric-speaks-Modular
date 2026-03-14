@@ -86,7 +86,7 @@ export interface PaymentServiceDependencies {
 interface RazorpayWebhookEvent {
   event: string;
   payload: {
-    payment: {
+    payment?: {
       entity: {
         id?: string;
         order_id?: string;
@@ -95,6 +95,13 @@ interface RazorpayWebhookEvent {
         card?: {
           last4?: string | null;
         } | null;
+      };
+    };
+    refund?: {
+      entity: {
+        id?: string;
+        payment_id?: string;
+        amount?: number;
       };
     };
   };
@@ -164,6 +171,9 @@ const buildCapturedUpdate = (
   methodHint: methodHint ?? null,
   cardLast4: cardLast4 ?? null,
 });
+
+const resolveRefundStatus = (paymentAmount: number, refundAmount: number) =>
+  refundAmount < paymentAmount ? PAYMENT_STATUS.partiallyRefunded : PAYMENT_STATUS.refunded;
 
 export class PaymentService {
   constructor(private readonly dependencies: PaymentServiceDependencies) {}
@@ -253,7 +263,7 @@ export class PaymentService {
     }
 
     const paymentDetails = await this.fetchPaymentDetails(payload.razorpayPaymentId);
-    const updatedPayment = await this.dependencies.paymentRepo.updatePayment(
+    const updatedPayment = await this.dependencies.paymentRepo.capturePaymentIfPending(
       payload.razorpayOrderId,
       buildCapturedUpdate(
         payload.razorpayPaymentId,
@@ -263,6 +273,10 @@ export class PaymentService {
     );
 
     if (!updatedPayment) {
+      const latestPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(payload.razorpayOrderId);
+      if (latestPayment?.status === PAYMENT_STATUS.captured) {
+        return latestPayment;
+      }
       throw new AppError(ErrorCode.NOT_FOUND, 'Payment record not found');
     }
 
@@ -348,65 +362,135 @@ export class PaymentService {
     }
 
     const event = parseWebhookEvent(payload.rawBody);
-    const entity = event.payload.payment.entity;
-
-    if (!entity.order_id) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing the Razorpay order id');
-    }
-
-    const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(entity.order_id);
-
-    if (!existingPayment) {
-      this.dependencies.logger.warn(
-        {
-          razorpayOrderId: entity.order_id,
-          event: event.event,
-        },
-        'Ignoring webhook for an unknown payment'
-      );
-      return { acknowledged: true, processed: false };
-    }
+    const paymentEntity = event.payload.payment?.entity;
+    const refundEntity = event.payload.refund?.entity;
 
     if (event.event === PAYMENT_EVENT.failed) {
-      if (existingPayment.status === PAYMENT_STATUS.failed) {
+      if (!paymentEntity?.order_id) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing the Razorpay order id');
+      }
+
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(paymentEntity.order_id);
+
+      if (!existingPayment) {
+        this.dependencies.logger.warn(
+          {
+            razorpayOrderId: paymentEntity.order_id,
+            event: event.event,
+          },
+          'Ignoring webhook for an unknown payment'
+        );
         return { acknowledged: true, processed: false };
       }
 
-      await this.dependencies.paymentRepo.updatePayment(entity.order_id, {
-        razorpayPaymentId: entity.id ?? existingPayment.razorpayPaymentId,
+      if (existingPayment.status === PAYMENT_STATUS.failed || existingPayment.status === PAYMENT_STATUS.captured) {
+        return { acknowledged: true, processed: false };
+      }
+
+      const failedPayment = await this.dependencies.paymentRepo.failPaymentIfPending(paymentEntity.order_id, {
+        razorpayPaymentId: paymentEntity.id ?? existingPayment.razorpayPaymentId,
         status: PAYMENT_STATUS.failed,
-        methodHint: entity.method ?? existingPayment.methodHint,
-        failureReason: entity.error_description ?? 'Payment failed',
-        cardLast4: entity.card?.last4 ?? existingPayment.cardLast4,
+        methodHint: paymentEntity.method ?? existingPayment.methodHint,
+        failureReason: paymentEntity.error_description ?? 'Payment failed',
+        cardLast4: paymentEntity.card?.last4 ?? existingPayment.cardLast4,
       });
+
+      if (!failedPayment) {
+        return { acknowledged: true, processed: false };
+      }
 
       await this.dependencies.eventQueue.add(PAYMENT_EVENT.failed, {
         orderId: existingPayment.orderId,
-        razorpayOrderId: entity.order_id,
-        razorpayPaymentId: entity.id ?? null,
-        reason: entity.error_description ?? 'Payment failed',
+        razorpayOrderId: paymentEntity.order_id,
+        razorpayPaymentId: paymentEntity.id ?? null,
+        reason: paymentEntity.error_description ?? 'Payment failed',
       });
 
       return { acknowledged: true, processed: true, event: PAYMENT_EVENT.failed };
     }
 
     if (event.event === PAYMENT_EVENT.captured) {
+      if (!paymentEntity?.order_id) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing the Razorpay order id');
+      }
+
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(paymentEntity.order_id);
+
+      if (!existingPayment) {
+        this.dependencies.logger.warn(
+          {
+            razorpayOrderId: paymentEntity.order_id,
+            event: event.event,
+          },
+          'Ignoring webhook for an unknown payment'
+        );
+        return { acknowledged: true, processed: false };
+      }
+
       if (existingPayment.status === PAYMENT_STATUS.captured) {
         return { acknowledged: true, processed: false };
       }
 
-      await this.dependencies.paymentRepo.updatePayment(
-        entity.order_id,
-        buildCapturedUpdate(entity.id ?? existingPayment.razorpayPaymentId, entity.method, entity.card?.last4)
+      const capturedPayment = await this.dependencies.paymentRepo.capturePaymentIfPending(
+        paymentEntity.order_id,
+        buildCapturedUpdate(paymentEntity.id ?? existingPayment.razorpayPaymentId, paymentEntity.method, paymentEntity.card?.last4)
       );
+
+      if (!capturedPayment) {
+        return { acknowledged: true, processed: false };
+      }
 
       await this.dependencies.eventQueue.add(PAYMENT_EVENT.captured, {
         orderId: existingPayment.orderId,
-        razorpayOrderId: entity.order_id,
-        razorpayPaymentId: entity.id ?? existingPayment.razorpayPaymentId,
+        razorpayOrderId: paymentEntity.order_id,
+        razorpayPaymentId: paymentEntity.id ?? existingPayment.razorpayPaymentId,
       });
 
       return { acknowledged: true, processed: true, event: PAYMENT_EVENT.captured };
+    }
+
+    if (event.event === PAYMENT_EVENT.refundProcessed) {
+      if (!refundEntity?.payment_id || refundEntity.amount === undefined || !refundEntity.id) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing refund details');
+      }
+
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayPaymentId(refundEntity.payment_id);
+
+      if (!existingPayment) {
+        this.dependencies.logger.warn(
+          {
+            razorpayPaymentId: refundEntity.payment_id,
+            event: event.event,
+          },
+          'Ignoring refund webhook for an unknown payment'
+        );
+        return { acknowledged: true, processed: false };
+      }
+
+      const refundAmount = Number(refundEntity.amount) / 100;
+      const nextStatus = resolveRefundStatus(existingPayment.amount, refundAmount);
+
+      if (existingPayment.refundId === refundEntity.id && existingPayment.refundAmount === refundAmount) {
+        return { acknowledged: true, processed: false };
+      }
+
+      const updatedPayment = existingPayment.razorpayOrderId
+        ? await this.dependencies.paymentRepo.updatePayment(existingPayment.razorpayOrderId, {
+            status: nextStatus,
+            refundId: refundEntity.id,
+            refundAmount,
+          })
+        : await this.dependencies.paymentRepo.updatePaymentByOrderId(existingPayment.orderId, {
+            status: nextStatus,
+            refundId: refundEntity.id,
+            refundAmount,
+          });
+
+      return {
+        acknowledged: true,
+        processed: Boolean(updatedPayment),
+        event: PAYMENT_EVENT.refundProcessed,
+      };
     }
 
     return { acknowledged: true, processed: false };
@@ -425,6 +509,12 @@ export class PaymentService {
 
     const refundAmount = payload.amount ?? payment.amount;
 
+    if (refundAmount > payment.amount) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Refund amount cannot exceed the captured payment amount');
+    }
+
+    const nextStatus = resolveRefundStatus(payment.amount, refundAmount);
+
     try {
       const refund = await this.dependencies.razorpayClient.payments.refund(payment.razorpayPaymentId, {
         amount: payload.amount ? Math.round(payload.amount * 100) : undefined,
@@ -433,12 +523,12 @@ export class PaymentService {
 
       const updatedPayment = payment.razorpayOrderId
         ? await this.dependencies.paymentRepo.updatePayment(payment.razorpayOrderId, {
-            status: PAYMENT_STATUS.refunded,
+            status: nextStatus,
             refundId: refund.id,
             refundAmount,
           })
         : await this.dependencies.paymentRepo.updatePaymentByOrderId(orderId, {
-            status: PAYMENT_STATUS.refunded,
+            status: nextStatus,
             refundId: refund.id,
             refundAmount,
           });

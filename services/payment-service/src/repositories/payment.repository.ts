@@ -157,6 +157,73 @@ export class PaymentRepository extends BaseRepository {
     return result.rows[0] ? mapPaymentRecord(result.rows[0] as Record<string, unknown>) : null;
   }
 
+  async capturePaymentIfPending(
+    razorpayOrderId: string,
+    updateData: UpdatePaymentInput
+  ): Promise<PaymentRecord | null> {
+    const result = await this.query(
+      `
+        UPDATE payments
+        SET
+          razorpay_payment_id = COALESCE($1, razorpay_payment_id),
+          status = $2,
+          method_hint = COALESCE($3, method_hint),
+          failure_reason = COALESCE($4, failure_reason),
+          refund_id = COALESCE($5, refund_id),
+          refund_amount = COALESCE($6, refund_amount),
+          card_last4 = COALESCE($7, card_last4),
+          updated_at = now()
+        WHERE razorpay_order_id = $8
+          AND status = 'PENDING'
+        RETURNING *
+      `,
+      [
+        updateData.razorpayPaymentId ?? null,
+        updateData.status,
+        updateData.methodHint ?? null,
+        updateData.failureReason ?? null,
+        updateData.refundId ?? null,
+        updateData.refundAmount ?? null,
+        updateData.cardLast4 ?? null,
+        razorpayOrderId,
+      ]
+    );
+
+    return result.rows[0] ? mapPaymentRecord(result.rows[0] as Record<string, unknown>) : null;
+  }
+
+  async failPaymentIfPending(razorpayOrderId: string, updateData: UpdatePaymentInput): Promise<PaymentRecord | null> {
+    const result = await this.query(
+      `
+        UPDATE payments
+        SET
+          razorpay_payment_id = COALESCE($1, razorpay_payment_id),
+          status = $2,
+          method_hint = COALESCE($3, method_hint),
+          failure_reason = COALESCE($4, failure_reason),
+          refund_id = COALESCE($5, refund_id),
+          refund_amount = COALESCE($6, refund_amount),
+          card_last4 = COALESCE($7, card_last4),
+          updated_at = now()
+        WHERE razorpay_order_id = $8
+          AND status = 'PENDING'
+        RETURNING *
+      `,
+      [
+        updateData.razorpayPaymentId ?? null,
+        updateData.status,
+        updateData.methodHint ?? null,
+        updateData.failureReason ?? null,
+        updateData.refundId ?? null,
+        updateData.refundAmount ?? null,
+        updateData.cardLast4 ?? null,
+        razorpayOrderId,
+      ]
+    );
+
+    return result.rows[0] ? mapPaymentRecord(result.rows[0] as Record<string, unknown>) : null;
+  }
+
   async updatePaymentByOrderId(orderId: string, updateData: UpdatePaymentInput): Promise<PaymentRecord | null> {
     const result = await this.query(
       `
@@ -195,6 +262,11 @@ export class PaymentRepository extends BaseRepository {
 
   async getPaymentByOrderId(orderId: string): Promise<PaymentRecord | null> {
     const result = await this.query('SELECT * FROM payments WHERE order_id = $1', [orderId]);
+    return result.rows[0] ? mapPaymentRecord(result.rows[0] as Record<string, unknown>) : null;
+  }
+
+  async getPaymentByRazorpayPaymentId(razorpayPaymentId: string): Promise<PaymentRecord | null> {
+    const result = await this.query('SELECT * FROM payments WHERE razorpay_payment_id = $1', [razorpayPaymentId]);
     return result.rows[0] ? mapPaymentRecord(result.rows[0] as Record<string, unknown>) : null;
   }
 

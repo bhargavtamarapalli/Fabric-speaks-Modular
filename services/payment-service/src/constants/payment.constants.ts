@@ -18,6 +18,7 @@ export const PAYMENT_EVENT = {
   captured: 'payment.captured',
   failed: 'payment.failed',
   codConfirmed: 'payment.cod_confirmed',
+  refundProcessed: 'refund.processed',
 } as const;
 
 export type PaymentEventName = (typeof PAYMENT_EVENT)[keyof typeof PAYMENT_EVENT];
