@@ -182,7 +182,11 @@ export const rateLimit = (options: { windowMs: number; max: number }) => {
     try {
       const { getRedisClient } = await import('./redis');
       const redis = getRedisClient();
-      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      
+      // Support reverse proxies by checking X-Forwarded-For
+      const forwarded = req.headers['x-forwarded-for'];
+      const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0] : req.ip) || req.socket.remoteAddress || 'unknown';
+      
       const key = `rate_limit:${req.baseUrl}${req.path}:${ip}`;
 
       const current = await redis.incr(key);
