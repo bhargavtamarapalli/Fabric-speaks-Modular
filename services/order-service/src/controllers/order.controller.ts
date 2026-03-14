@@ -46,8 +46,9 @@ export class OrderController {
     PushToShiprocketSchema.parse(req.body);
     const { orderId } = req.params;
     
-    // shiprocket integration stub
-    res.status(200).json({ success: true, data: { shiprocket_order_id: '12345', tracking_url: 'https://shiprocket.co/track/12345' } });
+    // Push order to Shiprocket for fulfillment
+    const result = await this.orderService.pushOrderToShiprocket(orderId as string);
+    res.status(200).json({ success: true, data: result });
   });
 
   adminListOrders = catchAsync(async (req: Request, res: Response) => {
@@ -55,7 +56,9 @@ export class OrderController {
   });
 
   shiprocketWebhook = catchAsync(async (req: Request, res: Response) => {
-    // Validate IP and Signature...
-    res.status(200).json({ success: true });
+    // SECURITY: Signature validation middleware should have already validated this request
+    // (validateShiprocketWebhookSignature middleware in routes)
+    const result = await this.orderService.handleShiprocketWebhook(req.body);
+    res.status(200).json({ success: true, data: result });
   });
 }

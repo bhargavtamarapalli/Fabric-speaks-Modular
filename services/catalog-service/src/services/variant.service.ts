@@ -9,9 +9,12 @@ export class VariantService {
     ) {}
 
     async updateStock(variantId: string, newQty: number): Promise<void> {
+        const before = await this.variantRepo.findById(variantId);
+        const oldQty = before ? before.qty : 0;
+        
         await this.variantRepo.updateStock(variantId, newQty);
         
-        if (newQty < 5) {
+        if (oldQty >= 5 && newQty < 5) {
             logger.warn(`Low stock alert for variant ${variantId}: ${newQty} remaining`);
             await this.notificationQueue.add('stock.low', {
                 variantId,

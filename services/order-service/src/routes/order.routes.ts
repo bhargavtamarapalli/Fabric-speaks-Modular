@@ -2,13 +2,18 @@ import { Router } from 'express';
 import { OrderController } from '../controllers/order.controller';
 import { OrderService } from '../services/order.service';
 import { OrderRepository } from '../repositories/order.repository';
+import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { ShiprocketClient } from '../services/shiprocket.client';
 import { requireAuth, requireRole, getDbPool } from '@fs/shared';
+import { validateShiprocketWebhookSignature, validateShiprocketSourceIP } from '../middleware/validateShiprocketWebhook';
 
 const router = Router();
 
 const db = getDbPool();
 const orderRepo = new OrderRepository(db);
-const orderService = new OrderService(orderRepo);
+const auditLogRepo = new AuditLogRepository(db);
+const shiprocketClient = new ShiprocketClient();
+const orderService = new OrderService(orderRepo, auditLogRepo, shiprocketClient);
 const orderController = new OrderController(orderService);
 
 // customer routes
@@ -24,7 +29,8 @@ router.patch('/admin/orders/:orderId/status', requireAuth, requireRole('superAdm
 router.post('/admin/orders/:orderId/shiprocket', requireAuth, requireRole('superAdmin'), orderController.adminPushToShiprocket); // ORD-06
 router.get('/admin/orders', requireAuth, requireRole('superAdmin', 'supportAgent'), orderController.adminListOrders); // ORD-07
 
-// webhooks
-router.post('/webhook/shiprocket', orderController.shiprocketWebhook); // ORD-08
+// webhooks (with signature validation)
+// SECURITY: All Shiprocket webhooks MUST be validated with HMAC-SHA256 signature
+router.post('/webhook/shiprocket', validateShiprocketSourceIP, validateShiprocketWebhookSignature, orderController.shiprocketWebhook); // ORD-08
 
 export default router;

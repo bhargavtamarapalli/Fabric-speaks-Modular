@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrderService } from '../../src/services/order.service';
 import { OrderRepository } from '../../src/repositories/order.repository';
+import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
 import { AppError, ErrorCode } from '@fs/shared/src/errors';
 import { getDbPool } from '@fs/shared/src/db';
 
@@ -16,6 +17,7 @@ vi.mock('@fs/shared/src/db', () => ({
 describe('OrderService - Stock Locking (OCC)', () => {
   let orderService: OrderService;
   let mockOrderRepo: any;
+  let mockAuditLogRepo: any;
   let mockClient: any;
 
   beforeEach(() => {
@@ -38,7 +40,13 @@ describe('OrderService - Stock Locking (OCC)', () => {
       flagOrderForCOD_Fraud: vi.fn(),
       clearUserCart: vi.fn(),
     };
-    orderService = new OrderService(mockOrderRepo as unknown as OrderRepository);
+    mockAuditLogRepo = {
+      insert: vi.fn(),
+    };
+    orderService = new OrderService(
+      mockOrderRepo as unknown as OrderRepository,
+      mockAuditLogRepo as unknown as AuditLogRepository
+    );
     vi.clearAllMocks();
   });
 
