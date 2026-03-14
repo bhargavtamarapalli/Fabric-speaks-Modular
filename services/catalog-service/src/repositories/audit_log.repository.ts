@@ -11,7 +11,7 @@ export interface AuditLogDto {
 }
 
 export class AuditLogRepository extends BaseRepository {
-    async insert(dto: AuditLogDto): Promise<void> {
+    async insert(dto: Partial<AuditLogDto>): Promise<void> {
         await this.query(
             `INSERT INTO admin_audit_log 
             (admin_id, action, entity_type, entity_id, before_json, after_json, ip_address) 

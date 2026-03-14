@@ -17,7 +17,7 @@ export class ConfigService {
       adminId,
       action: 'homepage_update',
       entityType: 'config',
-      entityId: 'homepage',
+      entityId: '00000000-0000-0000-0000-000000000000', // Mock UUID for global config
       afterJson: data
     });
 
@@ -32,7 +32,7 @@ export class ConfigService {
       adminId,
       action: 'navigation_update',
       entityType: 'config',
-      entityId: 'navigation',
+      entityId: '00000000-0000-0000-0000-000000000001', // Mock UUID for nav config
       afterJson: data
     });
 
