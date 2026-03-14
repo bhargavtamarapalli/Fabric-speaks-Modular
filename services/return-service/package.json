@@ -11,6 +11,7 @@
     },
     "dependencies": {
         "@fs/shared": "*",
+        "axios": "^1.13.6",
         "cookie-parser": "^1.4.6",
         "dotenv": "^17.3.1",
         "express": "^4.18.2",

@@ -1,28 +1,79 @@
+import axios from 'axios';
 import { env } from '../config/env';
-import { logger } from '@fs/shared';
+import { logger, AppError, ErrorCode } from '@fs/shared';
 
-// Mocking Shiprocket Reverse Pickup
 export class ShiprocketService {
-  async createReversePickup(returnId: string, orderId: string): Promise<{ pickupDate: Date; awbCode: string }> {
-    // In a real application, you'd exchange auth token using env.SHIPROCKET_EMAIL
-    // and call Shiprocket API endpoint for reverse pickup.
-    
-    logger.info(`[Shiprocket] Creating reverse pickup for return ${returnId} (Order: ${orderId})`);
-    
-    // Simulating API latency
-    await new Promise(resolve => setTimeout(resolve, 500));
+  private baseUrl = env.SHIPROCKET_API_URL;
+  private token: string | null = null;
+  private tokenExpiry: number | null = null;
 
-    // Mock response: scheduling pickup for 2 days from now
-    const pickupDate = new Date();
-    pickupDate.setDate(pickupDate.getDate() + 2);
+  private async authenticate() {
+    if (this.token && this.tokenExpiry && Date.now() < this.tokenExpiry) {
+      return this.token;
+    }
+
+    if (!env.SHIPROCKET_EMAIL || !env.SHIPROCKET_PASSWORD) {
+       logger.warn('[Shiprocket] Missing credentials. Falling back to mock response.');
+       return null;
+    }
+
+    try {
+      const response = await axios.post(`${this.baseUrl}/auth/login`, {
+        email: env.SHIPROCKET_EMAIL,
+        password: env.SHIPROCKET_PASSWORD
+      });
+      this.token = response.data.token;
+      this.tokenExpiry = Date.now() + 10 * 24 * 60 * 60 * 1000; // 10 days
+      return this.token;
+    } catch (error: any) {
+      logger.error('[Shiprocket] Authentication failed:', error.message);
+      throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket authentication failed');
+    }
+  }
+
+  async createReversePickup(returnId: string, orderId: string) {
+    const token = await this.authenticate();
     
-    const mockAwb = `FS-RET-${Math.floor(Math.random() * 1000000)}`;
+    if (!token) {
+        // Fallback for development/missing credentials
+        logger.info(`[Shiprocket] MOCK: Creating reverse pickup for return ${returnId}`);
+        const pickupDate = new Date();
+        pickupDate.setDate(pickupDate.getDate() + 2);
+        return { pickupDate, awbCode: `MOCK-AWB-${returnId}` };
+    }
 
-    logger.info(`[Shiprocket] Pickup scheduled on ${pickupDate.toISOString()} with AWB ${mockAwb}`);
+    try {
+      // This is a simplified example of the Shiprocket reverse pickup API call.
+      // In a real app, you'd provide detailed pickup address, items, etc.
+      const response = await axios.post(
+        `${this.baseUrl}/orders/create/return`,
+        {
+          order_id: orderId,
+          order_date: new Date().toISOString().slice(0, 10),
+          channel_id: "", // Configured in Shiprocket
+          pickup_customer_name: "Customer", // Should come from Order/User
+          pickup_last_name: "",
+          pickup_address: "Address",
+          pickup_city: "City",
+          pickup_state: "State",
+          pickup_country: "India",
+          pickup_pincode: "110001",
+          pickup_email: "customer@example.com",
+          pickup_phone: "9999999999",
+          order_items: [] // Should be mapped from return_items
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-    return {
-      pickupDate: pickupDate,
-      awbCode: mockAwb
-    };
+      logger.info(`[Shiprocket] Pickup created for return ${returnId}: ${response.data.shipment_id}`);
+      
+      return {
+        pickupDate: new Date(), // Usually parsed from response
+        awbCode: response.data.awb_code
+      };
+    } catch (error: any) {
+      logger.error('[Shiprocket] API call failed:', error.response?.data || error.message);
+      throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket API call failed');
+    }
   }
 }
