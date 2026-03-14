@@ -4,6 +4,7 @@ import { CatalogIntegrationService } from './catalog-integration.service';
 import { AddCartItemDto } from '../schemas/cart.schemas';
 import { AppError, ErrorCode } from '@fs/shared/errors';
 import { Redis } from 'ioredis';
+import { logger } from '@fs/shared';
 
 export interface CartResponse {
     items: CartItem[];
@@ -16,6 +17,7 @@ export interface CartResponse {
 export class CartService {
     private readonly COUPON_PREFIX = 'cart:coupon:';
     private readonly REDIS_COUPON_TTL = 7 * 24 * 60 * 60; // 7 days
+    private readonly MAX_CART_QUANTITY = 10;
 
     constructor(
         private cartRepo: CartRepository,
@@ -45,7 +47,11 @@ export class CartService {
                 return {
                     ...item,
                     // If price is missing (old session), fallback to current price but log it
-                    price: item.price ?? stockDetails?.price ?? 0,
+                    price: item.price ?? (() => {
+                        const p = stockDetails?.price ?? 0;
+                        logger.warn(`Guest cart item missing price, falling back to current price: ${p}`, { variantId: item.variantId });
+                        return p;
+                    })(),
                     stock_qty: stockDetails?.stock_qty || 0
                 };
             }));
@@ -129,10 +135,10 @@ export class CartService {
             );
         }
 
-        const cappedQty = Math.min(dto.quantity, 10); // Check cap
+        const cappedQty = Math.min(dto.quantity, this.MAX_CART_QUANTITY); // Check cap
         
         if (userId) {
-            await this.cartRepo.addUserItem(userId, dto.variantId, dto.quantity);
+            await this.cartRepo.addUserItem(userId, dto.variantId, dto.quantity, variantDetails.price);
         } else {
             const items = await this.cartRepo.getGuestCart(sessionId!);
             const existingIndex = items.findIndex(i => i.variantId === dto.variantId);
@@ -140,7 +146,7 @@ export class CartService {
             if (existingIndex > -1) {
                 const itemToUpdate = items[existingIndex];
                 if (itemToUpdate) {
-                    itemToUpdate.quantity = Math.min(itemToUpdate.quantity + dto.quantity, 10);
+                    itemToUpdate.quantity = Math.min(itemToUpdate.quantity + dto.quantity, this.MAX_CART_QUANTITY);
                     // NOTE: RULE 1 - Do NOT update price for guests if already exists, like DB
                 }
             } else {

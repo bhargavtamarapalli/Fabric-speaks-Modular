@@ -63,16 +63,17 @@ export class CartRepository extends BaseRepository {
     }));
 }
 
-    async addUserItem(userId: string, variantId: string, quantity: number): Promise<void> {
+    async addUserItem(userId: string, variantId: string, quantity: number, price?: number): Promise<void> {
         const query = `
-            INSERT INTO cart_items (user_id, variant_id, quantity)
-            VALUES ($1, $2, $3)
+            INSERT INTO cart_items (user_id, variant_id, quantity, price_at_add)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, variant_id)
             DO UPDATE SET 
                 quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 10),
+                price_at_add = COALESCE(cart_items.price_at_add, EXCLUDED.price_at_add),
                 updated_at = now()
         `;
-        await this.query(query, [userId, variantId, quantity]);
+        await this.query(query, [userId, variantId, quantity, price]);
     }
 
     async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
