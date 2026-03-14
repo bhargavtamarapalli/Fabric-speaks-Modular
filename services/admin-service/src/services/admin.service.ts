@@ -14,7 +14,11 @@ export class AdminService {
   }
 
   async getAuditLogs(filters: AuditLogQueryDto) {
-    return this.auditLogRepo.list(filters);
+    return this.auditLogRepo.list({
+      adminId: filters['filter[admin_id]'],
+      limit: filters.limit,
+      cursor: filters.cursor
+    });
   }
 
   async createAdminUser(data: { name: string; mobile: string; role: string }, adminId: string) {
@@ -24,9 +28,9 @@ export class AdminService {
       await this.auditLogRepo.insert({
         adminId,
         action: 'admin_user_create',
-        targetType: 'user',
-        targetId: user.id,
-        payload: { name: user.name, role: user.role }
+        entityType: 'user',
+        entityId: user.id,
+        afterJson: { name: user.name, role: user.role }
       });
       
       return user;
@@ -49,9 +53,10 @@ export class AdminService {
     await this.auditLogRepo.insert({
       adminId,
       action: 'admin_role_change',
-      targetType: 'user',
-      targetId: userId,
-      payload: { previousRole: previousUser.role, newRole: targetRole }
+      entityType: 'user',
+      entityId: userId,
+      beforeJson: { role: previousUser.role },
+      afterJson: { role: targetRole }
     });
 
     return updated;
@@ -68,8 +73,8 @@ export class AdminService {
     await this.auditLogRepo.insert({
       adminId,
       action: 'admin_user_delete',
-      targetType: 'user',
-      targetId: userId,
+      entityType: 'user',
+      entityId: userId,
     });
 
     return { deleted: true };

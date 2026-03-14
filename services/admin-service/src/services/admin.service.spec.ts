@@ -1,36 +1,43 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { adminService } from './admin.service';
-import { adminUserRepository } from '../repositories/admin-user.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
+import { AdminService } from './admin.service';
+import { AdminUserRepository } from '../repositories/admin-user.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { AppError } from '@fs/shared/errors';
 
 vi.mock('../repositories/admin-user.repository');
 vi.mock('../repositories/audit-log.repository');
 
 describe('AdminService', () => {
+  let adminService: AdminService;
+  let adminUserRepo: AdminUserRepository;
+  let auditLogRepo: AuditLogRepository;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    adminUserRepo = new AdminUserRepository({} as any);
+    auditLogRepo = new AuditLogRepository({} as any);
+    adminService = new AdminService(adminUserRepo, auditLogRepo);
   });
 
   describe('createAdminUser (ADM-02)', () => {
     it('should successfully create an admin user and append to audit_log (RULE 6)', async () => {
       const mockAdminId = 'admin-123';
-      const mockCreatedUser = { id: 'new-user', name: 'Test', mobile: '9999999999', role: 'supportAgent', isDeleted: false, createdAt: new Date() };
+      const mockCreatedUser = { id: 'new-user', name: 'Test', mobile: '9999999999', role: 'supportAgent', isActive: true, createdAt: new Date(), updatedAt: new Date() };
       
-      vi.mocked(adminUserRepository.create).mockResolvedValue(mockCreatedUser);
-      vi.mocked(auditLogRepository.insert).mockResolvedValue(undefined);
+      vi.mocked(adminUserRepo.create).mockResolvedValue(mockCreatedUser);
+      vi.mocked(auditLogRepo.insert).mockResolvedValue(undefined);
 
       const result = await adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, mockAdminId);
 
       expect(result).toEqual(mockCreatedUser);
-      expect(adminUserRepository.create).toHaveBeenCalledWith({ name: 'Test', mobile: '9999999999', role: 'supportAgent' });
-      expect(auditLogRepository.insert).toHaveBeenCalledWith({
+      expect(adminUserRepo.create).toHaveBeenCalledWith({ name: 'Test', mobile: '9999999999', role: 'supportAgent' });
+      expect(auditLogRepo.insert).toHaveBeenCalledWith({
         adminId: mockAdminId,
         action: 'admin_user_create',
-        targetType: 'user',
-        targetId: 'new-user',
-        payload: { name: 'Test', role: 'supportAgent' }
-      }); // Verification of Rule 6
+        entityType: 'user',
+        entityId: 'new-user',
+        afterJson: { name: 'Test', role: 'supportAgent' }
+      }); 
     });
 
     it('should throw an AppError on duplicate mobile (Corner Case)', async () => {
@@ -38,13 +45,12 @@ describe('AdminService', () => {
       const error = new Error('Duplicate');
       (error as any).code = '23505';
 
-      vi.mocked(adminUserRepository.create).mockRejectedValue(error);
+      vi.mocked(adminUserRepo.create).mockRejectedValue(error);
 
       await expect(adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, mockAdminId))
         .rejects.toThrowError('Mobile already registered');
       
-      // Should not log audit if creation fails
-      expect(auditLogRepository.insert).not.toHaveBeenCalled();
+      expect(auditLogRepo.insert).not.toHaveBeenCalled();
     });
   });
 
@@ -55,16 +61,17 @@ describe('AdminService', () => {
     });
 
     it('should update role and write to audit log', async () => {
-      vi.mocked(adminUserRepository.findById).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'supportAgent', isDeleted: false, createdAt: new Date() });
-      vi.mocked(adminUserRepository.updateRole).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'inventoryManager', isDeleted: false, createdAt: new Date() });
+      vi.mocked(adminUserRepo.findById).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'supportAgent', isActive: true, createdAt: new Date(), updatedAt: new Date() });
+      vi.mocked(adminUserRepo.updateRole).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'inventoryManager', isActive: true, createdAt: new Date(), updatedAt: new Date() });
       
       const result = await adminService.updateAdminRole('user-456', 'inventoryManager', 'admin-123');
       
       expect(result?.role).toBe('inventoryManager');
-      expect(auditLogRepository.insert).toHaveBeenCalledWith(expect.objectContaining({
+      expect(auditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
         adminId: 'admin-123',
         action: 'admin_role_change',
-        payload: { previousRole: 'supportAgent', newRole: 'inventoryManager' }
+        beforeJson: { role: 'supportAgent' },
+        afterJson: { role: 'inventoryManager' }
       }));
     });
   });
@@ -76,14 +83,14 @@ describe('AdminService', () => {
     });
 
     it('should soft delete and record audit log', async () => {
-      vi.mocked(adminUserRepository.softDelete).mockResolvedValue(true);
+      vi.mocked(adminUserRepo.softDelete).mockResolvedValue(true);
       
       await adminService.deleteAdminUser('user-456', 'admin-123');
       
-      expect(auditLogRepository.insert).toHaveBeenCalledWith(expect.objectContaining({
+      expect(auditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
         adminId: 'admin-123',
         action: 'admin_user_delete',
-        targetId: 'user-456',
+        entityId: 'user-456',
       }));
     });
   });
