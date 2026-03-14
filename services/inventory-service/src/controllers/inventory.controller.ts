@@ -4,13 +4,13 @@ import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 import { ManualAdjustmentSchema, ExpectedArrivalSchema } from '../schemas/inventory.schemas';
 
 export class InventoryController {
-  constructor(private inventoryService: InventoryService) {}
+  constructor(private inventoryService: InventoryService) { }
 
   listInventory = catchAsync(async (req: Request, res: Response) => {
     const { sort } = req.query;
     const sortBy = sort === 'desc' ? 'desc' : 'asc';
     const items = await this.inventoryService.listInventory(sortBy);
-    
+
     res.status(200).json({
       success: true,
       data: items
@@ -22,16 +22,18 @@ export class InventoryController {
     const adminUserId = req.user?.userId;
 
     if (!adminUserId) {
-       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+      throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
+    const validated = ManualAdjustmentSchema.parse(req.body);
+
     const updated = await this.inventoryService.manualAdjustment(
-      variantId!, 
-      req.body.newQty, 
-      req.body.reason, 
+      variantId!,
+      validated.newQty,
+      validated.reason,
       adminUserId
     );
-    
+
     res.status(200).json({
       success: true,
       data: updated
@@ -50,7 +52,7 @@ export class InventoryController {
     }
 
     const result = await this.inventoryService.bulkAdjustment(file.buffer, adminUserId);
-    
+
     res.status(200).json({
       success: true,
       data: result
@@ -63,12 +65,14 @@ export class InventoryController {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
+    const validated = ExpectedArrivalSchema.parse(req.body);
+
     const arrival = await this.inventoryService.addExpectedArrival({
-      variant_id: req.body.variantId,
-      expected_qty: req.body.expectedQty,
-      arrival_date: new Date(req.body.arrivalDate)
+      variant_id: validated.variantId,
+      expected_qty: validated.expectedQty,
+      arrival_date: new Date(validated.arrivalDate)
     }, adminUserId);
-    
+
     res.status(201).json({
       success: true,
       data: arrival
@@ -77,7 +81,7 @@ export class InventoryController {
 
   getExpectedArrivals = catchAsync(async (req: Request, res: Response) => {
     const arrivals = await this.inventoryService.getExpectedArrivals();
-    
+
     res.status(200).json({
       success: true,
       data: arrivals
@@ -86,7 +90,7 @@ export class InventoryController {
 
   getHealth = catchAsync(async (req: Request, res: Response) => {
     const health = await this.inventoryService.getStockHealth();
-    
+
     res.status(200).json({
       success: true,
       data: health
