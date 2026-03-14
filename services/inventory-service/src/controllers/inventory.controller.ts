@@ -19,13 +19,9 @@ export class InventoryController {
   manualAdjustment = catchAsync(async (req: Request, res: Response) => {
     const { variantId } = req.params;
     const { newQty, reason } = req.body;
-    const adminUserId = req.user?.userId;
+    const adminUserId = req.user!.userId;
 
-    if (!adminUserId) {
-       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
-    }
-
-    const updated = await this.inventoryService.manualAdjustment(variantId!, newQty, reason as string, adminUserId);
+    const updated = await this.inventoryService.manualAdjustment(variantId!, newQty, reason, adminUserId);
     
     res.status(200).json({
       success: true,
@@ -34,11 +30,7 @@ export class InventoryController {
   });
 
   bulkAdjustment = catchAsync(async (req: Request, res: Response) => {
-    const adminUserId = req.user?.userId;
-    if (!adminUserId) {
-      throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
-    }
-
+    const adminUserId = req.user!.userId;
     const file = (req as any).file;
     if (!file || !file.buffer) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'CSV file is required');
@@ -54,16 +46,13 @@ export class InventoryController {
 
   addExpectedArrival = catchAsync(async (req: Request, res: Response) => {
     const { variantId, expectedQty, arrivalDate } = req.body;
-    
-    if (!variantId || !expectedQty || !arrivalDate) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Missing required fields');
-    }
+    const adminUserId = req.user!.userId;
 
     const arrival = await this.inventoryService.addExpectedArrival({
       variant_id: variantId,
       expected_qty: expectedQty,
       arrival_date: new Date(arrivalDate)
-    });
+    }, adminUserId);
     
     res.status(201).json({
       success: true,
