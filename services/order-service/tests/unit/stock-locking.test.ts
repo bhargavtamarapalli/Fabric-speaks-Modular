@@ -3,6 +3,14 @@ import { OrderService } from '../../src/services/order.service';
 import { OrderRepository } from '../../src/repositories/order.repository';
 import { AppError, ErrorCode } from '@fs/shared/src/errors';
 import { getDbPool } from '@fs/shared/src/db';
+import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
+
+vi.mock('bullmq', () => ({
+  Queue: vi.fn(() => ({
+    add: vi.fn(),
+    on: vi.fn(),
+  })),
+}));
 
 vi.mock('@fs/shared/src/db', () => ({
   getDbPool: vi.fn(() => ({
@@ -17,6 +25,7 @@ describe('OrderService - Stock Locking (OCC)', () => {
   let orderService: OrderService;
   let mockOrderRepo: any;
   let mockClient: any;
+  let mockAuditLogRepo: any;
 
   beforeEach(() => {
     mockClient = {
@@ -38,7 +47,13 @@ describe('OrderService - Stock Locking (OCC)', () => {
       flagOrderForCOD_Fraud: vi.fn(),
       clearUserCart: vi.fn(),
     };
-    orderService = new OrderService(mockOrderRepo as unknown as OrderRepository);
+    mockAuditLogRepo = {
+      insert: vi.fn(),
+    };
+    orderService = new OrderService(
+      mockOrderRepo as unknown as OrderRepository,
+      mockAuditLogRepo as unknown as AuditLogRepository
+    );
     vi.clearAllMocks();
   });
 

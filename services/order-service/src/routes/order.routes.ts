@@ -3,12 +3,15 @@ import { OrderController } from '../controllers/order.controller';
 import { OrderService } from '../services/order.service';
 import { OrderRepository } from '../repositories/order.repository';
 import { requireAuth, requireRole, getDbPool } from '@fs/shared';
+import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { validateShiprocketSourceIP, validateShiprocketWebhookSignature } from '../middleware/validateShiprocketWebhook';
 
 const router = Router();
 
 const db = getDbPool();
 const orderRepo = new OrderRepository(db);
-const orderService = new OrderService(orderRepo);
+const auditLogRepo = new AuditLogRepository(db);
+const orderService = new OrderService(orderRepo, auditLogRepo);
 const orderController = new OrderController(orderService);
 
 // customer routes
@@ -25,6 +28,6 @@ router.post('/admin/orders/:orderId/shiprocket', requireAuth, requireRole('super
 router.get('/admin/orders', requireAuth, requireRole('superAdmin', 'supportAgent'), orderController.adminListOrders); // ORD-07
 
 // webhooks
-router.post('/webhook/shiprocket', orderController.shiprocketWebhook); // ORD-08
+router.post('/webhook/shiprocket', validateShiprocketSourceIP, validateShiprocketWebhookSignature, orderController.shiprocketWebhook); // ORD-08
 
 export default router;

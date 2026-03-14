@@ -70,7 +70,7 @@ export class OrderRepository extends BaseRepository {
       JOIN products p ON v.product_id = p.id
       WHERE v.id = $1 AND v.is_deleted = false
     `, [variantId]);
-    return res.rows[0] || null;
+    return res.rows[0] ? { ...res.rows[0], weight: Number(res.rows[0].weight || 0.5) } : null;
   }
 
   async lockStockWithOCC(client: PoolClient, variantId: string, version: number, decrementQty: number) {
@@ -123,7 +123,7 @@ export class OrderRepository extends BaseRepository {
     return res.rows[0];
   }
 
-  async insertOrderStatusHistory(client: PoolClient, orderId: string, status: string, notes?: string, createdBy?: string) {
+  async insertOrderStatusHistory(client: PoolClient, orderId: string, status: string, notes?: string, createdBy?: string | null) {
     await client.query(`
       INSERT INTO order_status_history (order_id, status, notes, created_by)
       VALUES ($1, $2, $3, $4)
@@ -210,6 +210,7 @@ export class OrderRepository extends BaseRepository {
         oi.product_id as "productId",
         p.name as "productName",
         v.sku,
+        v.weight,
         oi.quantity,
         oi.unit_price as "unitPrice",
         oi.gst_rate as "gstRate",
