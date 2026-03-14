@@ -37,7 +37,21 @@ export class ReturnService {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Return window (7 days) has expired');
     }
 
-    // 3. Create Return Request
+    // 3. Item Validation
+    const orderItems = await this.internal.getOrderItems(orderId);
+    const orderItemsMap = new Map<string, number>(orderItems.map((i: any) => [i.id as string, i.quantity as number]));
+
+    for (const item of items) {
+      const orderedQty = orderItemsMap.get(item.orderItemId!);
+      if (orderedQty === undefined) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, `Item ${item.orderItemId} does not belong to order ${orderId}`);
+      }
+      if (Number(item.quantity) > orderedQty) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, `Return quantity for item ${item.orderItemId} exceeds ordered quantity`);
+      }
+    }
+
+    // 4. Create Return Request
     const newReturn = await this.repo.create(
       { orderId, userId, returnType, status: 'REQUESTED', isFastTrack },
       items
@@ -81,7 +95,26 @@ export class ReturnService {
        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Return must be APPROVED before scheduling pickup');
     }
 
-    const { pickupDate, awbCode } = await this.shiprocket.createReversePickup(returnId, ret.orderId);
+    // Fetch order details for address
+    const order = await this.internal.getOrder(ret.orderId, ret.userId);
+    
+    const customer = {
+      name: order.guestName || "Customer",
+      phone: order.guestMobile || "9999999999",
+      email: order.guestEmail || "customer@example.com",
+      address: order.guestAddress || "Address",
+      city: "Mumbai", 
+      state: "Maharashtra",
+      pincode: "400001",
+      items: ret.items?.map(i => ({
+        name: `Item ${i.orderItemId}`,
+        sku: i.variantId,
+        units: i.quantity,
+        selling_price: 0 
+      }))
+    };
+
+    const { pickupDate, awbCode } = await this.shiprocket.createReversePickup(returnId, ret.orderId, customer);
     const updated = await this.repo.setShiprocketId(returnId, awbCode);
     
     logger.info(`[Audit] Admin scheduled pickup for return ${returnId}. AWB: ${awbCode}, Date: ${pickupDate}`);
@@ -91,34 +124,38 @@ export class ReturnService {
   async resolveReturn(returnId: string, resolution: 'REFUND' | 'REPLACEMENT', agentNotes?: string): Promise<ReturnRequest> {
     const ret = await this.getReturnStatus(returnId);
     
-    // In our simplified state machine, we might allow resolution from INSPECTED or COMPLETED
     if (ret.status === 'COMPLETED' || ret.status === 'REJECTED') {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Return is already resolved or rejected');
     }
 
-    if (resolution === 'REFUND') {
-      const totalRefund = ret.items?.reduce((sum, item) => sum + (Number(item.refundAmount) || 0), 0) || 0;
-      await this.internal.initiateRefund(ret.orderId, totalRefund);
-      
-      const updated = await this.repo.resolve(returnId, { 
-        status: 'COMPLETED', 
-        resolvedAt: new Date() 
-      });
+    return this.repo.withTransaction(async (client) => {
+      if (resolution === 'REFUND') {
+        const totalRefund = ret.items?.reduce((sum, item) => sum + (Number(item.refundAmount) || 0), 0) || 0;
+        
+        // External call (outside of strict DB rollback, but we do it first)
+        await this.internal.initiateRefund(ret.orderId, totalRefund);
+        
+        const updated = await this.repo.resolve(returnId, { 
+          status: 'COMPLETED', 
+          resolvedAt: new Date() 
+        }, client);
 
-      logger.info(`[Audit] Admin resolved return ${returnId} with REFUND of ${totalRefund}`);
-      logger.info(`[Event] return.refund_initiated: ${JSON.stringify(updated)}`);
-      return updated;
-    } else {
-      const replacementOrder = await this.internal.createReplacementOrder(ret.orderId, ret.items || []);
-      
-      const updated = await this.repo.resolve(returnId, { 
-        status: 'COMPLETED', 
-        resolvedAt: new Date(),
-        replacementOrderId: replacementOrder.id
-      });
+        logger.info(`[Audit] Admin resolved return ${returnId} with REFUND of ${totalRefund}`);
+        logger.info(`[Event] return.refund_initiated: ${JSON.stringify(updated)}`);
+        return updated;
+      } else {
+        // External call
+        const replacementOrder = await this.internal.createReplacementOrder(ret.orderId, ret.items || []);
+        
+        const updated = await this.repo.resolve(returnId, { 
+          status: 'COMPLETED', 
+          resolvedAt: new Date(),
+          replacementOrderId: replacementOrder.id
+        }, client);
 
-      logger.info(`[Audit] Admin resolved return ${returnId} with REPLACEMENT order ${replacementOrder.id}`);
-      return updated;
-    }
+        logger.info(`[Audit] Admin resolved return ${returnId} with REPLACEMENT order ${replacementOrder.id}`);
+        return updated;
+      }
+    });
   }
 }

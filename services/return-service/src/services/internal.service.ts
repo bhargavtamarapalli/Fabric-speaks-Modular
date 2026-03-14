@@ -21,6 +21,18 @@ export class InternalService {
     }
   }
 
+  async getOrderItems(orderId: string) {
+    try {
+      const response = await axios.get(`${this.orderUrl}/api/orders/${orderId}`, {
+        headers: { 'x-user-id': 'admin' } // System/Admin access for internal validation
+      });
+      return response.data.data.items || [];
+    } catch (error: any) {
+      logger.error(`Error fetching order items for ${orderId}:`, error.message);
+      throw new AppError(ErrorCode.INTERNAL_ERROR, 'Failed to fetch order items');
+    }
+  }
+
   async initiateRefund(orderId: string, amount: number) {
     try {
       const response = await axios.post(`${this.paymentUrl}/api/payments/refund`, {

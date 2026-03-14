@@ -31,7 +31,7 @@ export class ShiprocketService {
     }
   }
 
-  async createReversePickup(returnId: string, orderId: string) {
+  async createReversePickup(returnId: string, orderId: string, customer: any) {
     const token = await this.authenticate();
     
     if (!token) {
@@ -43,24 +43,22 @@ export class ShiprocketService {
     }
 
     try {
-      // This is a simplified example of the Shiprocket reverse pickup API call.
-      // In a real app, you'd provide detailed pickup address, items, etc.
       const response = await axios.post(
         `${this.baseUrl}/orders/create/return`,
         {
           order_id: orderId,
           order_date: new Date().toISOString().slice(0, 10),
-          channel_id: "", // Configured in Shiprocket
-          pickup_customer_name: "Customer", // Should come from Order/User
+          channel_id: "", 
+          pickup_customer_name: customer.name || "Customer",
           pickup_last_name: "",
-          pickup_address: "Address",
-          pickup_city: "City",
-          pickup_state: "State",
+          pickup_address: customer.address || "Address",
+          pickup_city: customer.city || "City",
+          pickup_state: customer.state || "State",
           pickup_country: "India",
-          pickup_pincode: "110001",
-          pickup_email: "customer@example.com",
-          pickup_phone: "9999999999",
-          order_items: [] // Should be mapped from return_items
+          pickup_pincode: customer.pincode || "110001",
+          pickup_email: customer.email || "customer@example.com",
+          pickup_phone: customer.phone || "9999999999",
+          order_items: customer.items || [] 
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );

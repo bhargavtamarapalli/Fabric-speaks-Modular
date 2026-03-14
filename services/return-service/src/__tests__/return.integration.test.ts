@@ -16,7 +16,6 @@ const mockRepo = {
 const mockShiprocket = {
     createReversePickup: vi.fn()
 };
-
 const mockInternal = {
     getOrder: vi.fn().mockResolvedValue({
         id: 'order_1',
@@ -24,6 +23,10 @@ const mockInternal = {
         status: 'DELIVERED',
         deliveredAt: new Date().toISOString()
     }),
+    getOrderItems: vi.fn().mockResolvedValue([{ 
+        id: '00000000-0000-0000-0000-000000000001', 
+        quantity: 5 
+    }]),
     initiateRefund: vi.fn().mockResolvedValue({ success: true }),
     createReplacementOrder: vi.fn().mockResolvedValue({ id: 'replacement_1' })
 };

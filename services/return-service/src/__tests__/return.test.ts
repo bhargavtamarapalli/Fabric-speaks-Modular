@@ -14,15 +14,16 @@ describe('ReturnService - Unit Tests', () => {
       findById: vi.fn(),
       create: vi.fn(),
       getReturns: vi.fn(),
-      updateStatus: vi.fn(),
       setShiprocketId: vi.fn(),
-      resolve: vi.fn()
+      resolve: vi.fn(),
+      withTransaction: vi.fn().mockImplementation((fn) => fn('mock-client'))
     };
     mockShiprocket = {
       createReversePickup: vi.fn()
     };
     mockInternal = {
       getOrder: vi.fn(),
+      getOrderItems: vi.fn(),
       initiateRefund: vi.fn(),
       createReplacementOrder: vi.fn()
     };
@@ -39,6 +40,7 @@ describe('ReturnService - Unit Tests', () => {
 
     it('throws INSUFFICIENT_ROLE if order does not belong to user', async () => {
         mockInternal.getOrder.mockResolvedValue({ ...mockOrder, userId: 'other_user' });
+        mockInternal.getOrderItems.mockResolvedValue([]);
         
         await expect(service.initiateReturn('order_1', 'user_1', 'DAMAGED', [{ orderItemId: 'item_1', variantId: 'v_1', quantity: 1 }]))
             .rejects.toThrowError(new AppError(ErrorCode.INSUFFICIENT_ROLE, 'This order does not belong to you'));
@@ -46,6 +48,7 @@ describe('ReturnService - Unit Tests', () => {
 
     it('throws VALIDATION_ERROR if order is not delivered', async () => {
         mockInternal.getOrder.mockResolvedValue({ ...mockOrder, status: 'SHIPPED' });
+        mockInternal.getOrderItems.mockResolvedValue([]);
 
         await expect(service.initiateReturn('order_1', 'user_1', 'DAMAGED', [{ orderItemId: 'item_1', variantId: 'v_1', quantity: 1 }]))
             .rejects.toThrowError(new AppError(ErrorCode.VALIDATION_ERROR, 'Only delivered orders can be returned'));
@@ -55,6 +58,7 @@ describe('ReturnService - Unit Tests', () => {
         const oldDate = new Date();
         oldDate.setDate(oldDate.getDate() - 10);
         mockInternal.getOrder.mockResolvedValue({ ...mockOrder, deliveredAt: oldDate.toISOString() });
+        mockInternal.getOrderItems.mockResolvedValue([]);
 
         await expect(service.initiateReturn('order_1', 'user_1', 'DAMAGED', [{ orderItemId: 'item_1', variantId: 'v_1', quantity: 1 }]))
             .rejects.toThrowError(new AppError(ErrorCode.VALIDATION_ERROR, 'Return window (7 days) has expired'));
@@ -62,12 +66,23 @@ describe('ReturnService - Unit Tests', () => {
 
     it('successfully initiates return within 7-day window', async () => {
         mockInternal.getOrder.mockResolvedValue(mockOrder);
+        mockInternal.getOrderItems.mockResolvedValue([{ id: 'item_1', quantity: 2 }]);
         mockRepo.create.mockResolvedValue({ id: 'ret_1', status: 'REQUESTED' });
 
         const res = await service.initiateReturn('order_1', 'user_1', 'DAMAGED', [{ orderItemId: 'item_1', variantId: 'v_1', quantity: 1 }]);
         
         expect(mockRepo.create).toHaveBeenCalled();
         expect(res.status).toBe('REQUESTED');
+    });
+
+    it('throws VALIDATION_ERROR for invalid items', async () => {
+        mockInternal.getOrder.mockResolvedValue(mockOrder);
+        mockInternal.getOrderItems.mockResolvedValue([{ id: 'item_1', quantity: 2 }]);
+
+        const promise = service.initiateReturn('order_1', 'user_1', 'DAMAGED', [{ orderItemId: 'invalid_item', variantId: 'v_1', quantity: 1 }]);
+        
+        await expect(promise).rejects.toThrow(/does not belong to order/);
+        expect(mockRepo.create).not.toHaveBeenCalled();
     });
   });
 
@@ -87,13 +102,14 @@ describe('ReturnService - Unit Tests', () => {
     });
 
     it('successfully schedules shiprocket pickup', async () => {
-        mockRepo.findById.mockResolvedValue({ id: 'ret_1', orderId: 'order_1', status: 'APPROVED' });
+        mockRepo.findById.mockResolvedValue({ id: 'ret_1', orderId: 'order_1', status: 'APPROVED', userId: 'user_1' });
+        mockInternal.getOrder.mockResolvedValue({ id: 'order_1', guestName: 'Alice', guestMobile: '123' });
         mockShiprocket.createReversePickup.mockResolvedValue({ pickupDate: new Date(), awbCode: 'AWB123' });
         mockRepo.setShiprocketId.mockResolvedValue({ id: 'ret_1', status: 'PICKUP_SCHEDULED' });
 
         const res = await service.scheduleShiprocketPickup('ret_1');
         
-        expect(mockShiprocket.createReversePickup).toHaveBeenCalledWith('ret_1', 'order_1');
+        expect(mockShiprocket.createReversePickup).toHaveBeenCalledWith('ret_1', 'order_1', expect.objectContaining({ name: 'Alice' }));
         expect(mockRepo.setShiprocketId).toHaveBeenCalledWith('ret_1', 'AWB123');
         expect(res.status).toBe('PICKUP_SCHEDULED');
     });
@@ -113,7 +129,7 @@ describe('ReturnService - Unit Tests', () => {
         const res = await service.resolveReturn('ret_1', 'REFUND');
         
         expect(mockInternal.initiateRefund).toHaveBeenCalledWith('order_1', 100);
-        expect(mockRepo.resolve).toHaveBeenCalledWith('ret_1', expect.objectContaining({ status: 'COMPLETED' }));
+        expect(mockRepo.resolve).toHaveBeenCalledWith('ret_1', expect.objectContaining({ status: 'COMPLETED' }), 'mock-client');
         expect(res.status).toBe('COMPLETED');
     });
 
@@ -126,7 +142,7 @@ describe('ReturnService - Unit Tests', () => {
         const res = await service.resolveReturn('ret_1', 'REPLACEMENT');
         
         expect(mockInternal.createReplacementOrder).toHaveBeenCalled();
-        expect(mockRepo.resolve).toHaveBeenCalledWith('ret_1', expect.objectContaining({ replacementOrderId: 'replacement_1' }));
+        expect(mockRepo.resolve).toHaveBeenCalledWith('ret_1', expect.objectContaining({ replacementOrderId: 'replacement_1' }), 'mock-client');
         expect(res.status).toBe('COMPLETED');
     });
   });

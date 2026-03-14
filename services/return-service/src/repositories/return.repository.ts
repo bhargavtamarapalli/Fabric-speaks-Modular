@@ -102,21 +102,23 @@ export class ReturnRepository extends BaseRepository {
         return this.mapToCamelCase<ReturnRequest>(rows[0]);
     }
 
-    async setShiprocketId(id: string, shiprocketId: string): Promise<ReturnRequest> {
+    async setShiprocketId(id: string, shiprocketId: string, client?: any): Promise<ReturnRequest> {
         const query = 'UPDATE return_requests SET shiprocket_return_id = $2, status = $3, updated_at = now() WHERE id = $1 RETURNING *';
-        const { rows } = await this.query(query, [id, shiprocketId, 'PICKUP_SCHEDULED']);
+        const db = client || this.db;
+        const { rows } = await db.query(query, [id, shiprocketId, 'PICKUP_SCHEDULED']);
         if (!rows.length) throw new Error('Return not found');
         return this.mapToCamelCase<ReturnRequest>(rows[0]);
     }
 
-    async resolve(id: string, resolution: { status: ReturnStatus, resolvedAt: Date, replacementOrderId?: string }): Promise<ReturnRequest> {
+    async resolve(id: string, resolution: { status: ReturnStatus, resolvedAt: Date, replacementOrderId?: string }, client?: any): Promise<ReturnRequest> {
         const query = `
             UPDATE return_requests 
             SET status = $2, resolved_at = $3, replacement_order_id = $4, updated_at = now() 
             WHERE id = $1 
             RETURNING *
         `;
-        const { rows } = await this.query(query, [id, resolution.status, resolution.resolvedAt, resolution.replacementOrderId]);
+        const db = client || this.db;
+        const { rows } = await db.query(query, [id, resolution.status, resolution.resolvedAt, resolution.replacementOrderId]);
         if (!rows.length) throw new Error('Return not found');
         return this.mapToCamelCase<ReturnRequest>(rows[0]);
     }
