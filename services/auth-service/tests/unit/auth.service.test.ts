@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuthService } from '../../src/services/auth.service';
-import { IUserRepository, User } from '../../src/repositories/user.repository';
+import { User } from '../../src/repositories/user.repository';
 import { AppError } from '@fs/shared';
 
-// Mock Firebase Admin
+// Mock Redis and @fs/shared
+const mockRedis = {
+    set: vi.fn(),
+    get: vi.fn(),
+};
+
 vi.mock('../../src/lib/firebase', () => ({
     firebaseAuth: {
         verifyIdToken: vi.fn(),
@@ -12,11 +17,22 @@ vi.mock('../../src/lib/firebase', () => ({
     }
 }));
 
+vi.mock('@fs/shared', async () => {
+    const actual = await vi.importActual('@fs/shared');
+    return {
+        ...actual,
+        getRedisClient: () => mockRedis,
+    };
+});
+
 import { firebaseAuth } from '../../src/lib/firebase';
+import { getRedisClient } from '@fs/shared';
 
 describe('AuthService', () => {
     let authService: AuthService;
     let mockUserRepo: any;
+
+    let mockAuditLogRepo: any;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -29,7 +45,11 @@ describe('AuthService', () => {
             softDeleteCustomer: vi.fn(),
         };
 
-        authService = new AuthService(mockUserRepo);
+        mockAuditLogRepo = {
+            insert: vi.fn(),
+        };
+
+        authService = new AuthService(mockUserRepo, mockAuditLogRepo);
     });
 
     describe('verifyFirebaseToken', () => {
@@ -119,6 +139,22 @@ describe('AuthService', () => {
             } catch (err: any) {
                 expect(err.code).toBe('JWT_INVALID');
             }
+        });
+    });
+
+    describe('generateOtp', () => {
+        it('should generate a 6-digit OTP and store it in Redis with 120s TTL', async () => {
+            const mobile = '9876543210';
+            const redis = getRedisClient();
+
+            await authService.generateOtp(mobile);
+
+            expect(redis.set).toHaveBeenCalledWith(
+                `otp:${mobile}`,
+                expect.stringMatching(/^\d{6}$/),
+                'EX',
+                120
+            );
         });
     });
 

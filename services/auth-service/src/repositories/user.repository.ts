@@ -1,4 +1,4 @@
-import { AppError, ErrorCode, BaseRepository } from '@fs/shared';
+import { BaseRepository } from '@fs/shared';
 import crypto from 'crypto';
 
 export interface User {
@@ -55,7 +55,7 @@ export class UserRepository extends BaseRepository implements IUserRepository {
     }
 
     async softDeleteCustomer(id: string): Promise<void> {
-        const hash = crypto.createHash('sha256').update(Date.now().toString()).digest('hex');
+        const mobileHash = crypto.createHash('sha256').update(id).digest('hex');
         await this.db.query(
             `UPDATE users 
        SET is_deleted = true, 
@@ -65,7 +65,7 @@ export class UserRepository extends BaseRepository implements IUserRepository {
            name = NULL, 
            email = NULL 
        WHERE id = $3 AND is_deleted = false`,
-            [`deleted_${id.slice(0, 5)}`, hash, id] // DPDPA right to erasure
+            [mobileHash, mobileHash, id] // DPDPA: Both fields hashed per 6 RULES
         );
     }
 }

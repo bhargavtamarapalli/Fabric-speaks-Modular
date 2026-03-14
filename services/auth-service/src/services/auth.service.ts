@@ -4,6 +4,9 @@ import { AppError, ErrorCode, JwtPayload } from '@fs/shared';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import crypto from 'crypto';
+import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { getRedisClient } from '@fs/shared';
+import { AUTH_CONSTANTS } from '../config/constants';
 
 export interface AuthResult {
     user: {
@@ -15,7 +18,10 @@ export interface AuthResult {
 }
 
 export class AuthService {
-    constructor(private readonly userRepo: IUserRepository) { }
+    constructor(
+        private readonly userRepo: IUserRepository,
+        private readonly auditLogRepo: AuditLogRepository
+    ) { }
 
     /**
      * Generates a deterministic hash for the mobile number
@@ -66,9 +72,13 @@ export class AuthService {
             const payload: JwtPayload = {
                 userId: user.id,
                 role: user.role as any,
+                mobile: user.mobile.slice(-4), // Last 4 digits only (RULE 5: PII masking)
             };
 
-            const token = jwt.sign(payload, env.APP_JWT_SECRET, { expiresIn: '7d' });
+            const token = jwt.sign(payload, env.APP_JWT_SECRET, { 
+                expiresIn: '30d',
+                algorithm: 'HS256'
+            });
 
             return {
                 user: {
@@ -78,13 +88,31 @@ export class AuthService {
                 },
                 token,
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             if (error instanceof AppError) throw error;
 
-            if (error.code?.startsWith('auth/')) {
-                throw new AppError(ErrorCode.JWT_INVALID, 'Firebase token invalid or expired', { error });
+            const err = error as { code?: string };
+            if (err.code?.startsWith('auth/')) {
+                throw new AppError(ErrorCode.JWT_INVALID, 'Firebase token invalid or expired', { error: error as any });
             }
-            throw new AppError(ErrorCode.INTERNAL_ERROR, undefined, error);
+            throw new AppError(ErrorCode.INTERNAL_ERROR, undefined, error as any);
+        }
+    }
+
+    async generateOtp(mobile: string): Promise<void> {
+        // Generate 6-digit random OTP
+        const otp = crypto.randomInt(100000, 999999).toString();
+        const redis = getRedisClient();
+        
+        const key = `${AUTH_CONSTANTS.REDIS_OTP_PREFIX}${mobile}`;
+        
+        // Store in Redis with 120s TTL
+        await redis.set(key, otp, 'EX', AUTH_CONSTANTS.OTP_EXPIRY_SECONDS);
+        
+        // In a real app, we would call an SMS service here
+        // For development, we log it (but never in production!)
+        if (env.APP_ENV === 'development') {
+            console.log(`[DEV] OTP for ${mobile}: ${otp}`);
         }
     }
 
@@ -93,6 +121,14 @@ export class AuthService {
         if (!user) throw new AppError(ErrorCode.NOT_FOUND);
 
         await this.userRepo.softDeleteCustomer(user.id);
+
+        // Log account deletion for audit trail (RULE 6)
+        await this.auditLogRepo.insert({
+            adminId: userId, // User deletes their own account
+            action: 'account_deleted',
+            entityType: 'user',
+            entityId: userId,
+        });
 
         // Revoke Firebase sessions
         try {

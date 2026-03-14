@@ -2,25 +2,32 @@ import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { AuthService } from '../services/auth.service';
 import { UserRepository } from '../repositories/user.repository';
+import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { getDbPool } from '@fs/shared';
+import { otpRateLimiter } from '../middleware/rateLimiter';
+import { requireAuth, csrfProtection } from '@fs/shared';
 
 const router = Router();
 
 // Wiring dependencies
 const db = getDbPool();
 const userRepo = new UserRepository(db);
-const authService = new AuthService(userRepo);
+const auditLogRepo = new AuditLogRepository(db);
+const authService = new AuthService(userRepo, auditLogRepo);
 const authController = new AuthController(authService);
 
 // Health Check
-router.get('/health', (req, res) => { res.json({ status: 'ok', service: 'auth-service' }) });
+router.get('/health', (_req, res) => { res.json({ status: 'ok', service: 'auth-service' }) });
 
 // Public Routes
-router.post('/customer/login-verify', authController.verifyFirebaseToken);
+router.post('/customer/login-otp', otpRateLimiter, authController.loginOtp);
+router.post('/customer/login-verify', otpRateLimiter, authController.verifyFirebaseToken);
 router.post('/logout', authController.logout);
 
-// Protected Routes (requires dummy pass for now till middleware is shared, we'll patch)
-// In a real flow, a requireAuth middleware sits before these
+// Protected Routes
+router.use(requireAuth);
+router.use(csrfProtection);
+
 router.get('/me', authController.me);
 router.delete('/delete-account', authController.deleteAccount);
 

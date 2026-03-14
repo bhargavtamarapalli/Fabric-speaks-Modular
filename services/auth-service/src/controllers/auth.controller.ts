@@ -1,10 +1,16 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
-import { VerifyOtpSchema } from '../schemas/auth.schemas';
+import { VerifyOtpSchema, LoginOtpSchema } from '../schemas/auth.schemas';
 import { catchAsync, setAuthCookie, clearAuthCookie } from '@fs/shared';
 
 export class AuthController {
     constructor(private readonly authService: AuthService) { }
+
+    loginOtp = catchAsync(async (req: Request, res: Response) => {
+        const dto = LoginOtpSchema.parse(req.body);
+        await this.authService.generateOtp(dto.mobile);
+        return res.status(200).json({ success: true, message: 'OTP sent successfully' });
+    });
 
     /**
      * Validates Firebase ID Token sent from the React client.
@@ -29,7 +35,7 @@ export class AuthController {
         });
     });
 
-    logout = catchAsync(async (req: Request, res: Response) => {
+    logout = catchAsync(async (_req: Request, res: Response) => {
         clearAuthCookie(res);
         return res.status(200).json({ success: true, message: 'Logged out successfully' });
     });
