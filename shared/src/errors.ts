@@ -40,6 +40,7 @@ export class AppError extends Error {
   public code: ErrorCode;
   public meta?: Record<string, unknown>;
   public statusCode: number;
+  public isOperational: boolean = true;  // true = operational error; false = programmer error
 
   constructor(code: ErrorCode, message?: string, meta?: Record<string, unknown>) {
     super(message || code);

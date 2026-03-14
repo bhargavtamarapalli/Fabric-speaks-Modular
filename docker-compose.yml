@@ -26,6 +26,11 @@ services:
     volumes:
       - fs_redisdata:/data
     command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   fs_pgdata:
