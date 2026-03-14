@@ -173,3 +173,36 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
 
   next();
 };
+
+/**
+ * Redis-based Rate Limiter Middleware
+ */
+export const rateLimit = (options: { windowMs: number; max: number }) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { getRedisClient } = await import('./redis');
+      const redis = getRedisClient();
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      const key = `rate_limit:${req.baseUrl}${req.path}:${ip}`;
+
+      const current = await redis.incr(key);
+      if (current === 1) {
+        await redis.expire(key, Math.ceil(options.windowMs / 1000));
+      }
+
+      if (current > options.max) {
+        const ttl = await redis.ttl(key);
+        return next(
+          new AppError(ErrorCode.RATE_LIMIT_EXCEEDED, 'Too many requests, please try again later', {
+            retryAfter: ttl,
+          })
+        );
+      }
+
+      next();
+    } catch (error) {
+      logger.error({ err: error, msg: 'Rate limiter error' });
+      next(); // Fail open to avoid blocking users if Redis is down
+    }
+  };
+};

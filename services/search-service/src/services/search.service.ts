@@ -1,6 +1,7 @@
 import { SearchRepository, SearchProductItem } from '../repositories/search.repository';
 import { SearchQueryDto } from '../schemas/search.schemas';
 import { Redis } from 'ioredis';
+import { logger } from '@fs/shared';
 
 export interface SearchResponse {
     results: SearchProductItem[];
@@ -29,7 +30,7 @@ export class SearchService {
         // 2. Fire and forget logging
         if (dto.q) {
             this.searchRepo.logSearchQuery(dto.q, dto, userId, sessionId, result.total).catch(err => {
-                console.error('Failed to log search query:', err);
+                logger.error({ err, msg: 'Failed to log search query' });
             });
         }
 
@@ -48,14 +49,22 @@ export class SearchService {
         const cacheKey = `search:suggest:${q.toLowerCase().trim()}`;
         
         // 1. Check Redis
-        const cached = await this.redis.get(cacheKey);
-        if (cached) return JSON.parse(cached);
+        try {
+            const cached = await this.redis.get(cacheKey);
+            if (cached) return JSON.parse(cached);
+        } catch (err) {
+             logger.warn({ err, msg: 'Redis error in getSuggestions, falling back to DB' });
+        }
 
         // 2. Fallback DB
         const results = await this.searchRepo.getSuggestions(q);
         
         // 3. Cache and return (short TTL for real-time relevance)
-        await this.redis.setex(cacheKey, 300, JSON.stringify({ results }));
+        try {
+             await this.redis.setex(cacheKey, 300, JSON.stringify({ results }));
+        } catch (err) {
+             logger.error({ err, msg: 'Failed to cache suggestions in Redis' });
+        }
         
         return { results };
     }
