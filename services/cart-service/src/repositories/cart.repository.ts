@@ -6,11 +6,11 @@ import { getEffectivePrice } from '@fs/shared';
 export interface CartItem {
     variantId: string;
     quantity: number;
-    // Hydrated fields
+    price?: number; // RULE 1: Stored here for guests and time-locking
+    // Hydrated fields (UI only)
     productId?: string;
     name?: string;
     sku?: string;
-    price?: number;
     stock_qty?: number;
 }
 

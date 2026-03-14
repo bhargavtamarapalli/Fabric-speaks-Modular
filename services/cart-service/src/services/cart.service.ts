@@ -1,12 +1,21 @@
 import { CartRepository, CartItem } from '../repositories/cart.repository';
-import { CouponRepository } from '../repositories/coupon.repository';
+import { CouponRepository, Coupon } from '../repositories/coupon.repository';
 import { CatalogIntegrationService } from './catalog-integration.service';
 import { AddCartItemDto } from '../schemas/cart.schemas';
 import { AppError, ErrorCode } from '@fs/shared/errors';
 import { Redis } from 'ioredis';
 
+export interface CartResponse {
+    items: CartItem[];
+    subtotal: number;
+    discount: number;
+    total: number;
+    coupon: string | null;
+}
+
 export class CartService {
     private readonly COUPON_PREFIX = 'cart:coupon:';
+    private readonly REDIS_COUPON_TTL = 7 * 24 * 60 * 60; // 7 days
 
     constructor(
         private cartRepo: CartRepository,
@@ -18,7 +27,7 @@ export class CartService {
     // ==========================================================
     // GET ACTIVE CART
     // ==========================================================
-    async getCart(userId?: string, sessionId?: string): Promise<any> {
+    async getCart(userId?: string, sessionId?: string): Promise<CartResponse> {
         if (!userId && !sessionId) {
             throw new AppError(ErrorCode.UNAUTHORIZED, 'Session ID or User ID required');
         }
@@ -29,12 +38,14 @@ export class CartService {
         } else {
             // Guest
             items = await this.cartRepo.getGuestCart(sessionId!);
-            // Hydrate guest items with latest price/stock from DB since they are not stored natively
+            // RULE 1: For guests, items now come with stored price. 
+            // We only need to hydrate stock_qty for UI warnings, but use stored price.
             items = await Promise.all(items.map(async item => {
                 const stockDetails = await this.catalogInt.getVariantStockDetails(item.variantId);
                 return {
                     ...item,
-                    price: stockDetails?.price || 0,
+                    // If price is missing (old session), fallback to current price but log it
+                    price: item.price ?? stockDetails?.price ?? 0,
                     stock_qty: stockDetails?.stock_qty || 0
                 };
             }));
@@ -130,9 +141,15 @@ export class CartService {
                 const itemToUpdate = items[existingIndex];
                 if (itemToUpdate) {
                     itemToUpdate.quantity = Math.min(itemToUpdate.quantity + dto.quantity, 10);
+                    // NOTE: RULE 1 - Do NOT update price for guests if already exists, like DB
                 }
             } else {
-                items.push({ variantId: dto.variantId, quantity: cappedQty });
+                // RULE 1: Store price at add time for guests too
+                items.push({ 
+                    variantId: dto.variantId, 
+                    quantity: cappedQty,
+                    price: variantDetails.price 
+                });
             }
             await this.cartRepo.saveGuestCart(sessionId!, items);
         }
@@ -205,7 +222,7 @@ export class CartService {
         }
 
         // Validated! Store to active cart context via Redis
-        await this.redis.setex(`${this.COUPON_PREFIX}${userId}`, 7 * 24 * 60 * 60, code);
+        await this.redis.setex(`${this.COUPON_PREFIX}${userId}`, this.REDIS_COUPON_TTL, code);
     }
 
     // ==========================================================
@@ -226,9 +243,8 @@ export class CartService {
         // Loop over guest items and insert/update in DB
         for (const item of guestItems) {
             try {
-                // Stock Check implicitly bypassable here to avoid losing cart items. 
-                // Actual checkout will strictly reject insufficient stock.
-                await this.cartRepo.addUserItem(userId, item.variantId, item.quantity);
+                // RULE 1: Transfer guest price to user cart
+                await this.cartRepo.addUserItem(userId, item.variantId, item.quantity, item.price || 0);
             } catch (err) {
                 // Ignore soft failures if variant got deleted
             }

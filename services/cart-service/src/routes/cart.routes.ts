@@ -14,7 +14,7 @@ const redis = getRedisClient();
 
 const cartRepo = new CartRepository(db, redis);
 const couponRepo = new CouponRepository(db);
-const catalogService = new CatalogIntegrationService();
+const catalogService = new CatalogIntegrationService(db);
 
 const cartService = new CartService(cartRepo, couponRepo, catalogService, redis);
 const cartController = new CartController(cartService);
