@@ -40,7 +40,7 @@ export class AppError extends Error {
   public code: ErrorCode;
   public meta?: Record<string, unknown>;
   public statusCode: number;
-  public isOperational: boolean = true;  // true = operational error; false = programmer error
+  public isOperational: boolean;
 
   constructor(code: ErrorCode, message?: string, meta?: Record<string, unknown>) {
     super(message || code);
@@ -48,6 +48,7 @@ export class AppError extends Error {
     this.code = code;
     this.meta = meta;
     this.statusCode = AppError.getStatusCode(code);
+    this.isOperational = true;
   }
 
   private static getStatusCode(code: ErrorCode): number {
