@@ -50,4 +50,10 @@ describe('VariantService', () => {
         expect(mockVariantRepo.updateStock).toHaveBeenCalledWith('v1', 6);
         expect(mockNotificationQueue.add).not.toHaveBeenCalled();
     });
+
+    it('should throw error if variant not found', async () => {
+        mockVariantRepo.findById.mockImplementation(async () => null);
+        
+        await expect(service.updateStock('v999', 10)).rejects.toThrow('Variant v999 not found');
+    });
 });

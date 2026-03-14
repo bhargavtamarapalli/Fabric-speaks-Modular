@@ -30,10 +30,27 @@ Shirt 2,SKU-002,599,20,Linen,200,Twill,Medium,Dry clean,India`;
         
         expect(result.jobId).toBe('job-123');
         expect(mockQueue.add).toHaveBeenCalledWith('bulk-product-upload', {
-            csvData: validCsv,
+            products: expect.any(Array),
             adminId: 'admin-uuid-123'
         });
         expect(mockAuditLogRepo.insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle quoted commas correctly', async () => {
+        const quotedCsv = `name,sku,base_price,qty,fabric_type,gsm_weight,weave_type,breathability_rating,care_instructions,fabric_origin
+"Shirt, Premium",SKU-003,999,5,Silk,120,Satin,High,"Dry Clean, Only",India`;
+        
+        const result = await service.queueUpload(quotedCsv, 'admin-uuid-123');
+        
+        expect(result.errors).toBeUndefined();
+        expect(mockQueue.add).toHaveBeenCalledWith('bulk-product-upload', expect.objectContaining({
+            products: expect.arrayContaining([
+                expect.objectContaining({
+                    name: 'Shirt, Premium',
+                    care_instructions: 'Dry Clean, Only'
+                })
+            ])
+        }));
     });
 
     it('should return errors for invalid CSV data', async () => {

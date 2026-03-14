@@ -13,23 +13,24 @@ export class BulkUploadService {
         const lines = csvData.split('\n').map(l => l.trim()).filter(l => l !== '');
         if (lines.length === 0) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Empty CSV file');
 
-        const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+        const headers = this.parseCSVLine(lines[0] || '');
         const dataRows = lines.slice(1);
         
         if (dataRows.length > 500) {
             throw new AppError(ErrorCode.BULK_UPLOAD_LIMIT, 'Max 500 rows allowed per upload');
         }
 
-        const parsedData: any[] = [];
         const validationErrors: any[] = [];
+        const parsedRows: any[] = [];
 
         dataRows.forEach((line, index) => {
-            const values = line.split(',');
+            const values = this.parseCSVLine(line);
             const rowData: any = {};
+            
             headers.forEach((header, i) => {
-                const val = values[i] || '';
-                // Simple type conversion for price and qty
-                if (header === 'base_price' || header === 'qty' || header === 'gsm_weight') {
+                const val = values[i]?.trim() || '';
+                // Simple numeric conversion for known fields
+                if (['base_price', 'qty', 'gsm_weight'].includes(header)) {
                     rowData[header] = val === '' ? undefined : Number(val);
                 } else {
                     rowData[header] = val;
@@ -42,12 +43,12 @@ export class BulkUploadService {
                     validationErrors.push({
                         row: index + 2, // 1-indexed + header
                         field: err.path[0],
-                        value: rowData[err.path[0]],
+                        value: rowData[err.path[0] as string],
                         message: err.message
                     });
                 });
             } else {
-                parsedData.push(result.data);
+                parsedRows.push(result.data);
             }
         });
 
@@ -55,20 +56,47 @@ export class BulkUploadService {
             return { errors: validationErrors };
         }
 
+        // Audit log BEFORE queueing to ensure consistency
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'PRODUCT_BULK_UPLOAD_QUEUED',
+            entityType: 'PRODUCT',
+            entityId: 'BULK',
+            beforeJson: null,
+            afterJson: { rowCount: parsedRows.length, products: parsedRows.map(p => ({ sku: p.sku, name: p.name })) }
+        });
+
+        // Pass VALIDATED rows to job instead of raw CSV
         const job = await this.bulkUploadQueue.add('bulk-product-upload', {
-            csvData,
+            products: parsedRows,
             adminId
         });
 
-        await this.auditLogRepo.insert({
-            adminId,
-            action: 'product.bulk_upload_queued',
-            entityType: 'bulk_upload',
-            entityId: job.id || 'unknown',
-            afterJson: { rowCount: dataRows.length }
-        });
+        return { jobId: job.id };
+    }
 
-        return { jobId: job.id || '' };
+    private parseCSVLine(line: string): string[] {
+        const result = [];
+        let cur = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    cur += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(cur);
+                cur = '';
+            } else {
+                cur += char;
+            }
+        }
+        result.push(cur);
+        return result;
     }
 
     // Template generation logic
