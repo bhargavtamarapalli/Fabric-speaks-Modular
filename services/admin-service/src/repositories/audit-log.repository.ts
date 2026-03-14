@@ -11,18 +11,35 @@ export interface AuditLog {
 }
 
 export class AuditLogRepository extends BaseRepository {
-    async list(filters: any): Promise<{ items: AuditLog[]; meta: any }> {
+    async list(filters: { adminId?: string; limit?: number; cursor?: string }): Promise<{ items: AuditLog[]; meta: any }> {
         let query = 'SELECT * FROM admin_audit_logs WHERE 1=1';
         const params: any[] = [];
+        
         if (filters.adminId) {
             params.push(filters.adminId);
             query += ` AND admin_id = $${params.length}`;
         }
-        query += ' ORDER BY created_at DESC';
+
+        if (filters.cursor) {
+            params.push(filters.cursor);
+            query += ` AND id < $${params.length}`; // Simple ID-based cursor for descending order
+        }
+
+        query += ' ORDER BY id DESC';
+        
+        const limit = filters.limit || 50;
+        params.push(limit);
+        query += ` LIMIT $${params.length}`;
+
         const { rows } = await this.query(query, params);
+        const items = rows.map(r => this.mapToCamelCase<AuditLog>(r));
+        
         return {
-            items: rows.map(r => this.mapToCamelCase<AuditLog>(r)),
-            meta: { total: rows.length }
+            items,
+            meta: { 
+                count: items.length,
+                nextCursor: items.length > 0 ? items[items.length - 1].id : null
+            }
         };
     }
 

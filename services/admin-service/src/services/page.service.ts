@@ -2,8 +2,13 @@ import { PageRepository, AdminPage } from '../repositories/page.repository';
 import { AppError, ErrorCode } from '@fs/shared';
 import { CreatePageDto, PageListQueryDto, UpdatePageDto } from '../schemas/page.schemas';
 
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+
 export class PageService {
-  constructor(private repo: PageRepository) {}
+  constructor(
+    private repo: PageRepository,
+    private auditLogRepo: AuditLogRepository
+  ) {}
 
   async listPages(filters: PageListQueryDto) {
     return this.repo.list(filters);
@@ -11,14 +16,34 @@ export class PageService {
 
   async createPage(data: CreatePageDto, adminId: string) {
     const page = await this.repo.create(data);
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'page_create',
+      entityType: 'content_page',
+      entityId: page.id,
+      afterJson: page
+    });
+
     return page;
   }
 
   async updatePage(id: string, data: UpdatePageDto, adminId: string) {
+    const before = await this.repo.findById(id);
     const updated = await this.repo.update(id, data);
     if (!updated) {
        throw new AppError(ErrorCode.NOT_FOUND, 'Page not found');
     }
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'page_update',
+      entityType: 'content_page',
+      entityId: id,
+      beforeJson: before,
+      afterJson: updated
+    });
+
     return updated;
   }
 }

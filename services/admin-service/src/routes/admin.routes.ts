@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDbPool, requireAuth, requireRole } from '@fs/shared';
+import { getDbPool, getRedisClient, requireAuth, requireRole } from '@fs/shared';
 
 // Repositories
 import { AdminUserRepository } from '../repositories/admin-user.repository';
@@ -22,6 +22,7 @@ import { ConfigController } from '../controllers/config.controller';
 
 const router = Router();
 const db = getDbPool();
+const redis = getRedisClient();
 
 // Wiring
 const adminUserRepo = new AdminUserRepository(db);
@@ -30,15 +31,15 @@ const adminService = new AdminService(adminUserRepo, auditLogRepo);
 const adminController = new AdminController(adminService);
 
 const couponRepo = new CouponRepository(db);
-const couponService = new CouponService(couponRepo);
+const couponService = new CouponService(couponRepo, auditLogRepo);
 const couponController = new CouponController(couponService);
 
 const pageRepo = new PageRepository(db);
-const pageService = new PageService(pageRepo);
+const pageService = new PageService(pageRepo, auditLogRepo);
 const pageController = new PageController(pageService);
 
 const configRepo = new ConfigRepository(db);
-const configService = new ConfigService(configRepo);
+const configService = new ConfigService(configRepo, auditLogRepo, redis);
 const configController = new ConfigController(configService);
 
 // Global middleware for whole admin suite ingress

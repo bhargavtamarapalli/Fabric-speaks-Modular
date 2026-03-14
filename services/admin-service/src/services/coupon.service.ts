@@ -2,8 +2,13 @@ import { CouponRepository, AdminCoupon } from '../repositories/coupon.repository
 import { AppError, ErrorCode } from '@fs/shared';
 import { CouponListQueryDto, CreateCouponDto, UpdateCouponDto } from '../schemas/coupon.schemas';
 
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+
 export class CouponService {
-  constructor(private repo: CouponRepository) {}
+  constructor(
+    private repo: CouponRepository,
+    private auditLogRepo: AuditLogRepository
+  ) {}
 
   async listCoupons(filters: CouponListQueryDto) {
     return this.repo.list(filters);
@@ -16,6 +21,15 @@ export class CouponService {
     }
 
     const coupon = await this.repo.create(data);
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'coupon_create',
+      entityType: 'coupon',
+      entityId: coupon.id,
+      afterJson: coupon
+    });
+
     return coupon;
   }
 
@@ -24,6 +38,16 @@ export class CouponService {
     if (!coupon) throw new AppError(ErrorCode.NOT_FOUND, 'Coupon not found');
 
     const updated = await this.repo.update(id, data);
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'coupon_update',
+      entityType: 'coupon',
+      entityId: id,
+      beforeJson: coupon,
+      afterJson: updated
+    });
+
     return updated;
   }
 }

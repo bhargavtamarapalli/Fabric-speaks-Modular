@@ -6,7 +6,10 @@ export class ConfigController {
 
   updateHomepageConfig = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await this.configService.updateHomepageConfig(req.body);
+      const adminUserId = req.user?.userId;
+      if (!adminUserId) throw new Error('Unauthorized');
+
+      const result = await this.configService.updateHomepageConfig(req.body, adminUserId);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -15,7 +18,10 @@ export class ConfigController {
 
   updateNavigationConfig = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await this.configService.updateNavigationConfig(req.body);
+      const adminUserId = req.user?.userId;
+      if (!adminUserId) throw new Error('Unauthorized');
+
+      const result = await this.configService.updateNavigationConfig(req.body, adminUserId);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);

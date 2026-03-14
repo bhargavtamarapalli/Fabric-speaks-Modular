@@ -1,4 +1,9 @@
 import { BaseRepository } from '@fs/shared';
+import createDOMPurify from 'dompurify';
+import { JSDOM } from 'jsdom';
+
+const window = new JSDOM('').window;
+const dompurify = createDOMPurify(window as any);
 
 export interface AdminPage {
     id: string;
@@ -22,18 +27,20 @@ export class PageRepository extends BaseRepository {
     }
 
     async create(data: any): Promise<AdminPage> {
+        const safeHtml = dompurify.sanitize(data.content);
         const query = `
             INSERT INTO content_pages (title, slug, content)
             VALUES ($1, $2, $3)
             RETURNING *
         `;
-        const { rows } = await this.query(query, [data.title, data.slug, data.content]);
+        const { rows } = await this.query(query, [data.title, data.slug, safeHtml]);
         return this.mapToCamelCase<AdminPage>(rows[0]);
     }
 
     async update(id: string, data: any): Promise<AdminPage | null> {
+        const safeHtml = data.content ? dompurify.sanitize(data.content) : undefined;
         const query = 'UPDATE content_pages SET title = $2, content = $3, updated_at = now() WHERE id = $1 RETURNING *';
-        const { rows } = await this.query(query, [id, data.title, data.content]);
+        const { rows } = await this.query(query, [id, data.title, safeHtml || data.content]);
         if (!rows.length) return null;
         return this.mapToCamelCase<AdminPage>(rows[0]);
     }
