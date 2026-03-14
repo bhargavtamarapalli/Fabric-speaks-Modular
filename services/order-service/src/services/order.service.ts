@@ -150,10 +150,7 @@ export class OrderService {
   }
 
   async getMyOrders(userId: string) {
-    const res = await getDbPool().query(`
-      SELECT id, status, total_amount, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20
-    `, [userId]);
-    return res.rows;
+    return this.orderRepo.getUserOrders(userId);
   }
   
   async getOrderDetails(orderId: string, userId: string) {
@@ -356,8 +353,7 @@ export class OrderService {
       };
 
       if (order.user_id) {
-          const userRes = await getDbPool().query('SELECT email, mobile, name FROM users WHERE id = $1', [order.user_id]);
-          const user = userRes.rows[0];
+          const user = await this.orderRepo.getUserDetails(order.user_id);
           if (user) {
               customerEmail = user.email || customerEmail;
               customerPhone = user.mobile || customerPhone;
@@ -369,8 +365,7 @@ export class OrderService {
 
       // Fetch real address from DB if we have an addressId
       if (firstAddressId) {
-          const addrRes = await getDbPool().query('SELECT * FROM addresses WHERE id = $1', [firstAddressId]);
-          const addr = addrRes.rows[0];
+          const addr = await this.orderRepo.getAddressById(firstAddressId);
           if (addr) {
               addressDetails = {
                   address: `${addr.line1}, ${addr.line2 || ''}`,

@@ -46,6 +46,8 @@ describe('OrderService - Stock Locking (OCC)', () => {
       checkCODHistoryFlag: vi.fn(),
       flagOrderForCOD_Fraud: vi.fn(),
       clearUserCart: vi.fn(),
+      getUserDetails: vi.fn(),
+      getAddressById: vi.fn(),
     };
     mockAuditLogRepo = {
       insert: vi.fn(),
@@ -109,6 +111,19 @@ describe('OrderService - Stock Locking (OCC)', () => {
     expect(mockOrderRepo.lockStockWithOCC).toHaveBeenCalled();
     expect(mockClient.query).toHaveBeenCalledWith('BEGIN');
     expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
+    
+    // Verify Queue call
+    const { Queue } = await import('bullmq');
+    const results = vi.mocked(Queue).mock.results;
+    if (results && results[0]) {
+        const queueInstance = results[0].value;
+        if (queueInstance) {
+            expect(queueInstance.add).toHaveBeenCalledWith('order.created', expect.objectContaining({
+                orderId: 'o1',
+                status: 'PAYMENT_PENDING'
+            }));
+        }
+    }
   });
 
   it('should flag order for COD fraud if user has 2+ cancels', async () => {

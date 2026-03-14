@@ -225,6 +225,27 @@ export class OrderRepository extends BaseRepository {
     return res.rows;
   }
 
+  async getUserDetails(userId: string) {
+    const res = await this.query('SELECT email, mobile, name FROM users WHERE id = $1', [userId]);
+    return res.rows[0] || null;
+  }
+
+  async getAddressById(addressId: string) {
+    const res = await this.query('SELECT * FROM addresses WHERE id = $1', [addressId]);
+    return res.rows[0] || null;
+  }
+
+  async getUserOrders(userId: string) {
+    const res = await this.query(`
+      SELECT id, status, total_amount, created_at 
+      FROM orders 
+      WHERE user_id = $1 
+      ORDER BY created_at DESC 
+      LIMIT 20
+    `, [userId]);
+    return res.rows;
+  }
+
   /**
    * Update order with Shiprocket tracking details
    */
