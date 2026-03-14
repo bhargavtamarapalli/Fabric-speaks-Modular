@@ -5,6 +5,10 @@ import { EventConsumer } from './workers/EventConsumer';
 const app = createBaseApp({ serviceName: 'notification-service' });
 const eventConsumer = new EventConsumer();
 
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.use(globalErrorHandler);
 
 const start = () => {

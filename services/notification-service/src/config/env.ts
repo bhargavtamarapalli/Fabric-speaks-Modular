@@ -12,7 +12,7 @@ const envSchema = {
   TWILIO_PHONE_NUMBER: z.string().min(1, 'Twilio Phone Number is required'),
 
   // Admin Alerts
-  ADMIN_PHONE: z.string().default('+910000000000'),
+  ADMIN_PHONE: z.string().regex(/^\+91[0-9]{10}$/, 'Invalid Indian phone number format').default('+910000000000'),
 
   // Other Config
   WHATSAPP_LANGUAGE: z.string().default('en_US'),
