@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InventoryService } from '../../services/inventory.service';
 import { AppError, ErrorCode } from '@fs/shared';
 
+vi.mock('bullmq', () => ({
+  Queue: vi.fn().mockImplementation(() => ({
+    add: vi.fn().mockResolvedValue({}),
+    close: vi.fn().mockResolvedValue({}),
+  })),
+}));
+
 describe('InventoryService', () => {
   let inventoryService: InventoryService;
   let mockInvRepo: any;
@@ -95,7 +102,7 @@ describe('InventoryService', () => {
         return Promise.resolve(null);
       });
 
-      mockInvRepo.adjustStock.mockResolvedValue({ variantId: variantId1, stockQty: 15 });
+      mockInvRepo.adjustStock.mockResolvedValue({ variantId: variantId1, stockQty: 15, productName: 'Test Product' });
 
       const buffer = Buffer.from(csvContent);
       const response = await inventoryService.bulkAdjustment(buffer, 'admin-id');
@@ -104,6 +111,30 @@ describe('InventoryService', () => {
       expect(response.failed).toBe(2);
       expect(response.errors.length).toBe(2);
       expect(mockInvRepo.adjustStock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should emit stock.low event if stock is below 5', async () => {
+      const variantId = 'eeb7c044-67d4-42b7-873b-7a33e382d67d';
+      const currentVariant = { variantId, stockQty: 10, productName: 'Test' };
+      const updatedVariant = { variantId, stockQty: 3, productName: 'Test' };
+
+      mockInvRepo.getVariant.mockResolvedValue(currentVariant);
+      mockInvRepo.adjustStock.mockResolvedValue(updatedVariant);
+
+      await inventoryService.manualAdjustment(variantId, 3, 'Adjustment', 'admin');
+
+      const { Queue } = await import('bullmq');
+      const mockQueue = vi.mocked(Queue);
+      
+      // Check ALL instances created
+      const addCalls = mockQueue.mock.results.flatMap(r => r.value.add.mock.calls);
+      const stockLowCall = addCalls.find(c => c[0] === 'stock.low');
+      
+      expect(stockLowCall).toBeDefined();
+      expect(stockLowCall![1]).toEqual(expect.objectContaining({
+        variantId,
+        stockCount: 3
+      }));
     });
   });
 });

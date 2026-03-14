@@ -25,12 +25,10 @@ export class InventoryController {
        throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
-    const validated = ManualAdjustmentSchema.parse(req.body);
-
     const updated = await this.inventoryService.manualAdjustment(
       variantId!, 
-      validated.newQty, 
-      validated.reason, 
+      req.body.newQty, 
+      req.body.reason, 
       adminUserId
     );
     
@@ -65,12 +63,10 @@ export class InventoryController {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
-    const validated = ExpectedArrivalSchema.parse(req.body);
-
     const arrival = await this.inventoryService.addExpectedArrival({
-      variant_id: validated.variantId,
-      expected_qty: validated.expectedQty,
-      arrival_date: new Date(validated.arrivalDate)
+      variant_id: req.body.variantId,
+      expected_qty: req.body.expectedQty,
+      arrival_date: new Date(req.body.arrivalDate)
     }, adminUserId);
     
     res.status(201).json({

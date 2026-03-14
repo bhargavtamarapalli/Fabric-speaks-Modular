@@ -3,15 +3,18 @@ import { getRedisClient } from '@fs/shared';
 import { logger } from '@fs/shared';
 import { NotificationCoordinator } from '../services/NotificationCoordinator';
 import { LoyaltyScheduler } from './LoyaltyScheduler';
+import { env } from '../config/env';
 
 const QUEUE_NAME = 'platform_events';
 
 export class EventConsumer {
   private worker: Worker;
   private coordinator: NotificationCoordinator;
+  private scheduler: LoyaltyScheduler;
 
   constructor() {
     this.coordinator = new NotificationCoordinator();
+    this.scheduler = new LoyaltyScheduler();
     const redis = getRedisClient();
 
     this.worker = new Worker(
@@ -123,7 +126,7 @@ export class EventConsumer {
       case 'stock.low':
         await this.coordinator.processNotification({
           eventType: name,
-          recipientPhone: process.env.ADMIN_PHONE || '+910000000000',
+          recipientPhone: env.ADMIN_PHONE,
           waTemplateName: 'admin_stock_alert',
           waComponents: [
             { type: 'body', parameters: [{ type: 'text', text: data.productName }, { type: 'text', text: data.stockCount }] }
@@ -146,8 +149,7 @@ export class EventConsumer {
         });
         
         // Schedule loyalty triggers
-        const scheduler = new LoyaltyScheduler();
-        await scheduler.scheduleLoyaltySequence(data);
+        await this.scheduler.scheduleLoyaltySequence(data);
         break;
 
       case 'loyalty.day30':
@@ -185,5 +187,6 @@ export class EventConsumer {
 
   async close() {
     await this.worker.close();
+    await this.scheduler.close();
   }
 }
