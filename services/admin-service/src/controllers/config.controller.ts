@@ -1,31 +1,30 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import { ConfigService } from '../services/config.service';
-import { AppError, ErrorCode } from '@fs/shared';
+import { AppError, ErrorCode, catchAsync } from '@fs/shared';
+import { UpdateHomepageConfigSchema, UpdateNavigationConfigSchema } from '../schemas/nav.schemas';
 
 export class ConfigController {
   constructor(private configService: ConfigService) {}
 
-  updateHomepageConfig = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const adminUserId = req.user?.userId;
-      if (!adminUserId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+  updateHomepageConfig = catchAsync(async (req: Request, res: Response) => {
+    const adminId = req.user?.userId;
+    const adminRole = req.user?.role;
+    
+    if (!adminId || !adminRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
 
-      const result = await this.configService.updateHomepageConfig(req.body, adminUserId);
-      res.json({ success: true, data: result });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const dto = UpdateHomepageConfigSchema.parse(req.body);
+    const result = await this.configService.updateHomepageConfig(dto, adminId);
+    res.json({ success: true, data: result });
+  });
 
-  updateNavigationConfig = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const adminUserId = req.user?.userId;
-      if (!adminUserId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+  updateNavigationConfig = catchAsync(async (req: Request, res: Response) => {
+    const adminId = req.user?.userId;
+    const adminRole = req.user?.role;
+    
+    if (!adminId || !adminRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
 
-      const result = await this.configService.updateNavigationConfig(req.body, adminUserId);
-      res.json({ success: true, data: result });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const dto = UpdateNavigationConfigSchema.parse(req.body);
+    const result = await this.configService.updateNavigationConfig(dto, adminId);
+    res.json({ success: true, data: result });
+  });
 }

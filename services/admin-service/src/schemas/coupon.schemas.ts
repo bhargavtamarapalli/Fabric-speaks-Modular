@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PaginationSchema } from '@fs/shared/schemas';
+import { paginationSchema } from '@fs/shared';
 
 export const CreateCouponSchema = z.object({
   code: z.string().min(3).max(50).transform(s => s.toUpperCase()).pipe(z.string().regex(/^[A-Z0-9]+$/)),
@@ -26,7 +26,7 @@ export const UpdateCouponSchema = z.object({
 
 export type UpdateCouponDto = z.infer<typeof UpdateCouponSchema>;
 
-export const CouponListQuerySchema = PaginationSchema.extend({
+export const CouponListQuerySchema = paginationSchema.extend({
   'filter[is_active]': z.coerce.boolean().optional(),
   'filter[discount_type]': z.enum(['PERCENT', 'FIXED']).optional(),
 });

@@ -1,4 +1,4 @@
-import { BaseRepository } from '@fs/shared';
+import { BaseRepository, AppError, ErrorCode } from '@fs/shared';
 
 export interface AuditLog {
     id: string;
@@ -6,25 +6,52 @@ export interface AuditLog {
     action: string;
     entityType: string;
     entityId: string;
-    beforeJson?: any;
-    afterJson?: any;
-    ipAddress?: string;
+    beforeJson?: Record<string, unknown> | null;
+    afterJson?: Record<string, unknown> | null;
+    ipAddress?: string | null;
     createdAt: Date;
 }
 
+export interface AuditLogFilters {
+    adminId?: string;
+    limit?: number;
+    cursor?: string;
+    action?: string;
+    entityType?: string;
+    entityId?: string;
+}
+
 export class AuditLogRepository extends BaseRepository {
-    async list(filters: { adminId?: string; limit?: number; cursor?: string }): Promise<{ items: AuditLog[]; meta: any }> {
+    async list(filters: AuditLogFilters): Promise<{ items: AuditLog[]; meta: { count: number; nextCursor: string | null } }> {
         let query = 'SELECT * FROM admin_audit_log WHERE 1=1';
-        const params: any[] = [];
+        const params: unknown[] = [];
         
         if (filters.adminId) {
             params.push(filters.adminId);
             query += ` AND admin_id = $${params.length}`;
         }
 
+        if (filters.action) {
+            params.push(filters.action);
+            query += ` AND action = $${params.length}`;
+        }
+
+        if (filters.entityType) {
+            params.push(filters.entityType);
+            query += ` AND entity_type = $${params.length}`;
+        }
+
+        if (filters.entityId) {
+            params.push(filters.entityId);
+            query += ` AND entity_id = $${params.length}`;
+        }
+
         if (filters.cursor) {
-            // Cursor format: 'timestamp|id'
-            const [timestamp, id] = filters.cursor.split('|');
+            const parts = filters.cursor.split('|');
+            if (parts.length !== 2 || isNaN(Date.parse(parts[0]))) {
+                throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid cursor format');
+            }
+            const [timestamp, id] = parts;
             params.push(timestamp, id);
             query += ` AND (created_at < $${params.length - 1} OR (created_at = $${params.length - 1} AND id < $${params.length}))`;
         }
@@ -39,7 +66,7 @@ export class AuditLogRepository extends BaseRepository {
         const items = rows.map(r => this.mapToCamelCase<AuditLog>(r));
         
         let nextCursor = null;
-        if (items.length > 0) {
+        if (items.length >= limit) {
             const lastItem = items[items.length - 1];
             nextCursor = `${lastItem.createdAt.toISOString()}|${lastItem.id}`;
         }
