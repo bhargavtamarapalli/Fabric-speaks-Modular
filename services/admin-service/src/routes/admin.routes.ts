@@ -1,93 +1,70 @@
 import { Router } from 'express';
-// Assuming @fs/shared/middleware has these exported
-import { requireAuth, requireRole } from '@fs/shared/middleware';
+import { getDbPool, getRedisClient, requireAuth, requireRole } from '@fs/shared';
+
+// Repositories
+import { AdminUserRepository } from '../repositories/admin-user.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { CouponRepository } from '../repositories/coupon.repository';
+import { PageRepository } from '../repositories/page.repository';
+import { ConfigRepository } from '../repositories/config.repository';
+
+// Services
+import { AdminService } from '../services/admin.service';
+import { CouponService } from '../services/coupon.service';
+import { PageService } from '../services/page.service';
+import { ConfigService } from '../services/config.service';
 
 // Controllers
-import { 
-  listAdminUsers, 
-  createAdminUser, 
-  updateAdminRole, 
-  deleteAdminUser, 
-  getAuditLogs, 
-  getDashboardOps 
-} from '../controllers/admin.controller';
+import { AdminController } from '../controllers/admin.controller';
+import { CouponController } from '../controllers/coupon.controller';
+import { PageController } from '../controllers/page.controller';
+import { ConfigController } from '../controllers/config.controller';
 
-import { 
-  listCoupons, 
-  createCoupon, 
-  updateCoupon 
-} from '../controllers/coupon.controller';
+const router = Router();
+const db = getDbPool();
+const redis = getRedisClient();
 
-import { 
-  listPages, 
-  createPage, 
-  updatePage 
-} from '../controllers/page.controller';
+// Wiring
+const adminUserRepo = new AdminUserRepository(db);
+const auditLogRepo = new AuditLogRepository(db);
+const adminService = new AdminService(adminUserRepo, auditLogRepo);
+const adminController = new AdminController(adminService);
 
-import { 
-  updateHomepageConfig, 
-  updateNavigationConfig 
-} from '../controllers/config.controller';
+const couponRepo = new CouponRepository(db);
+const couponService = new CouponService(couponRepo, auditLogRepo);
+const couponController = new CouponController(couponService);
 
-export const adminRouter = Router();
+const pageRepo = new PageRepository(db);
+const pageService = new PageService(pageRepo, auditLogRepo);
+const pageController = new PageController(pageService);
 
-/**
- * ALL Admin endpoints require at least the 'supportAgent' role or higher.
- * Some specific endpoints require higher roles like 'superAdmin'.
- */
+const configRepo = new ConfigRepository(db);
+const configService = new ConfigService(configRepo, auditLogRepo, redis);
+const configController = new ConfigController(configService);
 
 // Global middleware for whole admin suite ingress
-adminRouter.use(requireAuth);
+router.use(requireAuth);
 
-// ==========================================
-// 1. Users, Metrics, & Audit (ADM-01 - 06)
-// ==========================================
+// ADM-01 - ADM-06
+router.get('/users', requireRole('superAdmin'), adminController.listAdminUsers);
+router.post('/users', requireRole('superAdmin'), adminController.createAdminUser);
+router.patch('/users/:id/role', requireRole('superAdmin'), adminController.updateAdminRole);
+router.delete('/users/:id', requireRole('superAdmin'), adminController.deleteAdminUser);
+router.get('/audit-log', requireRole('superAdmin'), adminController.getAuditLogs);
+router.get('/dashboard/ops', requireRole('superAdmin', 'supportAgent'), adminController.getDashboardOps);
 
-// ADM-01: GET /admin/users
-adminRouter.get('/users', requireRole('superAdmin'), listAdminUsers);
+// ADM-07 - ADM-09 (Coupons)
+router.get('/coupons', requireRole('superAdmin'), couponController.listCoupons);
+router.post('/coupons', requireRole('superAdmin'), couponController.createCoupon);
+router.patch('/coupons/:id', requireRole('superAdmin'), couponController.updateCoupon);
 
-// ADM-02: POST /admin/users (Create super admin)
-adminRouter.post('/users', requireRole('superAdmin'), createAdminUser);
+// ADM-10 (Content Pages)
+router.get('/content/pages', requireRole('superAdmin'), pageController.listPages);
+router.post('/content/pages', requireRole('superAdmin'), pageController.createPage);
+router.patch('/content/pages/:id', requireRole('superAdmin'), pageController.updatePage);
 
-// ADM-03: PATCH /admin/users/:id/role
-adminRouter.patch('/users/:id/role', requireRole('superAdmin'), updateAdminRole);
+// ADM-11 - ADM-12 (Site Configuration)
+router.post('/homepage/config', requireRole('superAdmin'), configController.updateHomepageConfig);
+router.post('/navigation/config', requireRole('superAdmin'), configController.updateNavigationConfig);
 
-// ADM-04: DELETE /admin/users/:id
-adminRouter.delete('/users/:id', requireRole('superAdmin'), deleteAdminUser);
-
-// ADM-05: GET /admin/audit-log
-adminRouter.get('/audit-log', requireRole('superAdmin'), getAuditLogs);
-
-// ADM-06: GET /admin/dashboard
-adminRouter.get('/dashboard/ops', requireRole('superAdmin', 'supportAgent'), getDashboardOps);
-
-// ==========================================
-// 2. Coupons (ADM-07 - 09)
-// ==========================================
-
-// ADM-07: GET /admin/coupons
-adminRouter.get('/coupons', requireRole('superAdmin'), listCoupons);
-
-// ADM-08: POST /admin/coupons
-adminRouter.post('/coupons', requireRole('superAdmin'), createCoupon);
-
-// ADM-09: PATCH /admin/coupons/:id
-adminRouter.patch('/coupons/:id', requireRole('superAdmin'), updateCoupon);
-
-// ==========================================
-// 3. Content Pages (ADM-10)
-// ==========================================
-
-adminRouter.get('/content/pages', requireRole('superAdmin'), listPages);
-adminRouter.post('/content/pages', requireRole('superAdmin'), createPage);
-adminRouter.patch('/content/pages/:id', requireRole('superAdmin'), updatePage);
-
-// ==========================================
-// 4. Site Configuration (ADM-11 - 12)
-// ==========================================
-
-// ADM-11: POST /admin/homepage/config
-adminRouter.post('/homepage/config', requireRole('superAdmin'), updateHomepageConfig);
-
-// ADM-12: POST /admin/navigation/config
-adminRouter.post('/navigation/config', requireRole('superAdmin'), updateNavigationConfig);
+export default router;

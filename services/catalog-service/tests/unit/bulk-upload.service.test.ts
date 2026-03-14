@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BulkUploadService } from '../../src/services/bulk-upload.service';
 import { Queue } from 'bullmq';
 import { AuditLogRepository } from '../../src/repositories/audit_log.repository';

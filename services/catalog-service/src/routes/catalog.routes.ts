@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '@fs/shared/middleware';
+import { requireAuth, requireRole, getDbPool, getRedisClient } from '@fs/shared';
 import { CatalogController } from '../controllers/catalog.controller';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
@@ -9,8 +9,6 @@ import { BrandRepository } from '../repositories/brand.repository';
 import { CategoryRepository } from '../repositories/category.repository';
 import { CollectionRepository } from '../repositories/collection.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
-import { getDbPool } from '@fs/shared/db';
-import { getRedisClient } from '@fs/shared/redis';
 import { Queue } from 'bullmq';
 
 export const catalogRouter = Router();

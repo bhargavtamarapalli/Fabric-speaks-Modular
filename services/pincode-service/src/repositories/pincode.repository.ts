@@ -1,15 +1,14 @@
-import { Pool } from 'pg';
+import { BaseRepository } from '@fs/shared';
 
 export interface PincodeRecord {
     pincode: string;
     deliverable: boolean;
-    cod_available: boolean;
-    estimated_days: number;
+    codAvailable: boolean;
+    estimatedDays: number;
     partner: string;
 }
 
-export class PincodeRepository {
-    constructor(private db: Pool) {}
+export class PincodeRepository extends BaseRepository {
 
     async getPincode(pincode: string): Promise<PincodeRecord | null> {
         const query = `
@@ -17,8 +16,8 @@ export class PincodeRepository {
             FROM pincodes 
             WHERE pincode = $1
         `;
-        const result = await this.db.query(query, [pincode]);
-        return result.rows[0] || null;
+        const result = await this.query(query, [pincode]);
+        return result.rows[0] ? this.mapToCamelCase<PincodeRecord>(result.rows[0]) : null;
     }
 
     async upsertPincode(record: PincodeRecord): Promise<void> {
@@ -33,11 +32,11 @@ export class PincodeRepository {
                 partner = EXCLUDED.partner,
                 updated_at = now()
         `;
-        await this.db.query(query, [
+        await this.query(query, [
             record.pincode, 
             record.deliverable, 
-            record.cod_available, 
-            record.estimated_days, 
+            record.codAvailable, 
+            record.estimatedDays, 
             record.partner
         ]);
     }
@@ -62,11 +61,11 @@ export class PincodeRepository {
                 updated_at = now()
         `;
         
-        await this.db.query(query, [
+        await this.query(query, [
             records.map(r => r.pincode),
             records.map(r => r.deliverable),
-            records.map(r => r.cod_available),
-            records.map(r => r.estimated_days),
+            records.map(r => r.codAvailable),
+            records.map(r => r.estimatedDays),
             records.map(r => r.partner),
         ]);
     }

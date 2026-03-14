@@ -1,40 +1,25 @@
 import { Router } from 'express';
-// Assuming @fs/shared/middleware has these exported
-import { requireAuth, requireRole } from '@fs/shared/middleware';
+import { requireAuth, requireRole, getDbPool } from '@fs/shared';
+import { SupportController } from '../controllers/support.controller';
+import { SupportService } from '../services/support.service';
+import { SupportRepository } from '../repositories/support.repository';
+import { CustomerViewService } from '../services/customer-view.service';
 
-import { 
-  getQueue, 
-  getCaseDetail, 
-  updateCaseStatus, 
-  getCustomerLookup, 
-  postInternalNote 
-} from '../controllers/support.controller';
+const router = Router();
 
-export const supportRouter = Router();
+const db = getDbPool();
+const supportRepo = new SupportRepository(db);
+const customerViewService = new CustomerViewService(db);
+const supportService = new SupportService(supportRepo, customerViewService);
+const supportController = new SupportController(supportService, customerViewService);
 
-// Globally secure Support endpoints
-supportRouter.use(requireAuth);
-supportRouter.use(requireRole('superAdmin', 'supportAgent'));
+router.use(requireAuth);
+router.use(requireRole('superAdmin', 'supportAgent'));
 
-// ==========================================
-// Support Tickets (SUP-01 - 03, 05)
-// ==========================================
+router.get('/queue', supportController.getQueue);
+router.get('/:caseId', supportController.getCaseDetail);
+router.patch('/:caseId/status', supportController.updateCaseStatus);
+router.post('/:caseId/note', supportController.postInternalNote);
+router.get('/customer/:mobile', supportController.getCustomerLookup);
 
-// SUP-01: GET /admin/support/queue
-supportRouter.get('/queue', getQueue);
-
-// SUP-02: GET /admin/support/:caseId
-supportRouter.get('/:caseId', getCaseDetail);
-
-// SUP-03: PATCH /admin/support/:caseId/status (also allows note and priority)
-supportRouter.patch('/:caseId/status', updateCaseStatus);
-
-// SUP-05: POST /admin/support/:caseId/note
-supportRouter.post('/:caseId/note', postInternalNote);
-
-// ==========================================
-// Customer 360 Lookup (SUP-04)
-// ==========================================
-
-// SUP-04: GET /admin/support/customer/:mobile
-supportRouter.get('/customer/:mobile', getCustomerLookup);
+export default router;

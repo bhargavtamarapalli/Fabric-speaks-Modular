@@ -1,43 +1,49 @@
-import { pageRepository } from '../repositories/page.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { PageRepository, AdminPage } from '../repositories/page.repository';
+import { AppError, ErrorCode } from '@fs/shared';
 import { CreatePageDto, PageListQueryDto, UpdatePageDto } from '../schemas/page.schemas';
 
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+
 export class PageService {
+  constructor(
+    private repo: PageRepository,
+    private auditLogRepo: AuditLogRepository
+  ) {}
+
   async listPages(filters: PageListQueryDto) {
-    return pageRepository.list(filters);
+    return this.repo.list(filters);
   }
 
   async createPage(data: CreatePageDto, adminId: string) {
-    const page = await pageRepository.create(data);
+    const page = await this.repo.create(data);
 
-    await auditLogRepository.insert({
+    await this.auditLogRepo.insert({
       adminId,
       action: 'page_create',
-      targetType: 'content_page',
-      targetId: page.id,
-      payload: { title: data.title, slug: page.slug }
+      entityType: 'content_page',
+      entityId: page.id,
+      afterJson: page
     });
 
     return page;
   }
 
   async updatePage(id: string, data: UpdatePageDto, adminId: string) {
-    const updated = await pageRepository.update(id, data);
+    const before = await this.repo.findById(id);
+    const updated = await this.repo.update(id, data);
     if (!updated) {
        throw new AppError(ErrorCode.NOT_FOUND, 'Page not found');
     }
 
-    await auditLogRepository.insert({
+    await this.auditLogRepo.insert({
       adminId,
       action: 'page_update',
-      targetType: 'content_page',
-      targetId: id,
-      payload: { updatedKeys: Object.keys(data) }
+      entityType: 'content_page',
+      entityId: id,
+      beforeJson: before,
+      afterJson: updated
     });
 
     return updated;
   }
 }
-
-export const pageService = new PageService();

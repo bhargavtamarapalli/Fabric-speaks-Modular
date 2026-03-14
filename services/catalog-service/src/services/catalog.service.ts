@@ -1,27 +1,36 @@
 import { Redis } from 'ioredis';
 import { AppError, ErrorCode } from '@fs/shared/errors';
 import { getEffectivePrice } from '@fs/shared/pricing';
-import { ProductRepository, Product } from '../repositories/product.repository';
-import { VariantRepository, Variant } from '../repositories/variant.repository';
-import { BrandRepository } from '../repositories/brand.repository';
-import { CategoryRepository } from '../repositories/category.repository';
-import { CollectionRepository } from '../repositories/collection.repository';
+import { 
+    Product, 
+    Variant, 
+    Brand, 
+    Category, 
+    EnhancedProduct,
+    IProductRepository,
+    IVariantRepository,
+    IBrandRepository,
+    ICategoryRepository,
+    ProductQueryDto,
+    CreateProductDto,
+    UpdateProductDto,
+} from '@fs/shared';
+import { CreateBrandDto, CreateCollectionDto } from '../schemas/catalog.schemas';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
-import { ProductQueryDto, CreateProductDto, UpdateProductDto } from '../schemas/catalog.schemas';
 import { logger } from '@fs/shared/logger';
 
 export class CatalogService {
     constructor(
-        private readonly productRepo: ProductRepository,
-        private readonly variantRepo: VariantRepository,
-        private readonly brandRepo: BrandRepository,
-        private readonly categoryRepo: CategoryRepository,
-        private readonly collectionRepo: CollectionRepository,
+        private readonly productRepo: IProductRepository,
+        private readonly variantRepo: IVariantRepository,
+        private readonly brandRepo: IBrandRepository,
+        private readonly categoryRepo: ICategoryRepository,
+        private readonly collectionRepo: any, // TODO: Define ICollectionRepository
         private readonly auditLogRepo: AuditLogRepository,
         private readonly redis: Redis
     ) {}
 
-    async listProducts(filters: ProductQueryDto): Promise<{ items: any[]; total: number }> {
+    async listProducts(filters: ProductQueryDto): Promise<{ items: EnhancedProduct[]; total: number }> {
         const cacheKey = `catalog:list:${JSON.stringify(filters)}`;
         const cached = await this.redis.get(cacheKey);
         if (cached) return JSON.parse(cached);
@@ -29,7 +38,7 @@ export class CatalogService {
         const { items: products, total } = await this.productRepo.findAll(filters);
         
         // Enhance products with variants data (basic for PLP)
-        const enhancedItems = await Promise.all(products.map(async (p) => {
+        const enhancedItems: EnhancedProduct[] = await Promise.all(products.map(async (p) => {
             const variants = await this.variantRepo.findByProductId(p.id);
             return {
                 ...p,
@@ -50,7 +59,7 @@ export class CatalogService {
         return result;
     }
 
-    async getProductBySlug(slug: string): Promise<any> {
+    async getProductBySlug(slug: string): Promise<EnhancedProduct> {
         const cacheKey = `catalog:product:${slug}`;
         const cached = await this.redis.get(cacheKey);
         if (cached) return JSON.parse(cached);
@@ -59,7 +68,7 @@ export class CatalogService {
         if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
 
         const variants = await this.variantRepo.findByProductId(product.id);
-        const result = {
+        const result: EnhancedProduct = {
             ...product,
             variants: variants.map(v => ({
                 ...v,
@@ -129,15 +138,15 @@ export class CatalogService {
         await this.redis.del(`catalog:product:${before.slug}`);
     }
 
-    async listBrands(): Promise<any[]> {
+    async listBrands(): Promise<Brand[]> {
         return this.brandRepo.findAllActive();
     }
 
-    async listCategories(): Promise<any[]> {
+    async listCategories(): Promise<Category[]> {
         return this.categoryRepo.findAllActive();
     }
 
-    async createBrand(dto: { name: string, slug: string, story?: string, logoUrl?: string }, adminId: string): Promise<any> {
+    async createBrand(dto: CreateBrandDto, adminId: string): Promise<Brand> {
         const brand = await this.brandRepo.create(dto);
         await this.auditLogRepo.insert({
             adminId,
@@ -149,10 +158,18 @@ export class CatalogService {
         return brand;
     }
 
-    async createCollection(dto: any, adminId: string): Promise<any> {
-        // Logic to create collection would go here
-        // For now, simplify or implement repository method if needed
-        return { success: true };
+    async createCollection(dto: CreateCollectionDto, adminId: string): Promise<any> {
+        const collection = await this.collectionRepo.create(dto);
+        
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'collection.create',
+            entityType: 'collection',
+            entityId: collection.id,
+            afterJson: collection
+        });
+
+        return collection;
     }
 
     async getCollection(slug: string): Promise<any> {

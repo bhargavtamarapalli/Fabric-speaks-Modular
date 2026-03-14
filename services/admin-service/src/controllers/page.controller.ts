@@ -1,26 +1,49 @@
-import { Request, Response } from 'express';
-import { pageService } from '../services/page.service';
+import { Request, Response, NextFunction } from 'express';
+import { PageService } from '../services/page.service';
 import { 
-  CreatePageSchema, 
   PageListQuerySchema, 
+  CreatePageSchema, 
   UpdatePageSchema 
 } from '../schemas/page.schemas';
+import { AppError, ErrorCode } from '@fs/shared';
 
-export async function listPages(req: Request, res: Response): Promise<void> {
-  const filters = PageListQuerySchema.parse(req.query);
-  const result = await pageService.listPages(filters);
-  res.json({ success: true, data: { items: result.items }, meta: result.meta });
-}
+export class PageController {
+  constructor(private pageService: PageService) {}
 
-export async function createPage(req: Request, res: Response): Promise<void> {
-  const dto = CreatePageSchema.parse(req.body);
-  const result = await pageService.createPage(dto, req.user!.userId);
-  res.status(201).json({ success: true, data: result });
-}
+  listPages = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const filters = PageListQuerySchema.parse(req.query);
+      const result = await this.pageService.listPages(filters);
+      res.json({ success: true, data: { items: result.items }, meta: result.meta });
+    } catch (error) {
+      next(error);
+    }
+  }
 
-export async function updatePage(req: Request, res: Response): Promise<void> {
-  const { id } = req.params;
-  const dto = UpdatePageSchema.parse(req.body);
-  const result = await pageService.updatePage(id, dto, req.user!.userId);
-  res.json({ success: true, data: result });
+  createPage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const dto = CreatePageSchema.parse(req.body);
+      const adminUserId = req.user?.userId;
+      if (!adminUserId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+      const result = await this.pageService.createPage(dto, adminUserId);
+      res.status(201).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  updatePage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const dto = UpdatePageSchema.parse(req.body);
+      const adminUserId = req.user?.userId;
+      if (!adminUserId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+      const result = await this.pageService.updatePage(id, dto, adminUserId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

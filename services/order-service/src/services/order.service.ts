@@ -1,13 +1,14 @@
-import { getDbPool } from '@fs/shared/src/db';
-import { AppError, ErrorCode } from '@fs/shared/src/errors';
+import { getDbPool, AppError, ErrorCode, logger } from '@fs/shared';
 import { OrderRepository } from '../repositories/order.repository';
+import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
 
 export class OrderService {
-  constructor(private orderRepo: OrderRepository = new OrderRepository()) {}
+  constructor(private orderRepo: OrderRepository) {}
   
   async placeOrder(userId: string, orderPayload: any) {
-    const client = await getDbPool().connect();
+    const pool = getDbPool();
+    const client = await pool.connect();
     
     try {
       await client.query('BEGIN');

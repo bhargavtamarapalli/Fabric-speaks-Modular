@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError, ErrorCode } from './errors';
 import { Role } from './types';
 import pino from 'pino';
+import { z } from 'zod';
 
 const logger = pino();
 
@@ -40,6 +41,12 @@ export const requireRole = (...roles: Role[]) => {
   };
 };
 
+export const catchAsync = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res, next).catch(next);
+  };
+};
+
 export const globalErrorHandler = (
   err: Error,
   req: Request,
@@ -58,6 +65,18 @@ export const globalErrorHandler = (
     });
   }
 
+  if (err instanceof z.ZodError) {
+    logger.warn({ err: err.errors, msg: 'Validation error' });
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Validation failed',
+        meta: err.errors
+      }
+    });
+  }
+
   logger.error({ err, msg: 'Unhandled exception' });
   return res.status(500).json({
     success: false,
@@ -66,4 +85,23 @@ export const globalErrorHandler = (
       message: 'An unexpected error occurred'
     }
   });
+};
+
+/**
+ * Sets the authentication JWT cookie with appropriate security flags.
+ */
+export const setAuthCookie = (res: Response, token: string) => {
+  res.cookie('jwt', token, {
+    httpOnly: true,
+    secure: process.env.APP_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  });
+};
+
+/**
+ * Clears the authentication JWT cookie.
+ */
+export const clearAuthCookie = (res: Response) => {
+  res.clearCookie('jwt');
 };

@@ -51,7 +51,7 @@ describe('SearchService - FTS Queries and Typeahead', () => {
 
         expect(mockRedis.get).toHaveBeenCalledWith('search:suggest:silk');
         expect(mockRepo.getSuggestions).not.toHaveBeenCalled();
-        expect(response.results[0].name).toBe('Silk Saree');
+        expect(response.results[0]!.name).toBe('Silk Saree');
     });
 
     it('should query DB and cache typeahead suggestions if not in Redis', async () => {
@@ -62,6 +62,6 @@ describe('SearchService - FTS Queries and Typeahead', () => {
 
         expect(mockRepo.getSuggestions).toHaveBeenCalledWith('linen');
         expect(mockRedis.setex).toHaveBeenCalledWith('search:suggest:linen', 300, JSON.stringify({ results: [{ name: 'Linen Kurta' }] }));
-        expect(response.results[0].name).toBe('Linen Kurta');
+        expect(response.results[0]!.name).toBe('Linen Kurta');
     });
 });

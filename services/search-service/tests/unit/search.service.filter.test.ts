@@ -63,7 +63,7 @@ describe('SearchService - Filtering and Pagination Edge Cases', () => {
         const dto = { 
             fabric: 'Cotton', 
             brand: 'FabIndia', 
-            min_price: 1500, 
+            minPrice: 1500, 
             limit: 20, 
             page: 1, 
             sort: 'relevance' as const 

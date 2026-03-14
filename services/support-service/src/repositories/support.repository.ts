@@ -1,10 +1,8 @@
-import { query } from '@fs/shared/db';
+import { BaseRepository, maskMobile, PaginatedResponse } from '@fs/shared';
 import { v4 as uuidv4 } from 'uuid';
 import { SupportQueueQueryDto } from '../schemas/support.schemas';
-import { PaginatedResponse } from '@fs/shared/types';
-import { maskMobile } from '@fs/shared/logger';
 
-export class SupportQueryRepository {
+export class SupportRepository extends BaseRepository {
   async listQueue(filters: SupportQueueQueryDto): Promise<PaginatedResponse<any>> {
     const params: any[] = [];
     let whereClause = '1=1';
@@ -39,8 +37,8 @@ export class SupportQueryRepository {
     const countSql = `SELECT COUNT(*) FROM support_queries q WHERE ${whereClause}`;
 
     const [dataRes, countRes] = await Promise.all([
-      query(sql, [...params, limit, offset]),
-      query(countSql, params)
+      this.query(sql, [...params, limit, offset]),
+      this.query(countSql, params)
     ]);
 
     const total = parseInt(countRes.rows[0].count, 10);
@@ -58,7 +56,7 @@ export class SupportQueryRepository {
   }
 
   async findById(caseId: string): Promise<any | null> {
-    const { rows } = await query(`
+    const { rows } = await this.query(`
       SELECT q.*, u.name as "customerName", u.mobile as "customerMobile", u.is_wa_opted_in as "isWaOptedIn"
       FROM support_queries q
       LEFT JOIN users u ON q.user_id = u.id
@@ -71,7 +69,7 @@ export class SupportQueryRepository {
     caseData.customerMobile = maskMobile(caseData.customerMobile); // RULE 5
 
     // Fetch notes separately
-    const noteRes = await query(`
+    const noteRes = await this.query(`
       SELECT n.id, n.text, n.created_at as "createdAt", u.name as "agentName"
       FROM support_query_notes n
       LEFT JOIN users u ON n.admin_id = u.id
@@ -106,17 +104,15 @@ export class SupportQueryRepository {
 
     if (setParts.length > 0) {
       setParts.push(`updated_at = NOW()`);
-      await query(`UPDATE support_queries SET ${setParts.join(', ')} WHERE id = $1`, params);
+      await this.query(`UPDATE support_queries SET ${setParts.join(', ')} WHERE id = $1`, params);
     }
   }
 
   // INSERT-only for agent notes
   async addNote(caseId: string, adminId: string, text: string): Promise<void> {
-    await query(`
+    await this.query(`
       INSERT INTO support_query_notes (id, query_id, admin_id, text)
       VALUES ($1, $2, $3, $4)
     `, [uuidv4(), caseId, adminId, text]);
   }
 }
-
-export const supportQueryRepository = new SupportQueryRepository();

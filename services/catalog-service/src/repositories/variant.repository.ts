@@ -1,37 +1,10 @@
-import { Pool } from 'pg';
+import { BaseRepository, Variant, IVariantRepository } from '@fs/shared';
 
-export interface Variant {
-    id: string;
-    productId: string;
-    sku: string;
-    size?: string;
-    colour?: string;
-    sizeLabel?: string;
-    basePrice: number;
-    priceOverride?: number;
-    salePrice?: number;
-    saleActive: boolean;
-    qty: number;
-    badges_json: any;
-    images_json: any;
-    isActive: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-}
+export { Variant };
 
-export interface IVariantRepository {
-    findById(id: string): Promise<Variant | null>;
-    findByProductId(productId: string): Promise<Variant[]>;
-    findBySku(sku: string): Promise<Variant | null>;
-    updateStock(id: string, qty: number): Promise<void>;
-    // ... other methods
-}
-
-export class VariantRepository implements IVariantRepository {
-    constructor(private db: Pool) {}
-
+export class VariantRepository extends BaseRepository implements IVariantRepository {
     async findById(id: string): Promise<Variant | null> {
-        const result = await this.db.query(
+        const result = await this.query(
             'SELECT * FROM variants WHERE id = $1 AND is_deleted = false',
             [id]
         );
@@ -39,7 +12,7 @@ export class VariantRepository implements IVariantRepository {
     }
 
     async findByProductId(productId: string): Promise<Variant[]> {
-        const result = await this.db.query(
+        const result = await this.query(
             'SELECT * FROM variants WHERE product_id = $1 AND is_deleted = false',
             [productId]
         );
@@ -47,7 +20,7 @@ export class VariantRepository implements IVariantRepository {
     }
 
     async findBySku(sku: string): Promise<Variant | null> {
-        const result = await this.db.query(
+        const result = await this.query(
             'SELECT * FROM variants WHERE sku = $1 AND is_deleted = false',
             [sku]
         );
@@ -55,30 +28,19 @@ export class VariantRepository implements IVariantRepository {
     }
 
     async updateStock(id: string, qty: number): Promise<void> {
-        await this.db.query(
+        await this.query(
             'UPDATE variants SET qty = $1, updated_at = now() WHERE id = $2',
             [qty, id]
         );
     }
 
-    private mapVariant(row: any): Variant {
+    private mapVariant(row: Record<string, any>): Variant {
+        const mapped = this.mapToCamelCase<Variant>(row);
         return {
-            id: row.id,
-            productId: row.product_id,
-            sku: row.sku,
-            size: row.size,
-            colour: row.colour,
-            sizeLabel: row.size_label,
+            ...mapped,
             basePrice: parseFloat(row.base_price),
             priceOverride: row.price_override ? parseFloat(row.price_override) : undefined,
             salePrice: row.sale_price ? parseFloat(row.sale_price) : undefined,
-            saleActive: row.sale_active,
-            qty: row.qty,
-            badges_json: row.badges_json,
-            images_json: row.images_json,
-            isActive: row.is_active,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
         };
     }
 }

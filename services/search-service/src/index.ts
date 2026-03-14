@@ -1,29 +1,17 @@
-import express from 'express';
-// import cookieParser from 'cookie-parser';
+import { createBaseApp, logger, globalErrorHandler } from '@fs/shared';
+import searchRoutes from './routes/search.routes';
 import { env } from './config/env';
-import { globalErrorHandler } from '@fs/shared/middleware';
-import { searchRouter } from './routes/search.routes';
-import { logger } from '@fs/shared/logger';
 
-const app = express();
+const app = createBaseApp({ serviceName: 'search-service' });
 
-app.use(express.json());
-// app.use(cookieParser());
+app.use('/api', searchRoutes);
 
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ success: true, service: 'search-service', timestamp: new Date().toISOString() });
-});
-
-// Routes
-app.use('/api/v1/search', searchRouter);
-
-// Error Handler
 app.use(globalErrorHandler);
 
-const port = env.APP_PORT;
-app.listen(port, () => {
-    logger.info(`Search Service listening on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(env.APP_PORT, () => {
+    logger.info(`Search Service running on port ${env.APP_PORT}`);
+  });
+}
 
 export default app;

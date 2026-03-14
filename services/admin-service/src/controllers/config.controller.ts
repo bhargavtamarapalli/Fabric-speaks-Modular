@@ -1,15 +1,31 @@
-import { Request, Response } from 'express';
-import { configService } from '../services/config.service';
-import { UpdateHomepageConfigSchema, UpdateNavSchema } from '../schemas/nav.schemas';
+import { Request, Response, NextFunction } from 'express';
+import { ConfigService } from '../services/config.service';
+import { AppError, ErrorCode } from '@fs/shared';
 
-export async function updateNavigationConfig(req: Request, res: Response): Promise<void> {
-  const dto = UpdateNavSchema.parse(req.body);
-  const result = await configService.updateNavigation(dto, req.user!.userId);
-  res.json({ success: true, data: result });
-}
+export class ConfigController {
+  constructor(private configService: ConfigService) {}
 
-export async function updateHomepageConfig(req: Request, res: Response): Promise<void> {
-  const dto = UpdateHomepageConfigSchema.parse(req.body);
-  const result = await configService.updateHomepage(dto, req.user!.userId);
-  res.json({ success: true, data: result });
+  updateHomepageConfig = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const adminUserId = req.user?.userId;
+      if (!adminUserId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+      const result = await this.configService.updateHomepageConfig(req.body, adminUserId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  updateNavigationConfig = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const adminUserId = req.user?.userId;
+      if (!adminUserId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+      const result = await this.configService.updateNavigationConfig(req.body, adminUserId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

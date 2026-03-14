@@ -6,17 +6,39 @@ export const CreateProductSchema = z.object({
     brandId: z.string().uuid(),
     categoryId: z.string().uuid(),
     description: z.string().optional(),
-    fabric_details: z.string().optional(),
-    care_guide: z.string().optional(),
+    fabricDetails: z.string().optional(),
+    careGuide: z.string().optional(),
     // USP Fields
-    fabric_type: z.string().min(1),
-    gsm_weight: z.number().int().positive(),
-    weave_type: z.string().min(1),
-    breathability_rating: z.string().min(1),
-    care_instructions: z.string().min(1),
-    fabric_origin: z.string().min(1),
+    fabricType: z.string().min(1),
+    gsmWeight: z.number().int().positive(),
+    weaveType: z.string().min(1),
+    breathabilityRating: z.string().min(1),
+    careInstructions: z.string().min(1),
+    fabricOrigin: z.string().min(1),
     attributes: z.record(z.any()).default({}),
-    manual_badges_json: z.array(z.object({ type: z.string() })).optional(),
+    manualBadgesJson: z.array(z.object({ type: z.string() })).optional(),
+});
+
+export const CreateBrandSchema = z.object({
+    name: z.string().min(2).max(100),
+    slug: z.string().regex(/^[a-z0-9-]+$/),
+    story: z.string().optional(),
+    logoUrl: z.string().url().optional().or(z.string().length(0)),
+});
+
+export const CreateCollectionSchema = z.object({
+    name: z.string().min(2).max(100),
+    slug: z.string().regex(/^[a-z0-9-]+$/),
+    type: z.enum(['smart', 'manual']),
+    rules_json: z.record(z.any()).optional(),
+    heroImageMobileUrl: z.string().url().optional().or(z.string().length(0)),
+    heroImageDesktopUrl: z.string().url().optional().or(z.string().length(0)),
+    description: z.string().optional(),
+    isActive: z.boolean().default(true),
+});
+
+export const BulkUploadRequestSchema = z.object({
+    csvData: z.string().min(1),
 });
 
 export const UpdateProductSchema = CreateProductSchema.partial();
@@ -47,3 +69,6 @@ export const ProductQuerySchema = z.object({
 export type CreateProductDto = z.infer<typeof CreateProductSchema>;
 export type UpdateProductDto = z.infer<typeof UpdateProductSchema>;
 export type ProductQueryDto = z.infer<typeof ProductQuerySchema>;
+export type CreateBrandDto = z.infer<typeof CreateBrandSchema>;
+export type CreateCollectionDto = z.infer<typeof CreateCollectionSchema>;
+export type BulkUploadRequestDto = z.infer<typeof BulkUploadRequestSchema>;

@@ -1,30 +1,36 @@
-import { adminUserRepository } from '../repositories/admin-user.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { AdminUserRepository, AdminUser } from '../repositories/admin-user.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { AppError, ErrorCode } from '@fs/shared';
 import { AdminListQueryDto, AuditLogQueryDto } from '../schemas/admin.schemas';
 
 export class AdminService {
+  constructor(
+    private adminUserRepo: AdminUserRepository,
+    private auditLogRepo: AuditLogRepository
+  ) {}
+
   async listAdminUsers(filters: AdminListQueryDto) {
-    return adminUserRepository.list(filters);
+    return this.adminUserRepo.list(filters);
   }
 
   async getAuditLogs(filters: AuditLogQueryDto) {
-    return auditLogRepository.list(filters);
+    return this.auditLogRepo.list({
+      adminId: filters['filter[admin_id]'],
+      limit: filters.limit,
+      cursor: filters.cursor
+    });
   }
 
   async createAdminUser(data: { name: string; mobile: string; role: string }, adminId: string) {
-    // Check if mobile already exists
-    // (We skip explicit uniqueness check here assuming DB constraint, but let's handle via AppError if it fails)
     try {
-      const user = await adminUserRepository.create(data);
+      const user = await this.adminUserRepo.create(data);
       
-      // RULE 6
-      await auditLogRepository.insert({
+      await this.auditLogRepo.insert({
         adminId,
         action: 'admin_user_create',
-        targetType: 'user',
-        targetId: user.id,
-        payload: { name: user.name, role: user.role }
+        entityType: 'user',
+        entityId: user.id,
+        afterJson: { name: user.name, role: user.role }
       });
       
       return user;
@@ -39,18 +45,18 @@ export class AdminService {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot change your own role');
     }
 
-    const previousUser = await adminUserRepository.findById(userId);
+    const previousUser = await this.adminUserRepo.findById(userId);
     if (!previousUser) throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
 
-    const updated = await adminUserRepository.updateRole(userId, targetRole);
+    const updated = await this.adminUserRepo.updateRole(userId, targetRole);
     
-    // RULE 6
-    await auditLogRepository.insert({
+    await this.auditLogRepo.insert({
       adminId,
       action: 'admin_role_change',
-      targetType: 'user',
-      targetId: userId,
-      payload: { previousRole: previousUser.role, newRole: targetRole }
+      entityType: 'user',
+      entityId: userId,
+      beforeJson: { role: previousUser.role },
+      afterJson: { role: targetRole }
     });
 
     return updated;
@@ -61,19 +67,16 @@ export class AdminService {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot delete your own account');
     }
 
-    const deleted = await adminUserRepository.softDelete(userId);
+    const deleted = await this.adminUserRepo.softDelete(userId);
     if (!deleted) throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
 
-    // RULE 6
-    await auditLogRepository.insert({
+    await this.auditLogRepo.insert({
       adminId,
       action: 'admin_user_delete',
-      targetType: 'user',
-      targetId: userId,
+      entityType: 'user',
+      entityId: userId,
     });
 
     return { deleted: true };
   }
 }
-
-export const adminService = new AdminService();

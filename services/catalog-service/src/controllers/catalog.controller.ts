@@ -1,8 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
-import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema } from '../schemas/catalog.schemas';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema } from '../schemas/catalog.schemas';
+import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class CatalogController {
     constructor(
@@ -10,118 +10,71 @@ export class CatalogController {
         private readonly bulkUploadService: BulkUploadService
     ) {}
 
-    listProducts = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const query = ProductQuerySchema.parse(req.query);
-            const result = await this.catalogService.listProducts(query);
-            res.json({ success: true, data: result.items, meta: { total: result.total, page: query.page, limit: query.limit } });
-        } catch (err) {
-            next(err);
-        }
-    };
+    listProducts = catchAsync(async (req: Request, res: Response) => {
+        const query = ProductQuerySchema.parse(req.query);
+        const result = await this.catalogService.listProducts(query);
+        res.json({ success: true, data: result.items, meta: { total: result.total, page: query.page, limit: query.limit } });
+    });
 
-    getProduct = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const result = await this.catalogService.getProductBySlug(req.params.slug!);
-            res.json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    getProduct = catchAsync(async (req: Request, res: Response) => {
+        const result = await this.catalogService.getProductBySlug(req.params.slug!);
+        res.json({ success: true, data: result });
+    });
 
-    listBrands = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const result = await this.catalogService.listBrands();
-            res.json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    listBrands = catchAsync(async (req: Request, res: Response) => {
+        const result = await this.catalogService.listBrands();
+        res.json({ success: true, data: result });
+    });
 
-    listCategories = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const result = await this.catalogService.listCategories();
-            res.json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    listCategories = catchAsync(async (req: Request, res: Response) => {
+        const result = await this.catalogService.listCategories();
+        res.json({ success: true, data: result });
+    });
 
-    getCollection = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const result = await this.catalogService.getCollection(req.params.slug!);
-            res.json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    getCollection = catchAsync(async (req: Request, res: Response) => {
+        const result = await this.catalogService.getCollection(req.params.slug!);
+        res.json({ success: true, data: result });
+    });
 
-    createProduct = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const dto = CreateProductSchema.parse(req.body);
-            const result = await this.catalogService.createProduct(dto, req.user!.userId);
-            res.status(201).json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    createProduct = catchAsync(async (req: Request, res: Response) => {
+        const dto = CreateProductSchema.parse(req.body);
+        const result = await this.catalogService.createProduct(dto, req.user!.userId);
+        res.status(201).json({ success: true, data: result });
+    });
 
-    updateProduct = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const dto = UpdateProductSchema.parse(req.body);
-            const result = await this.catalogService.updateProduct(req.params.id!, dto, req.user!.userId);
-            res.json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    updateProduct = catchAsync(async (req: Request, res: Response) => {
+        const dto = UpdateProductSchema.parse(req.body);
+        const result = await this.catalogService.updateProduct(req.params.id!, dto, req.user!.userId);
+        res.json({ success: true, data: result });
+    });
 
-    deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            await this.catalogService.deleteProduct(req.params.id!, req.user!.userId);
-            res.json({ success: true });
-        } catch (err) {
-            next(err);
-        }
-    };
+    deleteProduct = catchAsync(async (req: Request, res: Response) => {
+        await this.catalogService.deleteProduct(req.params.id!, req.user!.userId);
+        res.json({ success: true });
+    });
 
-    bulkUpload = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const { csvData } = req.body; // or use multer for file upload
-            if (!csvData) throw new AppError(ErrorCode.VALIDATION_ERROR, 'csvData is required');
-            const result = await this.bulkUploadService.queueUpload(csvData, req.user!.userId);
-            res.json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    bulkUpload = catchAsync(async (req: Request, res: Response) => {
+        const { csvData } = BulkUploadRequestSchema.parse(req.body);
+        const result = await this.bulkUploadService.queueUpload(csvData, req.user!.userId);
+        res.json({ success: true, data: result });
+    });
 
-    getBulkTemplate = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const template = this.bulkUploadService.getTemplateCsv();
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', 'attachment; filename=catalog_template.csv');
-            res.send(template);
-        } catch (err) {
-            next(err);
-        }
-    };
+    getBulkTemplate = catchAsync(async (req: Request, res: Response) => {
+        const template = this.bulkUploadService.getTemplateCsv();
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=catalog_template.csv');
+        res.send(template);
+    });
 
-    createBrand = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const result = await this.catalogService.createBrand(req.body, req.user!.userId);
-            res.status(201).json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    createBrand = catchAsync(async (req: Request, res: Response) => {
+        const dto = CreateBrandSchema.parse(req.body);
+        const result = await this.catalogService.createBrand(dto, req.user!.userId);
+        res.status(201).json({ success: true, data: result });
+    });
 
-    createCollection = async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const result = await this.catalogService.createCollection(req.body, req.user!.userId);
-            res.status(201).json({ success: true, data: result });
-        } catch (err) {
-            next(err);
-        }
-    };
+    createCollection = catchAsync(async (req: Request, res: Response) => {
+        const dto = CreateCollectionSchema.parse(req.body);
+        const result = await this.catalogService.createCollection(dto, req.user!.userId);
+        res.status(201).json({ success: true, data: result });
+    });
 }

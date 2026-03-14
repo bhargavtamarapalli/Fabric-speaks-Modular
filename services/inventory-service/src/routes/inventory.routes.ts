@@ -1,26 +1,27 @@
 import { Router } from 'express';
+import { requireAuth, getDbPool } from '@fs/shared';
 import { InventoryController } from '../controllers/inventory.controller';
+import { InventoryService } from '../services/inventory.service';
+import { InventoryRepository } from '../repositories/inventory.repository';
+import { ExpectedStockRepository } from '../repositories/expected-stock.repository';
 import multer from 'multer';
-
-// Mocking requireAuth for standalone compilation.
-// In reality, it should be imported from @fs/shared/middleware
-import { Request, Response, NextFunction } from 'express';
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  // Mock attaching admin user for DEV only
-  req.user = { id: 'admin-uuid-123', role: 'ADMIN' } as any; 
-  next();
-};
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+const db = getDbPool();
+const invRepo = new InventoryRepository(db);
+const expectedRepo = new ExpectedStockRepository(db);
+const inventoryService = new InventoryService(invRepo, expectedRepo);
+const inventoryController = new InventoryController(inventoryService);
+
 router.use(requireAuth);
 
-router.get('/', InventoryController.listInventory);
-router.patch('/:variantId', InventoryController.manualAdjustment);
-router.post('/adjustment/bulk', upload.single('file'), InventoryController.bulkAdjustment);
-router.get('/expected', InventoryController.getExpectedArrivals);
-router.post('/expected', InventoryController.addExpectedArrival);
-router.get('/health', InventoryController.getHealth);
+router.get('/', inventoryController.listInventory);
+router.patch('/:variantId', inventoryController.manualAdjustment);
+router.post('/adjustment/bulk', upload.single('file'), inventoryController.bulkAdjustment);
+router.get('/expected', inventoryController.getExpectedArrivals);
+router.post('/expected', inventoryController.addExpectedArrival);
+router.get('/health', inventoryController.getHealth);
 
 export default router;

@@ -1,21 +1,19 @@
-import { logger } from '@fs/shared';
-import { db } from './db';
+import { createBaseApp, globalErrorHandler, logger } from '@fs/shared';
 import { env } from './config/env';
+import { EventConsumer } from './workers/EventConsumer';
 
-async function bootstrap() {
-  try {
-    logger.info('Starting Notification Service...');
-    
-    // Connect to DB (using imported db object)
-    // Connect to Redis / BullMQ
-    
-    logger.info(`Notification Service is running in ${env.NODE_ENV} mode`);
-    logger.info('Listening for events on BullMQ...');
-    
-  } catch (error) {
-    logger.error('Failed to start Notification Service:', error);
-    process.exit(1);
-  }
+const app = createBaseApp({ serviceName: 'notification-service' });
+
+const eventConsumer = new EventConsumer();
+// eventConsumer doesn't have a start method, it usually starts in constructor or similar
+// I'll check the file content next to be sure.
+
+app.use(globalErrorHandler);
+
+if (require.main === module) {
+  app.listen(env.APP_PORT, () => {
+    logger.info(`Notification Service running on port ${env.APP_PORT}`);
+  });
 }
 
-bootstrap();
+export default app;

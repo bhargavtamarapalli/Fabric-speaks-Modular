@@ -7,9 +7,9 @@ export const InitiatePaymentSchema = z.object({
 });
 
 export const VerifyPaymentSchema = z.object({
-  razorpay_order_id: z.string(),
-  razorpay_payment_id: z.string(),
-  razorpay_signature: z.string()
+  razorpayOrderId: z.string(),
+  razorpayPaymentId: z.string(),
+  razorpaySignature: z.string()
 });
 
 export const RefundPaymentSchema = z.object({

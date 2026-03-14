@@ -1,9 +1,17 @@
 import { Router } from 'express';
 import { PaymentController } from '../controllers/payment.controller';
-import { requireAuth, requireRole } from '@fs/shared';
+import { PaymentService } from '../services/payment.service';
+import { PaymentRepository } from '../repositories/payment.repository';
+import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { getDbPool, requireAuth, requireRole } from '@fs/shared';
 
 const router = Router();
-const paymentController = new PaymentController();
+
+const db = getDbPool();
+const paymentRepo = new PaymentRepository(db);
+const auditLogRepo = new AuditLogRepository(db);
+const paymentService = new PaymentService(paymentRepo, auditLogRepo);
+const paymentController = new PaymentController(paymentService);
 
 // Customer endpoints
 router.post('/payments/initiate', requireAuth, paymentController.initiatePayment);

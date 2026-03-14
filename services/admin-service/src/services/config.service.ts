@@ -1,35 +1,42 @@
-import { configRepository } from '../repositories/config.repository';
-import { auditLogRepository } from '../repositories/audit-log.repository';
-import { UpdateHomepageConfigDto, UpdateNavDto } from '../schemas/nav.schemas';
+import { ConfigRepository } from '../repositories/config.repository';
+
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { Redis } from 'ioredis';
 
 export class ConfigService {
-  async updateNavigation(data: UpdateNavDto, adminId: string) {
-    const updatedCount = await configRepository.updateNav(data);
+  constructor(
+    private repo: ConfigRepository,
+    private auditLogRepo: AuditLogRepository,
+    private redis: Redis
+  ) {}
 
-    await auditLogRepository.insert({
-      adminId,
-      action: 'navigation_update',
-      targetType: 'config',
-      targetId: 'nav:global',
-      payload: { itemsCount: data.items.length }
-    });
+  async updateHomepageConfig(data: any, adminId: string) {
+    await this.repo.updateConfig('homepage', data);
 
-    return { updatedCount };
-  }
-
-  async updateHomepage(data: UpdateHomepageConfigDto, adminId: string) {
-    await configRepository.updateHomepage(data);
-
-    await auditLogRepository.insert({
+    await this.auditLogRepo.insert({
       adminId,
       action: 'homepage_update',
-      targetType: 'config',
-      targetId: 'homepage:config',
-      payload: { keysUpdated: Object.keys(data) }
+      entityType: 'config',
+      entityId: '00000000-0000-0000-0000-000000000000', // Mock UUID for global config
+      afterJson: data
     });
 
-    return { updated: true, previewUrl: 'https://preview.fabricspeaks.com?preview=1' }; // Mock URL for assignment
+    await this.redis.del('config:homepage');
+    return { success: true };
+  }
+
+  async updateNavigationConfig(data: any, adminId: string) {
+    await this.repo.updateConfig('navigation', data);
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'navigation_update',
+      entityType: 'config',
+      entityId: '00000000-0000-0000-0000-000000000001', // Mock UUID for nav config
+      afterJson: data
+    });
+
+    await this.redis.del('config:navigation');
+    return { success: true };
   }
 }
-
-export const configService = new ConfigService();

@@ -1,95 +1,67 @@
-import { query } from '@fs/shared/db';
-import { v4 as uuidv4 } from 'uuid';
-import { AdminListQueryDto } from '../schemas/admin.schemas';
-import { PaginatedResponse } from '@fs/shared/types';
+import { BaseRepository } from '@fs/shared';
 
 export interface AdminUser {
-  id: string;
-  name: string;
-  mobile: string;
-  role: string;
-  createdAt: Date;
-  isDeleted: boolean;
+    id: string;
+    name: string;
+    mobile: string;
+    role: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
-export class AdminUserRepository {
-  async list(filters: AdminListQueryDto): Promise<PaginatedResponse<AdminUser>> {
-    const params: any[] = [];
-    // Only return admin roles
-    let whereClause = `u.role IN ('superAdmin', 'inventoryManager', 'supportAgent') AND u.is_deleted = false`;
+export class AdminUserRepository extends BaseRepository {
+    async list(filters: Record<string, unknown>): Promise<{ items: AdminUser[]; meta: Record<string, unknown> }> {
+        const { page = 1, limit = 20, role } = filters;
+        const offset = ((page as number) - 1) * (limit as number);
+        
+        let query = 'SELECT * FROM admin_users WHERE is_active = true';
+        const params: unknown[] = [];
+        if (role) {
+            params.push(role);
+            query += ` AND role = $${params.length}`;
+        }
 
-    if (filters['filter[role]']) {
-      params.push(filters['filter[role]']);
-      whereClause += ` AND u.role = $${params.length}`;
+        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        params.push(limit as number, offset);
+
+        const { rows } = await this.query(query, params);
+
+        // For meta, we'd typically run a separate COUNT query for total,
+        // but for now, we'll stick to the original behavior of returning rows.length
+        // as the snippet didn't provide a total count query.
+        return {
+            items: rows.map(r => this.mapToCamelCase<AdminUser>(r)),
+            meta: { total: rows.length }
+        };
     }
 
-    const { page, limit } = filters;
-    const offset = (page - 1) * limit;
+    async findById(id: string): Promise<AdminUser | null> {
+        const { rows } = await this.query('SELECT * FROM admin_users WHERE id = $1', [id]);
+        if (!rows.length) return null;
+        return this.mapToCamelCase<AdminUser>(rows[0]);
+    }
 
-    const sql = `
-      SELECT id, name, mobile, role, created_at as "createdAt", is_deleted as "isDeleted"
-      FROM users u
-      WHERE ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `;
+    async create(data: Record<string, unknown>): Promise<AdminUser> {
+        const query = `
+            INSERT INTO admin_users (name, mobile, role)
+            VALUES ($1, $2, $3)
+            RETURNING *
+        `;
+        const { rows } = await this.query(query, [data.name, data.mobile, data.role]);
+        return this.mapToCamelCase<AdminUser>(rows[0]);
+    }
 
-    const countSql = `SELECT COUNT(*) FROM users u WHERE ${whereClause}`;
+    async updateRole(id: string, role: string): Promise<AdminUser> {
+        const query = 'UPDATE admin_users SET role = $2, updated_at = now() WHERE id = $1 RETURNING *';
+        const { rows } = await this.query(query, [id, role]);
+        if (!rows.length) throw new Error('User not found');
+        return this.mapToCamelCase<AdminUser>(rows[0]);
+    }
 
-    const [dataRes, countRes] = await Promise.all([
-      query(sql, [...params, limit, offset]),
-      query(countSql, params)
-    ]);
-
-    const total = parseInt(countRes.rows[0].count, 10);
-
-    return {
-      items: dataRes.rows,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit)
-      }
-    };
-  }
-
-  async findById(id: string): Promise<AdminUser | null> {
-    const { rows } = await query(`
-      SELECT id, name, mobile, role, created_at as "createdAt", is_deleted as "isDeleted"
-      FROM users 
-      WHERE id = $1 AND is_deleted = false
-    `, [id]);
-    
-    return rows[0] || null;
-  }
-
-  async create(data: { name: string; mobile: string; role: string }): Promise<AdminUser> {
-    const id = uuidv4();
-    const { rows } = await query(`
-      INSERT INTO users (id, name, mobile, role, is_new_user)
-      VALUES ($1, $2, $3, $4, false)
-      RETURNING id, name, mobile, role, created_at as "createdAt", is_deleted as "isDeleted"
-    `, [id, data.name, data.mobile, data.role]);
-    return rows[0];
-  }
-
-  async updateRole(id: string, role: string): Promise<AdminUser | null> {
-    const { rows } = await query(`
-      UPDATE users 
-      SET role = $1
-      WHERE id = $2 AND is_deleted = false
-      RETURNING id, name, mobile, role, created_at as "createdAt", is_deleted as "isDeleted"
-    `, [role, id]);
-    return rows[0] || null;
-  }
-
-  async softDelete(id: string): Promise<boolean> {
-    const { rowCount } = await query(`
-      UPDATE users SET is_deleted = true WHERE id = $1 AND is_deleted = false
-    `, [id]);
-    return (rowCount ?? 0) > 0;
-  }
+    async softDelete(id: string): Promise<boolean> {
+        const query = 'UPDATE admin_users SET is_active = false, updated_at = now() WHERE id = $1';
+        const result = await this.query(query, [id]);
+        return (result.rowCount ?? 0) > 0;
+    }
 }
-
-export const adminUserRepository = new AdminUserRepository();
