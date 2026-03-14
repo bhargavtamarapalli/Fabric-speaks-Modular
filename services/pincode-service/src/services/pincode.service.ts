@@ -1,24 +1,42 @@
 import { PincodeRepository, PincodeRecord } from '../repositories/pincode.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { Redis } from 'ioredis';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { AppError, ErrorCode, logger } from '@fs/shared';
+import { PINCODE_CONSTANTS } from '../config/constants';
 import Papa from 'papaparse';
 
-export class PincodeService {
-    private readonly REDIS_PREFIX = 'pin:';
-    private readonly TTL_SECONDS = 24 * 60 * 60; // 24 hours
+interface CSVRow {
+    pincode: string;
+    deliverable?: string;
+    cod_available?: string;
+    estimated_days?: string;
+    partner?: string;
+}
 
+export class PincodeService {
     constructor(
         private readonly pincodeRepo: PincodeRepository,
-        private readonly redis: Redis
+        private readonly redis: Redis,
+        private readonly auditLogRepo: AuditLogRepository
     ) {}
 
     async getServiceability(pincode: string): Promise<PincodeRecord> {
-        const key = `${this.REDIS_PREFIX}${pincode}`;
+        const key = `${PINCODE_CONSTANTS.REDIS_PREFIX}${pincode}`;
         
-        // 1. Check Redis cache
-        const cached = await this.redis.get(key);
-        if (cached) {
-            return JSON.parse(cached) as PincodeRecord;
+        // 1. Check Redis cache with fallback
+        try {
+            const cached = await this.redis.get(key);
+            if (cached) {
+                try {
+                    return JSON.parse(cached) as PincodeRecord;
+                } catch (parseError) {
+                    logger.error(`Cache corruption for key ${key}: ${parseError}`);
+                    await this.redis.del(key).catch(() => {}); // Attempt to clear corrupted cache
+                }
+            }
+        } catch (redisError) {
+            logger.error(`Redis failure during getServiceability for ${pincode}: ${redisError}`);
+            // Fall through to DB
         }
 
         // 2. Fallback to DB
@@ -33,31 +51,29 @@ export class PincodeService {
                 partner: 'None'
             };
             // Cache negative lookup to prevent DB hammering
-            await this.redis.setex(key, this.TTL_SECONDS, JSON.stringify(unserviceable));
+            await this.redis.setex(key, PINCODE_CONSTANTS.CACHE_TTL_SECONDS, JSON.stringify(unserviceable)).catch(() => {});
             return unserviceable;
         }
 
         // 3. Cache and return
-        await this.redis.setex(key, this.TTL_SECONDS, JSON.stringify(record));
+        await this.redis.setex(key, PINCODE_CONSTANTS.CACHE_TTL_SECONDS, JSON.stringify(record)).catch(() => {});
         return record;
     }
 
-    async processBulkUpload(csvString: string): Promise<{ processed: number; errors: string[] }> {
-        const parsed = Papa.parse(csvString, {
+    async processBulkUpload(csvString: string, adminId: string): Promise<{ processed: number; errors: string[] }> {
+        const parsed = Papa.parse<CSVRow>(csvString, {
             header: true,
             skipEmptyLines: true,
         });
 
-        // Filter out UndetectableDelimiter because it defaults to comma and works fine for single-column
         const criticalErrors = parsed.errors.filter(e => e.code !== 'UndetectableDelimiter');
-
         if (criticalErrors.length > 0) {
             throw new AppError(ErrorCode.INVALID_CSV, 'CSV parsing failed', { errors: criticalErrors });
         }
 
-        const rows = parsed.data as any[];
-        if (rows.length > 5000) {
-           throw new AppError(ErrorCode.BULK_UPLOAD_LIMIT, 'Max 5000 rows allowed for pincode upload');
+        const rows = parsed.data;
+        if (rows.length > PINCODE_CONSTANTS.BULK_UPLOAD_LIMIT) {
+           throw new AppError(ErrorCode.BULK_UPLOAD_LIMIT, `Max ${PINCODE_CONSTANTS.BULK_UPLOAD_LIMIT} rows allowed for pincode upload`);
         }
 
         const records: PincodeRecord[] = [];
@@ -65,23 +81,58 @@ export class PincodeService {
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
+            if (!row) continue;
             try {
-                if (!row.pincode) throw new Error('Missing pincode');
+                if (!row.pincode || row.pincode.trim() === '') {
+                    throw new Error('Missing pincode');
+                }
+
+                // Tight validation for 6-digit numeric pincode
+                const pin = String(row.pincode).trim();
+                if (!/^\d{6}$/.test(pin)) {
+                    throw new Error('Pincode must be exactly 6 digits');
+                }
+
+                // Partner validation
+                const partner = row.partner ? String(row.partner).trim() : PINCODE_CONSTANTS.DEFAULT_PARTNER;
+                if (!PINCODE_CONSTANTS.ALLOWED_PARTNERS.includes(partner) && partner !== 'None') {
+                    throw new Error(`Invalid partner: ${partner}. Allowed: ${PINCODE_CONSTANTS.ALLOWED_PARTNERS.join(', ')}`);
+                }
+
+                // Estimated days validation
+                let estimatedDays = PINCODE_CONSTANTS.DEFAULT_ESTIMATED_DAYS;
+                if (row.estimated_days) {
+                    const parsedDays = parseInt(row.estimated_days, 10);
+                    if (isNaN(parsedDays) || parsedDays < PINCODE_CONSTANTS.MIN_ESTIMATED_DAYS || parsedDays > PINCODE_CONSTANTS.MAX_ESTIMATED_DAYS) {
+                        throw new Error(`estimated_days must be between ${PINCODE_CONSTANTS.MIN_ESTIMATED_DAYS} and ${PINCODE_CONSTANTS.MAX_ESTIMATED_DAYS}`);
+                    }
+                    estimatedDays = parsedDays;
+                }
 
                 records.push({
-                    pincode: String(row.pincode).trim(),
+                    pincode: pin,
                     deliverable: row.deliverable ? String(row.deliverable).toLowerCase() === 'true' : true,
                     codAvailable: row.cod_available ? String(row.cod_available).toLowerCase() === 'true' : false,
-                    estimatedDays: row.estimated_days ? parseInt(row.estimated_days, 10) : 5,
-                    partner: row.partner ? String(row.partner).trim() : 'Shiprocket'
+                    estimatedDays,
+                    partner
                 });
-            } catch (err: any) {
-                errors.push(`Row ${i + 2}: ${err.message}`);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'Unknown validation error';
+                errors.push(`Row ${i + 2}: ${message}`);
             }
         }
 
         if (records.length > 0) {
             await this.pincodeRepo.bulkUpsert(records);
+            
+            // Audit Log (Rule 6)
+            await this.auditLogRepo.insert({
+                adminId,
+                action: 'BULK_UPLOAD',
+                entityType: 'pincode',
+                entityId: 'multiple',
+                afterJson: { count: records.length, errors: errors.length }
+            });
         }
 
         return { processed: records.length, errors };

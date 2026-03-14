@@ -1,0 +1,10 @@
+export const PINCODE_CONSTANTS = {
+  REDIS_PREFIX: 'pincode:',
+  CACHE_TTL_SECONDS: 24 * 60 * 60, // 24 hours
+  DEFAULT_ESTIMATED_DAYS: 5,
+  MAX_ESTIMATED_DAYS: 30,
+  MIN_ESTIMATED_DAYS: 1,
+  DEFAULT_PARTNER: 'Shiprocket',
+  ALLOWED_PARTNERS: ['Shiprocket', 'BlueDart', 'Delhivery'],
+  BULK_UPLOAD_LIMIT: 5000,
+};
