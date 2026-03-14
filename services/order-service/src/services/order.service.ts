@@ -1,10 +1,32 @@
-import { getDbPool, AppError, ErrorCode, logger } from '@fs/shared';
-import { OrderRepository } from '../repositories/order.repository';
+import { getDbPool, getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+import { Queue } from 'bullmq';
+import { OrderRepository, Order } from '../repositories/order.repository';
+import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { ShiprocketClient } from './shiprocket.client';
 import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
 
 export class OrderService {
-  constructor(private orderRepo: OrderRepository) {}
+  private eventQueue: Queue;
+
+  constructor(
+    private orderRepo: OrderRepository,
+    private auditLogRepo: AuditLogRepository,
+    private shiprocketClient?: ShiprocketClient
+  ) {
+    // Initialize Shiprocket client if not provided
+    if (!this.shiprocketClient) {
+      try {
+        this.shiprocketClient = new ShiprocketClient();
+      } catch (error) {
+        logger.warn('Shiprocket client initialization failed, webhook handling will be limited');
+      }
+    }
+
+    // Initialize BullMQ queue for order events
+    const redis = getRedisClient();
+    this.eventQueue = new Queue('order_events', { connection: redis });
+  }
   
   async placeOrder(userId: string, orderPayload: any) {
     const pool = getDbPool();
@@ -74,7 +96,9 @@ export class OrderService {
         status: isCOD ? 'CONFIRMED' : 'PAYMENT_PENDING',
         payment_method: orderPayload.payment_method,
         subtotal, discount_amount: discountAmount, gst_amount: totalGst, total_amount: totalAmount,
-        coupon_id: couponId, tracking_url: trackingUrl, cod_confirm_by: null, notes: null
+        coupon_id: couponId, tracking_url: trackingUrl, cod_confirm_by: null, notes: null,
+        guest_mobile: orderPayload.guest_mobile,
+        guest_address: orderPayload.guest_address
       });
       
       for (const vItem of verifiedItems) {
@@ -105,8 +129,14 @@ export class OrderService {
       
       await client.query('COMMIT');
       
-      // Emit BullMQ event here in real app
-      // await eventQueue.add('order.created', { orderId: newOrder.id });
+      // RULE 5: Emit order.created event for downstream services (notification, loyalty, etc.)
+      await this.eventQueue.add('order.created', { 
+        orderId: newOrder.id,
+        userId: userId,
+        totalAmount: totalAmount,
+        paymentMethod: orderPayload.payment_method,
+        status: newOrder.status
+      });
 
       return newOrder;
     } catch (error) {
@@ -131,12 +161,58 @@ export class OrderService {
   }
 
   async updateOrderStatus(orderId: string, status: string) {
-    // Basic status machine validation
-    const validStates = ['PAYMENT_PENDING', 'CONFIRMED', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
-    if (!validStates.includes(status)) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid state');
+    // Fetch current order state before update (for audit trail and validation)
+    const currentOrder = await this.orderRepo.getOrderById(orderId, null);
+    if (!currentOrder) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
+    }
+
+    // Define valid state transitions per order status
+    const stateTransitions: Record<string, string[]> = {
+      'PLACED': ['PAYMENT_PENDING', 'CANCELLED'],
+      'PAYMENT_PENDING': ['CONFIRMED', 'PAYMENT_FAILED', 'CANCELLED'],
+      'PAYMENT_FAILED': ['PAYMENT_PENDING', 'CANCELLED'],
+      'CONFIRMED': ['PACKED', 'CANCELLED'],
+      'PACKED': ['SHIPPED', 'CANCELLED'],
+      'SHIPPED': ['DELIVERED', 'CANCELLED'],
+      'DELIVERED': ['CANCELLED'],  // Return initiated separately
+      'CANCELLED': []  // Terminal state
+    };
+
+    const allowedStates = stateTransitions[currentOrder.status] || [];
+
+    // Validate status transition
+    if (!allowedStates.includes(status)) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Invalid status transition from ${currentOrder.status} to ${status}`,
+        {
+          current_status: currentOrder.status,
+          requested_status: status,
+          allowed_states: allowedStates
+        }
+      );
+    }
     
     const order = await this.orderRepo.updateOrderStatus(orderId, status);
-    // emit webhook or event internally
+    
+    // RULE 6: Log all status changes to audit trail
+    await this.auditLogRepo.insert({
+      action: 'ORDER_STATUS_CHANGED',
+      entityType: 'ORDER',
+      entityId: orderId,
+      beforeJson: { status: currentOrder.status },
+      afterJson: { status: status }
+    });
+    
+    // Emit event for status change (notification service will consume)
+    await this.eventQueue.add('order.status_changed', {
+      orderId: orderId,
+      previousStatus: currentOrder.status,
+      newStatus: status
+    });
+    
+    logger.info(`Order status updated`, { orderId, fromStatus: currentOrder.status, toStatus: status });
     return order;
   }
 
@@ -144,5 +220,190 @@ export class OrderService {
     const order = await this.orderRepo.getOrderByTrackingToken(token);
     if (!order) throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
     return order;
+  }
+
+  /**
+   * Handle Shiprocket webhook events
+   * Maps Shiprocket status codes to internal order status
+   * Shiprocket events: order_picked, in_transit, delivered, cancelled, lost, rto etc.
+   */
+  async handleShiprocketWebhook(payload: any) {
+    const { order_id: shiprocketOrderId, status: shiprocketStatus, tracking_number } = payload;
+
+    if (!shiprocketOrderId || !shiprocketStatus) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Missing required webhook fields');
+    }
+
+    // Map Shiprocket status to internal order status
+    const statusMap: Record<string, string> = {
+      'order_picked': 'PACKED',
+      'in_transit': 'SHIPPED',
+      'delivered': 'DELIVERED',
+      'cancelled': 'CANCELLED',
+      'lost': 'CANCELLED',
+      'rto': 'CANCELLED',
+      'rto_picked': 'CANCELLED',
+      'rto_delivered': 'CANCELLED'
+    };
+
+    const internalStatus = statusMap[shiprocketStatus];
+    if (!internalStatus) {
+      logger.warn(`Unknown Shiprocket status: ${shiprocketStatus}, skipping webhook processing`);
+      return { acknowledged: true, message: 'Unknown status, skipped' };
+    }
+
+    // Find order by Shiprocket order ID
+    const order = await this.orderRepo.getOrderByShiprocketId(shiprocketOrderId);
+    if (!order) {
+      logger.warn(`Webhook for unknown Shiprocket order: ${shiprocketOrderId}`);
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found for this Shiprocket ID');
+    }
+
+    // Update order status
+    const updatedOrder = await this.orderRepo.updateOrderStatus(order.id, internalStatus);
+    
+    // Audit log the status change
+    await this.auditLogRepo.insert({
+      action: 'ORDER_STATUS_CHANGED_VIA_WEBHOOK',
+      entityType: 'ORDER',
+      entityId: order.id,
+      beforeJson: { status: order.status, shiprocketStatus: shiprocketStatus },
+      afterJson: { status: internalStatus, trackingNumber: tracking_number }
+    });
+
+    // Emit event for status change (notification service will consume)
+    await this.eventQueue.add('order.status_changed', {
+      orderId: order.id,
+      previousStatus: order.status,
+      newStatus: internalStatus,
+      shiprocketStatus: shiprocketStatus,
+      trackingNumber: tracking_number
+    });
+    
+    logger.info(`Webhook processed: Order ${order.id} status updated to ${internalStatus}`);
+    
+    return { 
+      acknowledged: true, 
+      orderId: order.id, 
+      newStatus: internalStatus,
+      trackingNumber: tracking_number
+    };
+  }
+
+  /**
+   * Push confirmed order to Shiprocket for fulfillment
+   * Called by admin when order is CONFIRMED and ready to ship
+   * Creates Shiprocket order and stores shipment ID for tracking
+   */
+  async pushOrderToShiprocket(orderId: string): Promise<any> {
+    if (!this.shiprocketClient) {
+      throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket client not initialized');
+    }
+
+    // Fetch full order details
+    const order = await this.orderRepo.getOrderById(orderId, null);
+    if (!order) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
+    }
+
+    if (order.status !== 'CONFIRMED') {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Order must be CONFIRMED to push to Shiprocket (current: ${order.status})`
+      );
+    }
+
+    if (order.shiprocket_order_id) {
+      logger.warn('Order already pushed to Shiprocket', { orderId });
+      return {
+        already_synced: true,
+        shiprocket_order_id: order.shiprocket_order_id,
+        tracking_url: order.tracking_url
+      };
+    }
+
+    try {
+      // Fetch variant details to get actual weight
+      const orderItems = await this.orderRepo.getOrderItems(orderId);
+      let totalWeight = 0;
+      const detailedItems = [];
+      for (const item of orderItems) {
+        const variant = await this.orderRepo.getVariant(item.variantId);
+        const weight = variant?.weight || 0.5;
+        totalWeight += weight * item.quantity;
+        detailedItems.push({
+          name: item.productName || `Product ${item.productId}`,
+          sku: item.sku || item.variantId,
+          units: item.quantity,
+          selling_price: Number(item.unitPrice)
+        });
+      }
+
+      // Fetch user email if not guest
+      let customerEmail = order.guest_mobile ? 'guest@fabricspeaks.in' : 'user@fabricspeaks.in';
+      if (order.user_id) {
+          // In a real app we'd fetch this from the user service/repo
+          // For now we assume the orderRepo or a new userRepo can provide it
+          const user = await getDbPool().query('SELECT email FROM users WHERE id = $1', [order.user_id]);
+          if (user.rows[0]?.email) {
+              customerEmail = user.rows[0].email;
+          }
+      }
+
+      // Map to Shiprocket format
+      const shiprocketOrder = {
+        order_id: order.id,
+        order_date: order.created_at.toISOString(),
+        pickup_location: 'Primary',
+        billing_customer_name: order.user_id ? 'Customer' : 'Guest',
+        billing_email: customerEmail,
+        billing_phone: order.guest_mobile || '+919999999999',
+        billing_address: order.guest_address || 'N/A',
+        billing_city: 'Mumbai',
+        billing_state: 'Maharashtra',
+        billing_country: 'IN',
+        billing_pincode: '400000',
+        shipping_is_billing: true,
+        order_items: detailedItems,
+        payment_method: order.payment_method,
+        sub_total: Number(order.subtotal),
+        weight: totalWeight || 0.5
+      };
+
+      // Call Shiprocket API
+      const response = await this.shiprocketClient.createOrder(shiprocketOrder);
+
+      // Update order with Shiprocket IDs
+      const shipmentId = response.data?.shipment_id;
+      if (!shipmentId) {
+          throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket failed to return shipment_id');
+      }
+
+      const trackingUrl = await this.shiprocketClient.getTrackingUrl(shipmentId);
+
+      await this.orderRepo.updateShiprocketDetails(orderId, {
+        shiprocket_order_id: response.token || String(shipmentId),
+        tracking_url: trackingUrl
+      });
+
+      logger.info('Order successfully pushed to Shiprocket', {
+        orderId,
+        shipmentId,
+        shiprocketOrderId: response.token
+      });
+
+      return {
+        success: true,
+        shiprocket_order_id: response.token,
+        shipment_id: shipmentId,
+        tracking_url: trackingUrl
+      };
+    } catch (error) {
+      logger.error('Failed to push order to Shiprocket', {
+        orderId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 }

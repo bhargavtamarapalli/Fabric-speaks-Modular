@@ -1,18 +1,44 @@
 import { BaseRepository } from '@fs/shared';
 import { PoolClient } from 'pg';
 
-export interface OrderData {
-  user_id: string;
+export interface Order {
+  id: string;
+  user_id: string | null;
   status: string;
   payment_method: string;
   subtotal: number;
   discount_amount: number;
   gst_amount: number;
   total_amount: number;
-  coupon_id?: string;
-  tracking_url?: string;
-  cod_confirm_by?: string;
-  notes?: string;
+  coupon_id?: string | null;
+  shiprocket_order_id?: string | null;
+  tracking_url?: string | null;
+  guest_mobile?: string | null;
+  guest_address?: string | null;
+  guest_tracking_ref?: string | null;
+  is_cod_confirmed: boolean;
+  cod_confirm_by?: string | null;
+  cod_fraud_flag: boolean;
+  replacement_of?: string | null;
+  notes?: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface OrderData {
+  user_id?: string | null;
+  status: string;
+  payment_method: string;
+  subtotal: number;
+  discount_amount: number;
+  gst_amount: number;
+  total_amount: number;
+  coupon_id?: string | null;
+  tracking_url?: string | null;
+  cod_confirm_by?: string | null;
+  notes?: string | null;
+  guest_mobile?: string | null;
+  guest_address?: string | null;
 }
 
 export interface OrderItemData {
@@ -37,6 +63,16 @@ export class OrderRepository extends BaseRepository {
     return res.rows[0] || null;
   }
 
+  async getVariant(variantId: string) {
+    const res = await this.query(`
+      SELECT v.*, p.name 
+      FROM variants v
+      JOIN products p ON v.product_id = p.id
+      WHERE v.id = $1 AND v.is_deleted = false
+    `, [variantId]);
+    return res.rows[0] || null;
+  }
+
   async lockStockWithOCC(client: PoolClient, variantId: string, version: number, decrementQty: number) {
     // Optimistic Concurrency Control
     const res = await client.query(`
@@ -49,19 +85,20 @@ export class OrderRepository extends BaseRepository {
     return res.rows.length > 0;
   }
   
-  async createOrder(client: PoolClient, orderData: OrderData) {
+  async createOrder(client: PoolClient, orderData: OrderData): Promise<Order> {
     const res = await client.query(`
       INSERT INTO orders (
         user_id, status, payment_method, subtotal, discount_amount, gst_amount, total_amount, 
-        coupon_id, tracking_url, cod_confirm_by, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        coupon_id, tracking_url, cod_confirm_by, notes, guest_mobile, guest_address
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [
       orderData.user_id, orderData.status, orderData.payment_method, orderData.subtotal,
       orderData.discount_amount, orderData.gst_amount, orderData.total_amount,
-      orderData.coupon_id, orderData.tracking_url, orderData.cod_confirm_by, orderData.notes
+      orderData.coupon_id, orderData.tracking_url, orderData.cod_confirm_by, orderData.notes,
+      orderData.guest_mobile, orderData.guest_address
     ]);
-    return res.rows[0];
+    return this.mapToCamelCase<Order>(res.rows[0]);
   }
 
   async createOrderItem(client: PoolClient, itemData: OrderItemData) {
@@ -93,8 +130,8 @@ export class OrderRepository extends BaseRepository {
     `, [orderId, status, notes, createdBy]);
   }
 
-  async getOrderById(orderId: string, userId: string) {
-    const res = await this.query(`
+  async getOrderById(orderId: string, userId: string | null) {
+    let query = `
       SELECT o.*, 
         json_agg(json_build_object(
           'id', oi.id, 'variant_id', oi.variant_id, 'quantity', oi.quantity, 
@@ -102,25 +139,36 @@ export class OrderRepository extends BaseRepository {
         )) as items
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
-      WHERE o.id = $1 AND o.user_id = $2
-      GROUP BY o.id
-    `, [orderId, userId]);
-    return res.rows[0] ? this.mapToCamelCase(res.rows[0]) : null;
+      WHERE o.id = $1
+    `;
+    
+    const params: any[] = [orderId];
+    
+    // If userId is provided, add to filter (for security - users can only see their own orders)
+    if (userId !== null) {
+      query += ` AND o.user_id = $2`;
+      params.push(userId);
+    }
+    
+    query += ` GROUP BY o.id`;
+    
+    const res = await this.query(query, params);
+    return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
   }
   
-  async getOrderByTrackingToken(token: string) {
+  async getOrderByTrackingToken(token: string): Promise<Order | null> {
     const res = await this.query(`
       SELECT * FROM orders WHERE tracking_url = $1
     `, [token]);
-    return res.rows[0] ? this.mapToCamelCase(res.rows[0]) : null;
+    return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
   }
   
-  async updateOrderStatus(orderId: string, status: string) {
+  async updateOrderStatus(orderId: string, status: string): Promise<Order | null> {
     const res = await this.query(`
       UPDATE orders SET status = $1, updated_at = now() 
       WHERE id = $2 RETURNING *
     `, [status, orderId]);
-    return res.rows[0] ? this.mapToCamelCase(res.rows[0]) : null;
+    return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
   }
 
   async checkCODHistoryFlag(userId: string) {
@@ -138,5 +186,54 @@ export class OrderRepository extends BaseRepository {
 
   async clearUserCart(client: PoolClient, userId: string) {
     await client.query(`DELETE FROM cart_items WHERE user_id = $1`, [userId]);
+  }
+
+  /**
+   * Get order by Shiprocket order ID (tracking via webhook)
+   */
+  async getOrderByShiprocketId(shiprocketOrderId: string): Promise<Order | null> {
+    const res = await this.query(`
+      SELECT * FROM orders WHERE shiprocket_order_id = $1
+    `, [shiprocketOrderId]);
+    return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
+  }
+
+  /**
+   * Get order items with product details
+   */
+  async getOrderItems(orderId: string) {
+    const res = await this.query(`
+      SELECT 
+        oi.id,
+        oi.order_id as "orderId",
+        oi.variant_id as "variantId",
+        oi.product_id as "productId",
+        p.name as "productName",
+        v.sku,
+        oi.quantity,
+        oi.unit_price as "unitPrice",
+        oi.gst_rate as "gstRate",
+        oi.gst_amount as "gstAmount",
+        oi.delivery_address_id as "deliveryAddressId",
+        oi.gift_note as "giftNote"
+      FROM order_items oi
+      JOIN variants v ON oi.variant_id = v.id
+      JOIN products p ON oi.product_id = p.id
+      WHERE oi.order_id = $1
+    `, [orderId]);
+    return res.rows;
+  }
+
+  /**
+   * Update order with Shiprocket tracking details
+   */
+  async updateShiprocketDetails(orderId: string, details: { shiprocket_order_id: string; tracking_url: string }): Promise<Order | null> {
+    const res = await this.query(`
+      UPDATE orders 
+      SET shiprocket_order_id = $1, tracking_url = $2, updated_at = now()
+      WHERE id = $3 
+      RETURNING *
+    `, [details.shiprocket_order_id, details.tracking_url, orderId]);
+    return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
   }
 }
