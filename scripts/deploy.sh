@@ -54,12 +54,16 @@ for ENTRY in "${SERVICES[@]}"; do
     --ingress=$INGRESS \
     --timeout=30 \
     --concurrency=80 \
-    --set-env-vars=APP_ENV=$ENV"
+    --set-env-vars=APP_ENV=$ENV \
+    --set-secrets=DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,JWT_SECRET=JWT_SECRET:latest"
 
-  # Add Cloud SQL instance if not frontend or pincode (pincode only uses Redis)
-  if [[ "$SERVICE" != "frontend" && "$SERVICE" != "pincode-service" ]]; then
-    DB_INSTANCE="$PROJECT_ID:$REGION:fs-postgres-${ENV:0:3}"
-    DEPLOY_CMD="$DEPLOY_CMD --add-cloudsql-instances=$DB_INSTANCE --set-env-vars=DB_HOST=/cloudsql/$DB_INSTANCE"
+  # Special handling for DB-dependent services (Cloud SQL proxy is optional for Supabase, 
+  # but keeping the hook if we switch back to Cloud SQL)
+  if [[ "$SERVICE" != "frontend" && "$SERVICE" != "pincode-service" && "$ENV" == "production" ]]; then
+     # For Supabase, we don't strictly need --add-cloudsql-instances, 
+     # but we keep it commented or as a placeholder if using GCP Cloud SQL.
+     # DEPLOY_CMD="$DEPLOY_CMD --add-cloudsql-instances=$PROJECT_ID:$REGION:fs-postgres-prod"
+     echo "Configuring $SERVICE with Supabase/Upstash secrets..."
   fi
 
   # Ingress specific flags

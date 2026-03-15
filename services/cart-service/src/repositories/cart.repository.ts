@@ -1,125 +1,88 @@
-import { BaseRepository, DbClient } from '@fs/shared';
+import { BaseRepository } from '@fs/shared';
 import { Pool } from 'pg';
 import { Redis } from 'ioredis';
-import { getEffectivePrice } from '@fs/shared';
 
 export interface CartItem {
-    variantId: string;
-    quantity: number;
-    price?: number; // RULE 1: Stored here for guests and time-locking
-    // Hydrated fields (UI only)
-    productId?: string;
-    name?: string;
-    sku?: string;
-    stock_qty?: number;
+  variantId: string;
+  quantity: number;
+  price?: number;
+  stock_qty?: number;
 }
 
 export class CartRepository extends BaseRepository {
-    private readonly REDIS_PREFIX = 'cart:guest:';
-    private readonly TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+  private readonly tableName = 'carts';
+  private readonly GUEST_PREFIX = 'cart:guest:';
 
-    constructor(db: Pool | DbClient, private redis: Redis) {
-        super(db);
-    }
+  constructor(db: Pool, private redis: Redis) {
+    super(db);
+  }
 
-    // ==========================================================
-    // USER CART (PostgreSQL)
-    // ==========================================================
+  // --- DB Operations ---
 
-    async getUserCart(userId: string): Promise<CartItem[]> {
-        const query = `
-            SELECT 
-                c.variant_id as "variantId", 
-                c.quantity,
-                v.product_id as "productId",
-                v.sku,
-            v.base_price,
-            v.sale_price,
-            v.price_override,
-            v.sale_active,
-            v.stock_qty,
-            p.name
-        FROM cart_items c
-        JOIN variants v ON c.variant_id = v.id
-        JOIN products p ON v.product_id = p.id
-        WHERE c.user_id = $1
-        ORDER BY c.added_at DESC
-    `;
-    const result = await this.query(query, [userId]);
-    
-    return result.rows.map(row => ({
-        variantId: row.variantId,
-        quantity: row.quantity,
-        productId: row.productId,
-        name: row.name,
-        sku: row.sku,
-        price: getEffectivePrice({
-            base_price: Number(row.base_price),
-            sale_price: row.sale_price ? Number(row.sale_price) : null,
-            price_override: row.price_override ? Number(row.price_override) : null,
-            sale_active: row.sale_active || false
-        }),
-        stock_qty: row.stock_qty
-    }));
-}
+  // Cart CRUD
+  async findByUserId(userId: string) {
+    const result = await this.query(
+      `SELECT * FROM ${this.tableName} WHERE user_id = $1`,
+      [userId]
+    );
+    return result.rows[0] ? this.mapToCamelCase(result.rows[0]) : null;
+  }
 
-    async addUserItem(userId: string, variantId: string, quantity: number, price?: number): Promise<void> {
-        const query = `
-            INSERT INTO cart_items (user_id, variant_id, quantity, price_at_add)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (user_id, variant_id)
-            DO UPDATE SET 
-                quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 10),
-                price_at_add = COALESCE(cart_items.price_at_add, EXCLUDED.price_at_add),
-                updated_at = now()
-        `;
-        await this.query(query, [userId, variantId, quantity, price]);
-    }
+  // Existing DB items
+  async getUserCart(userId: string): Promise<CartItem[]> {
+    const result = await this.query(
+      'SELECT ci.* FROM cart_items ci JOIN carts c ON ci.cart_id = c.id WHERE c.user_id = $1',
+      [userId]
+    );
+    return result.rows.map(item => this.mapToCamelCase(item));
+  }
 
-    async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
-        const query = `
-            UPDATE cart_items 
-            SET quantity = $3, updated_at = now()
-            WHERE user_id = $1 AND variant_id = $2
-        `;
-        await this.query(query, [userId, variantId, quantity]);
-    }
+  // Add user item
+  async addUserItem(userId: string, variantId: string, quantity: number, price: number): Promise<void> {
+    await this.query(
+      'SELECT add_to_cart($1, $2, $3, $4)',
+      [userId, variantId, quantity, price]
+    );
+  }
 
-    async removeUserItem(userId: string, variantId: string): Promise<void> {
-        const query = `
-            DELETE FROM cart_items 
-            WHERE user_id = $1 AND variant_id = $2
-        `;
-        await this.query(query, [userId, variantId]);
-    }
+  // Update user item qty
+  async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
+    await this.query(
+      'UPDATE cart_items SET quantity = $1 FROM carts WHERE cart_items.cart_id = carts.id AND carts.user_id = $2 AND variant_id = $3',
+      [quantity, userId, variantId]
+    );
+  }
 
-    async clearUserCart(userId: string): Promise<void> {
-        const query = `DELETE FROM cart_items WHERE user_id = $1`;
-        await this.query(query, [userId]);
-    }
+  // Remove user item
+  async removeUserItem(userId: string, variantId: string): Promise<void> {
+    await this.query(
+      'DELETE FROM cart_items USING carts WHERE cart_items.cart_id = carts.id AND carts.user_id = $1 AND variant_id = $2',
+      [userId, variantId]
+    );
+  }
 
-    // ==========================================================
-    // GUEST CART (Redis)
-    // ==========================================================
+  // --- Guest Cart (Redis) Operations ---
 
-    private getRedisKey(sessionId: string): string {
-        return `${this.REDIS_PREFIX}${sessionId}`;
-    }
+  async getGuestCart(sessionId: string): Promise<CartItem[]> {
+    const data = await this.redis.get(`${this.GUEST_PREFIX}${sessionId}`);
+    return data ? JSON.parse(data) : [];
+  }
 
-    async getGuestCart(sessionId: string): Promise<CartItem[]> {
-        const key = this.getRedisKey(sessionId);
-        const data = await this.redis.get(key);
-        if (!data) return [];
-        return JSON.parse(data) as CartItem[];
-    }
+  async saveGuestCart(sessionId: string, items: CartItem[]): Promise<void> {
+    await this.redis.setex(`${this.GUEST_PREFIX}${sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(items));
+  }
 
-    async saveGuestCart(sessionId: string, items: CartItem[]): Promise<void> {
-        const key = this.getRedisKey(sessionId);
-        await this.redis.setex(key, this.TTL_SECONDS, JSON.stringify(items));
-    }
+  async clearGuestCart(sessionId: string): Promise<void> {
+    await this.redis.del(`${this.GUEST_PREFIX}${sessionId}`);
+  }
 
-    async clearGuestCart(sessionId: string): Promise<void> {
-        const key = this.getRedisKey(sessionId);
-        await this.redis.del(key);
-    }
+  // --- Coupon Cache ---
+
+  async getCouponUsageCount(userId: string, couponId: string) {
+    const result = await this.query(
+      'SELECT COUNT(*) as count FROM user_coupon_usage WHERE user_id = $1 AND coupon_id = $2',
+      [userId, couponId]
+    );
+    return parseInt(result.rows[0].count, 10);
+  }
 }

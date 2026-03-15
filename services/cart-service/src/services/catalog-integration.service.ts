@@ -1,24 +1,34 @@
-import { Pool } from 'pg';
+import axios from 'axios';
+import { AppError, ErrorCode } from '@fs/shared/errors';
 
 export class CatalogIntegrationService {
-    constructor(private db: Pool) {}
+    private readonly catalogUrl: string;
+
+    constructor() {
+        this.catalogUrl = process.env.CATALOG_SERVICE_URL || 'http://catalog-service:8080';
+    }
 
     async getVariantStockDetails(variantId: string): Promise<{ stock_qty: number; price: number } | null> {
-        const query = `
-            SELECT stock_qty, base_price, sale_price 
-            FROM variants 
-            WHERE id = $1 AND is_deleted = false
-        `;
-        const result = await this.db.query(query, [variantId]);
-        if (result.rows.length === 0) return null;
+        try {
+            const response = await axios.get(`${this.catalogUrl}/internal/variants/${variantId}`, {
+                timeout: 5000
+            });
+            const variant = response.data.data;
+            
+            if (!variant) return null;
 
-        const row = result.rows[0];
-        // Calculate effective price taking sale_price into account
-        const price = row.sale_price !== null ? Number(row.sale_price) : Number(row.base_price);
+            // Calculate effective price taking sale_price into account
+            const price = variant.salePrice !== null ? variant.salePrice : variant.basePrice;
 
-        return {
-            stock_qty: row.stock_qty,
-            price: price
-        };
+            return {
+                stock_qty: variant.stockQty,
+                price: price
+            };
+        } catch (error) {
+            if (axios.isAxiosError(error) && error.response?.status === 404) {
+                return null;
+            }
+            throw new AppError(ErrorCode.INTERNAL_ERROR, 'Failed to connect to catalog service');
+        }
     }
 }

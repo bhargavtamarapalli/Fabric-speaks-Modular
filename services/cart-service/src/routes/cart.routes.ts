@@ -4,7 +4,6 @@ import { CartController } from '../controllers/cart.controller';
 import { CartService } from '../services/cart.service';
 import { CartRepository } from '../repositories/cart.repository';
 import { CouponRepository } from '../repositories/coupon.repository';
-
 import { CatalogIntegrationService } from '../services/catalog-integration.service';
 
 const router = Router();
@@ -14,7 +13,7 @@ const redis = getRedisClient();
 
 const cartRepo = new CartRepository(db, redis);
 const couponRepo = new CouponRepository(db);
-const catalogService = new CatalogIntegrationService(db);
+const catalogService = new CatalogIntegrationService();
 
 const cartService = new CartService(cartRepo, couponRepo, catalogService, redis);
 const cartController = new CartController(cartService);
