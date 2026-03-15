@@ -6,6 +6,7 @@ export interface VariantStock {
     productName: string;
     stockQty: number;
     reservedQty: number;
+    thresholdQty: number;
     healthStatus: string;
 }
 
@@ -16,7 +17,8 @@ export class InventoryRepository extends BaseRepository {
                 v.id as "variantId", 
                 v.sku, 
                 p.name as "productName", 
-                v.qty as "stockQty"
+                v.qty as "stockQty",
+                v.threshold_qty as "thresholdQty"
             FROM variants v
             JOIN products p ON v.product_id = p.id
             WHERE v.is_deleted = false
@@ -28,8 +30,9 @@ export class InventoryRepository extends BaseRepository {
             sku: row.sku,
             productName: row.productName,
             stockQty: Number(row.stockQty),
-            reservedQty: 0, // Not tracked in variants table currently
-            healthStatus: this.calculateHealth(Number(row.stockQty))
+            reservedQty: 0,
+            thresholdQty: Number(row.thresholdQty),
+            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty))
         }));
     }
 
@@ -39,7 +42,8 @@ export class InventoryRepository extends BaseRepository {
                 v.id as "variantId", 
                 v.sku, 
                 p.name as "productName", 
-                v.qty as "stockQty"
+                v.qty as "stockQty",
+                v.threshold_qty as "thresholdQty"
             FROM variants v
             JOIN products p ON v.product_id = p.id
             WHERE v.id = $1 AND v.is_deleted = false
@@ -53,7 +57,8 @@ export class InventoryRepository extends BaseRepository {
             productName: row.productName,
             stockQty: Number(row.stockQty),
             reservedQty: 0,
-            healthStatus: this.calculateHealth(Number(row.stockQty))
+            thresholdQty: Number(row.thresholdQty),
+            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty))
         };
     }
 
@@ -96,12 +101,21 @@ export class InventoryRepository extends BaseRepository {
         });
     }
 
+    async updateThreshold(variantId: string, threshold: number): Promise<void> {
+        const query = `
+            UPDATE variants 
+            SET threshold_qty = $1, updated_at = now() 
+            WHERE id = $2
+        `;
+        await this.query(query, [threshold, variantId]);
+    }
+
     async getHealthSummary(): Promise<{ status: string; count: number }[]> {
         const query = `
             SELECT 
                 CASE 
                     WHEN qty <= 0 THEN 'CRITICAL'
-                    WHEN qty < 5 THEN 'WARNING'
+                    WHEN qty < threshold_qty THEN 'WARNING'
                     ELSE 'HEALTHY'
                 END as status,
                 COUNT(*) as count
@@ -113,9 +127,9 @@ export class InventoryRepository extends BaseRepository {
         return rows.map(r => ({ status: r.status, count: parseInt(r.count, 10) }));
     }
 
-    private calculateHealth(stockQty: number): string {
+    private calculateHealth(stockQty: number, threshold: number): string {
         if (stockQty <= 0) return 'CRITICAL';
-        if (stockQty < 5) return 'WARNING';
+        if (stockQty < threshold) return 'WARNING';
         return 'HEALTHY';
     }
 }

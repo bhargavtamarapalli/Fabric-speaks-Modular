@@ -20,6 +20,7 @@ describe('InventoryService', () => {
       getAllVariants: vi.fn(),
       getVariant: vi.fn(),
       adjustStock: vi.fn(),
+      updateThreshold: vi.fn(),
       getHealthSummary: vi.fn(),
     };
     mockExpectedRepo = {
@@ -39,8 +40,8 @@ describe('InventoryService', () => {
     it('should adjust stock and create audit log', async () => {
       const variantId = 'eeb7c044-67d4-42b7-873b-7a33e382d67d';
       const adminUserId = '51d382d6-7a3b-42b7-873b-7a33e382d67e';
-      const currentVariant = { variantId, stockQty: 10 };
-      const updatedVariant = { variantId, stockQty: 20 };
+      const currentVariant = { variantId, stockQty: 10, thresholdQty: 5 };
+      const updatedVariant = { variantId, stockQty: 20, thresholdQty: 5 };
 
       mockInvRepo.getVariant.mockResolvedValue(currentVariant);
       mockInvRepo.adjustStock.mockResolvedValue(updatedVariant);
@@ -101,11 +102,11 @@ describe('InventoryService', () => {
         `invalid-uuid,20,other\n`; // Invalid UUID
 
       mockInvRepo.getVariant.mockImplementation((id: string) => {
-        if (id === variantId1) return Promise.resolve({ variantId: id, stockQty: 10 });
+        if (id === variantId1) return Promise.resolve({ variantId: id, stockQty: 10, thresholdQty: 5 });
         return Promise.resolve(null);
       });
 
-      mockInvRepo.adjustStock.mockResolvedValue({ variantId: variantId1, stockQty: 15, productName: 'Test Product' });
+      mockInvRepo.adjustStock.mockResolvedValue({ variantId: variantId1, stockQty: 15, productName: 'Test Product', thresholdQty: 5 });
 
       const buffer = Buffer.from(csvContent);
       const response = await inventoryService.bulkAdjustment(buffer, 'admin-id');
@@ -118,8 +119,8 @@ describe('InventoryService', () => {
 
     it('should emit stock.low event if stock is below 5', async () => {
       const variantId = 'eeb7c044-67d4-42b7-873b-7a33e382d67d';
-      const currentVariant = { variantId, stockQty: 10, productName: 'Test' };
-      const updatedVariant = { variantId, stockQty: 3, productName: 'Test' };
+      const currentVariant = { variantId, stockQty: 10, productName: 'Test', thresholdQty: 5 };
+      const updatedVariant = { variantId, stockQty: 3, productName: 'Test', thresholdQty: 5 };
 
       mockInvRepo.getVariant.mockResolvedValue(currentVariant);
       mockInvRepo.adjustStock.mockResolvedValue(updatedVariant);
@@ -136,7 +137,8 @@ describe('InventoryService', () => {
       expect(stockLowCall).toBeDefined();
       expect(stockLowCall![1]).toEqual(expect.objectContaining({
         variantId,
-        stockCount: 3
+        stockCount: 3,
+        threshold: 5
       }));
     });
   });
@@ -175,6 +177,24 @@ describe('InventoryService', () => {
       mockExpectedRepo.getById.mockResolvedValue({ id: '1', is_received: true });
       await expect(inventoryService.markArrivalReceived('1', 'admin'))
         .rejects.toThrow(AppError);
+    });
+  });
+
+  describe('updateThreshold', () => {
+    it('should update threshold and create audit log', async () => {
+      const variantId = 'var-123';
+      const adminUserId = 'admin-456';
+      mockInvRepo.getVariant.mockResolvedValue({ variantId, thresholdQty: 5 });
+
+      await inventoryService.updateThreshold(variantId, 10, adminUserId);
+
+      expect(mockInvRepo.updateThreshold).toHaveBeenCalledWith(variantId, 10);
+      expect(mockAuditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'UPDATE_STOCK_THRESHOLD',
+        entityId: variantId,
+        beforeJson: { thresholdQty: 5 },
+        afterJson: { thresholdQty: 10 }
+      }));
     });
   });
 });

@@ -29,5 +29,10 @@ export const ExpectedArrivalSchema = z.object({
   notes: z.string().max(500).optional()
 });
 
+export const UpdateThresholdSchema = z.object({
+  threshold_qty: z.number().int().nonnegative({ message: 'Threshold must be non-negative' })
+});
+
 export type ManualAdjustmentInput = z.infer<typeof ManualAdjustmentSchema>;
 export type ExpectedArrivalInput = z.infer<typeof ExpectedArrivalSchema>;
+export type UpdateThresholdInput = z.infer<typeof UpdateThresholdSchema>;

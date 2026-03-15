@@ -5,7 +5,7 @@ import { InventoryService } from '../services/inventory.service';
 import { InventoryRepository } from '../repositories/inventory.repository';
 import { ExpectedStockRepository } from '../repositories/expected-stock.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
-import { ManualAdjustmentSchema, ExpectedArrivalSchema } from '../schemas/inventory.schemas';
+import { ManualAdjustmentSchema, ExpectedArrivalSchema, UpdateThresholdSchema } from '../schemas/inventory.schemas';
 import { validateBody } from '../middleware/validate';
 import multer from 'multer';
 
@@ -30,6 +30,9 @@ router.get('/', requireReadAccess, inventoryController.listInventory);
 
 // INV-02: Manual stock adjustment — write access only (SA + IM)
 router.patch('/:variantId', requireWriteAccess, validateBody(ManualAdjustmentSchema), inventoryController.manualAdjustment);
+
+// INV-08/SET-05: Update stock threshold
+router.patch('/:variantId/threshold', requireWriteAccess, validateBody(UpdateThresholdSchema), inventoryController.updateThreshold);
 
 // Bulk CSV adjustment — write access only
 router.post('/adjustment/bulk', requireWriteAccess, upload.single('file'), inventoryController.bulkAdjustment);

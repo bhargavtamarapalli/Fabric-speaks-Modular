@@ -59,11 +59,12 @@ export class InventoryService {
 
     logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
     
-    if (updated.stockQty < 5) {
+    if (updated.stockQty < updated.thresholdQty) {
       await this.eventQueue.add('stock.low', {
         variantId: updated.variantId,
         productName: updated.productName,
-        stockCount: updated.stockQty
+        stockCount: updated.stockQty,
+        threshold: updated.thresholdQty
       });
     }
 
@@ -104,11 +105,12 @@ export class InventoryService {
                 afterJson: { stockQty: updated.stockQty, reason: validated.reason }
               });
 
-              if (updated.stockQty < 5) {
+              if (updated.stockQty < updated.thresholdQty) {
                 await this.eventQueue.add('stock.low', {
                   variantId: updated.variantId,
                   productName: updated.productName,
-                  stockCount: updated.stockQty
+                  stockCount: updated.stockQty,
+                  threshold: updated.thresholdQty
                 });
               }
 
@@ -180,6 +182,26 @@ export class InventoryService {
           stockCount: updatedVariant.stockQty
        });
     }
+  }
+
+  async updateThreshold(variantId: string, threshold: number, adminUserId: string): Promise<void> {
+    const variant = await this.invRepo.getVariant(variantId);
+    if (!variant) {
+      throw new AppError(ErrorCode.NOT_FOUND, `Variant ${variantId} not found`);
+    }
+
+    await this.invRepo.updateThreshold(variantId, threshold);
+
+    await this.auditLogRepo.insert({
+      adminId: adminUserId,
+      action: 'UPDATE_STOCK_THRESHOLD',
+      entityType: 'INVENTORY',
+      entityId: variantId,
+      beforeJson: { thresholdQty: variant.thresholdQty },
+      afterJson: { thresholdQty: threshold }
+    });
+
+    logger.info(`Stock threshold updated for variant ${variantId} to ${threshold} by ${adminUserId}`);
   }
 
   async getExpectedArrivals(): Promise<ExpectedStock[]> {

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { InventoryService } from '../services/inventory.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
-import { ManualAdjustmentSchema, ExpectedArrivalSchema } from '../schemas/inventory.schemas';
+import { ManualAdjustmentSchema, ExpectedArrivalSchema, UpdateThresholdSchema } from '../schemas/inventory.schemas';
 
 export class InventoryController {
   constructor(private inventoryService: InventoryService) { }
@@ -97,6 +97,23 @@ export class InventoryController {
     res.status(200).json({
       success: true,
       message: 'Arrival marked as received successfully'
+    });
+  });
+
+  updateThreshold = catchAsync(async (req: Request, res: Response) => {
+    const adminUserId = req.user?.userId;
+    if (!adminUserId) {
+      throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+    }
+
+    const { variantId } = req.params;
+    const validated = UpdateThresholdSchema.parse(req.body);
+
+    await this.inventoryService.updateThreshold(variantId!, validated.threshold_qty, adminUserId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Threshold updated successfully'
     });
   });
 
