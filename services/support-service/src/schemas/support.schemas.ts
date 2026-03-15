@@ -21,3 +21,10 @@ export const CustomerLookupParamSchema = z.object({
 export type CustomerLookupParamDto = z.infer<typeof CustomerLookupParamSchema>;
 
 export const CaseIdParamSchema = z.object({ caseId: z.string().uuid() });
+
+export const CustomerIdParamSchema = z.object({ userId: z.string().uuid() });
+
+export const CustomerFlagSchema = z.object({
+  flagType: z.enum(['VIP', 'FRAUD']),
+  note: z.string().max(500).optional()
+});

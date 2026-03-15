@@ -19,6 +19,15 @@ export interface TopPerformer {
   revenue: number;
 }
 
+export interface PeriodComparison {
+  currentOrders: number;
+  previousOrders: number;
+  ordersDeltaPct: number | null;
+  currentRevenue: number;
+  previousRevenue: number;
+  revenueDeltaPct: number | null;
+}
+
 export interface ConversionFunnel {
   views: number;
   addToCarts: number;
@@ -103,6 +112,69 @@ export class DashboardRepository extends BaseRepository {
       volume: parseInt(r.volume),
       revenue: parseFloat(r.revenue)
     }));
+  }
+
+  async getTopFabrics(limit: number = 5): Promise<TopPerformer[]> {
+    const query = `
+      SELECT 
+        COALESCE(p.attributes->>'fabric_type', 'unknown') as name,
+        SUM(oi.quantity) as volume,
+        SUM(oi.quantity * oi.unit_price) as revenue
+      FROM order_items oi
+      JOIN products p ON p.id = oi.product_id
+      GROUP BY name
+      ORDER BY volume DESC
+      LIMIT $1
+    `;
+    const { rows } = await this.query(query, [limit]);
+    return rows.map((row) => ({
+      name: row.name,
+      volume: parseInt(row.volume, 10),
+      revenue: parseFloat(row.revenue)
+    }));
+  }
+
+  async getPeriodComparison(days: number): Promise<PeriodComparison> {
+    const query = `
+      WITH current_period AS (
+        SELECT COUNT(*) as order_count, COALESCE(SUM(total_amount), 0) as revenue
+        FROM orders
+        WHERE created_at >= now() - interval '1 day' * $1
+      ),
+      previous_period AS (
+        SELECT COUNT(*) as order_count, COALESCE(SUM(total_amount), 0) as revenue
+        FROM orders
+        WHERE created_at >= now() - interval '1 day' * ($1 * 2)
+          AND created_at < now() - interval '1 day' * $1
+      )
+      SELECT 
+        (SELECT order_count FROM current_period) as current_orders,
+        (SELECT revenue FROM current_period) as current_revenue,
+        (SELECT order_count FROM previous_period) as previous_orders,
+        (SELECT revenue FROM previous_period) as previous_revenue
+    `;
+    const { rows } = await this.query(query, [days]);
+    const row = rows[0] || {};
+    const currentOrders = parseInt(row.current_orders ?? 0, 10);
+    const previousOrders = parseInt(row.previous_orders ?? 0, 10);
+    const currentRevenue = parseFloat(row.current_revenue ?? 0);
+    const previousRevenue = parseFloat(row.previous_revenue ?? 0);
+
+    return {
+      currentOrders,
+      previousOrders,
+      ordersDeltaPct: this.computeDeltaPct(currentOrders, previousOrders),
+      currentRevenue,
+      previousRevenue,
+      revenueDeltaPct: this.computeDeltaPct(currentRevenue, previousRevenue)
+    };
+  }
+
+  private computeDeltaPct(current: number, previous: number): number | null {
+    if (previous === 0) {
+      return current === 0 ? 0 : null;
+    }
+    return Number((((current - previous) / previous) * 100).toFixed(2));
   }
 
   async getFailedPaymentsCount(): Promise<number> {

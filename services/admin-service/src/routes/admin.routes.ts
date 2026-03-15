@@ -11,6 +11,7 @@ import { SettingsRepository } from '../repositories/settings.repository';
 import { CustomerRepository } from '../repositories/customer.repository';
 import { BannerRepository } from '../repositories/banner.repository';
 import { SaleEventRepository } from '../repositories/sale-event.repository';
+import { SaleEventTargetRepository } from '../repositories/sale-event-target.repository';
 import { DashboardRepository } from '../repositories/dashboard.repository';
 
 // Services
@@ -64,7 +65,8 @@ const bannerService = new BannerService(bannerRepo, auditLogRepo);
 const bannerController = new BannerController(bannerService);
 
 const saleEventRepo = new SaleEventRepository(db);
-const saleEventService = new SaleEventService(saleEventRepo, auditLogRepo);
+const saleEventTargetRepo = new SaleEventTargetRepository(db);
+const saleEventService = new SaleEventService(saleEventRepo, auditLogRepo, saleEventTargetRepo);
 const saleEventController = new SaleEventController(saleEventService);
 
 // Public settings (Storefront) - must be before requireAuth
@@ -112,6 +114,9 @@ router.get('/content/sales', requireRole('superAdmin'), saleEventController.list
 router.post('/content/sales', requireRole('superAdmin'), saleEventController.createSaleEvent);
 router.patch('/content/sales/:id', requireRole('superAdmin'), saleEventController.updateSaleEvent);
 router.delete('/content/sales/:id', requireRole('superAdmin'), saleEventController.deleteSaleEvent);
+router.get('/content/sales/:id/preview', requireRole('superAdmin'), saleEventController.previewSaleEvent);
+router.post('/content/sales/:id/apply', requireRole('superAdmin'), saleEventController.applySaleEvent);
+router.post('/content/sales/:id/end', requireRole('superAdmin'), saleEventController.endSaleEvent);
 
 // GET methods for homepage/nav
 router.get('/homepage', requireRole('superAdmin'), configController.getHomepageConfig);

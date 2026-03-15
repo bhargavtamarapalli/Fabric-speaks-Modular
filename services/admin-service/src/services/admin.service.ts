@@ -120,26 +120,34 @@ export class AdminService {
   }
 
   async getDashboardMetrics() {
-    const [revenue, trends, topProducts, codStats, failedPayments, funnel, health, abandonedRate] = await Promise.all([
+    const [revenue, trends, topProducts, topFabrics, codStats, failedPayments, funnel, health, abandonedRate, dailyComparison, weeklyComparison] = await Promise.all([
       this.dashboardRepo.getRevenueMetrics(30),
       this.dashboardRepo.getOrderTrends(30),
       this.dashboardRepo.getTopProducts(5),
+      this.dashboardRepo.getTopFabrics(5),
       this.dashboardRepo.getCODStats(),
       this.dashboardRepo.getFailedPaymentsCount(),
       this.dashboardRepo.getConversionFunnel(30),
       this.dashboardRepo.getSystemHealth(),
-      this.dashboardRepo.getAbandonedCartRate()
+      this.dashboardRepo.getAbandonedCartRate(),
+      this.dashboardRepo.getPeriodComparison(1),
+      this.dashboardRepo.getPeriodComparison(7)
     ]);
     
     return {
       revenue,
       trends,
       topProducts,
+      topFabrics,
       cod: codStats,
       failedPayments,
       funnel,
       health,
       abandonedRate,
+      comparisons: {
+        yesterday: dailyComparison,
+        week: weeklyComparison
+      },
       shiprocketIssues: 0,
       fraudFlags: codStats.fraud_flagged
     };

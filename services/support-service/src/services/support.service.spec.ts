@@ -3,23 +3,27 @@ import { SupportRepository } from '../repositories/support.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { CustomerViewService } from './customer-view.service';
 import { AppError } from '@fs/shared';
+import { CustomerFlagRepository } from '../repositories/customer-flag.repository';
 
 vi.mock('../repositories/support.repository');
 vi.mock('../repositories/audit-log.repository');
 vi.mock('./customer-view.service');
+vi.mock('../repositories/customer-flag.repository');
 
 describe('SupportService (SUP-02, SUP-03, SUP-05)', () => {
   let supportService: SupportService;
   let supportRepo: SupportRepository;
   let auditLogRepo: AuditLogRepository;
   let customerViewService: CustomerViewService;
+  let customerFlagRepo: CustomerFlagRepository;
 
   beforeEach(() => {
     vi.clearAllMocks();
     supportRepo = new SupportRepository({} as any);
     auditLogRepo = new AuditLogRepository({} as any);
     customerViewService = new CustomerViewService({} as any);
-    supportService = new SupportService(supportRepo, auditLogRepo, customerViewService);
+    customerFlagRepo = new CustomerFlagRepository({} as any);
+    supportService = new SupportService(supportRepo, auditLogRepo, customerViewService, customerFlagRepo);
   });
 
   describe('getCaseDetail (SUP-02)', () => {

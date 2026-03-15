@@ -1,11 +1,13 @@
 import { SaleEventRepository, SaleEvent } from '../repositories/sale-event.repository';
+import { SaleEventTargetRepository } from '../repositories/sale-event-target.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { AppError, ErrorCode } from '@fs/shared';
 
 export class SaleEventService {
   constructor(
     private saleEventRepo: SaleEventRepository,
-    private auditLogRepo: AuditLogRepository
+    private auditLogRepo: AuditLogRepository,
+    private saleTargetRepo: SaleEventTargetRepository
   ) {}
 
   async createSaleEvent(data: Omit<SaleEvent, 'id' | 'created_at' | 'updated_at'>, adminId: string) {
@@ -60,5 +62,95 @@ export class SaleEventService {
     });
 
     return { success: true };
+  }
+
+  async previewSaleEvent(id: string, limit: number = 50, offset: number = 0) {
+    const saleEvent = await this.getSaleEvent(id);
+    const scopeIds = Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : [];
+
+    if (saleEvent.scope !== 'global' && scopeIds.length === 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'scope_ids required for non-global sale events');
+    }
+
+    const preview = await this.saleTargetRepo.getTargets(saleEvent.scope, scopeIds, limit, offset);
+    const items = preview.items.map((item) => ({
+      ...item,
+      computedSalePrice: this.computeSalePrice(item.basePrice, saleEvent.discount_type, saleEvent.discount_value)
+    }));
+
+    return { total: preview.total, items };
+  }
+
+  async applySaleEvent(id: string, adminId: string) {
+    const saleEvent = await this.getSaleEvent(id);
+    const scopeIds = Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : [];
+
+    if (saleEvent.scope !== 'global' && scopeIds.length === 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'scope_ids required for non-global sale events');
+    }
+
+    const now = new Date();
+    if (now < saleEvent.starts_at || now > saleEvent.ends_at) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Sale event is not within active window');
+    }
+
+    const activeEvents = await this.saleEventRepo.findActiveAt(now);
+    const otherActive = activeEvents.find((event) => event.id !== saleEvent.id);
+    if (otherActive) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Another sale event is already active');
+    }
+
+    const updatedCount = await this.saleTargetRepo.applySale(
+      saleEvent.scope,
+      scopeIds,
+      saleEvent.discount_type,
+      saleEvent.discount_value
+    );
+
+    if (!saleEvent.is_active) {
+      await this.saleEventRepo.update(id, { is_active: true });
+    }
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'sale_event_apply',
+      entityType: 'sale_event',
+      entityId: id,
+      afterJson: { updatedCount }
+    });
+
+    return { updatedCount };
+  }
+
+  async endSaleEvent(id: string, adminId: string) {
+    const saleEvent = await this.getSaleEvent(id);
+    const scopeIds = Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : [];
+
+    if (saleEvent.scope !== 'global' && scopeIds.length === 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'scope_ids required for non-global sale events');
+    }
+
+    const updatedCount = await this.saleTargetRepo.endSale(saleEvent.scope, scopeIds);
+
+    if (saleEvent.is_active) {
+      await this.saleEventRepo.update(id, { is_active: false });
+    }
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'sale_event_end',
+      entityType: 'sale_event',
+      entityId: id,
+      afterJson: { updatedCount }
+    });
+
+    return { updatedCount };
+  }
+
+  private computeSalePrice(basePrice: number, discountType: 'PERCENT' | 'FIXED', discountValue: number): number {
+    if (discountType === 'PERCENT') {
+      return Number((basePrice * (1 - discountValue / 100)).toFixed(2));
+    }
+    return Math.max(Number((basePrice - discountValue).toFixed(2)), 0);
   }
 }

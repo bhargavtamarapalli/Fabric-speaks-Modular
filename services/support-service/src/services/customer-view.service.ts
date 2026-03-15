@@ -58,6 +58,16 @@ export class CustomerViewService extends BaseRepository {
       `, [user.id])
     ]);
 
+    const { rows: flagRows } = await this.query(
+      `
+        SELECT flag_type as "flagType", note, updated_at as "updatedAt"
+        FROM customer_flags
+        WHERE user_id = $1 AND is_active = true
+        ORDER BY updated_at DESC
+      `,
+      [user.id]
+    );
+
     // Aggregate lifetime value
     const lifetimeValue = ordersRes.rows
       .filter(o => o.status === 'DELIVERED')
@@ -71,6 +81,7 @@ export class CustomerViewService extends BaseRepository {
         totalReturns: returnsRes.rows.length,
         lifetimeValue
       },
+      flags: flagRows,
       recentOrders: ordersRes.rows,
       recentReturns: returnsRes.rows
     };
