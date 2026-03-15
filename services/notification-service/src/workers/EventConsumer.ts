@@ -1,10 +1,10 @@
 import { Worker, Job } from 'bullmq';
 import { getRedisClient, getDbPool } from '@fs/shared';
 import { logger } from '@fs/shared';
-import { NotificationCoordinator } from '../services/NotificationCoordinator';
+import { NotificationCoordinator, NotificationRequest } from '../services/NotificationCoordinator';
 import { LoyaltyScheduler } from './LoyaltyScheduler';
-import { env } from '../config/env';
 import { OrderEventSchema, StockEventSchema, ReturnEventSchema, AdminEventSchema } from '../schemas/notification.schemas';
+import { NotificationSettingsService } from '../services/NotificationSettingsService';
 
 const QUEUE_NAMES = ['platform_events', 'order_events', 'payment-events'];
 
@@ -12,11 +12,13 @@ export class EventConsumer {
   private workers: Worker[];
   private coordinator: NotificationCoordinator;
   private scheduler: LoyaltyScheduler;
+  private settingsService: NotificationSettingsService;
   private db = getDbPool();
 
   constructor() {
     this.coordinator = new NotificationCoordinator();
     this.scheduler = new LoyaltyScheduler();
+    this.settingsService = new NotificationSettingsService();
     const redis = getRedisClient();
 
     this.workers = QUEUE_NAMES.map((queueName) => {
@@ -68,26 +70,40 @@ export class EventConsumer {
           });
         }
 
-        await this.coordinator.processNotification({
+        const settings = await this.settingsService.getNotificationSettings();
+        const paymentMethod = validatedData.paymentMethod || context?.paymentMethod;
+        const adminOrderRequest = {
           eventType: 'admin.order_created',
-          recipientPhone: env.ADMIN_PHONE,
+          orderId: validatedData.orderId,
           waTemplateName: 'admin_new_order',
           waComponents: [
             { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }, { type: 'text', text: String(validatedData.totalAmount || context?.totalAmount || '0') }] }
           ],
           fallbackSmsBody: `ADMIN ALERT: New order ${validatedData.orderId} placed for Rs. ${validatedData.totalAmount || context?.totalAmount || '0'}.`
-        });
+        };
 
-        if ((validatedData.paymentMethod || context?.paymentMethod) === 'COD') {
-          await this.coordinator.processNotification({
-            eventType: 'admin.cod_order_created',
-            recipientPhone: env.ADMIN_PHONE,
-            waTemplateName: 'admin_cod_order',
-            waComponents: [
-              { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }] }
-            ],
-            fallbackSmsBody: `ADMIN ALERT: COD order ${validatedData.orderId} requires attention.`
-          });
+        await this.sendWithPreference(
+          adminOrderRequest,
+          settings.adminWhatsapp,
+          settings.preferences.new_orders,
+          'preference:new_orders'
+        );
+
+        if (paymentMethod === 'COD') {
+          await this.sendWithPreference(
+            {
+              eventType: 'admin.cod_order_created',
+              orderId: validatedData.orderId,
+              waTemplateName: 'admin_cod_order',
+              waComponents: [
+                { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }] }
+              ],
+              fallbackSmsBody: `ADMIN ALERT: COD order ${validatedData.orderId} requires attention. Customer: ${recipientPhone || 'N/A'}.`
+            },
+            settings.adminWhatsapp,
+            settings.preferences.cod_orders,
+            'preference:cod_orders'
+          );
         }
         break;
       }
@@ -136,15 +152,21 @@ export class EventConsumer {
 
       case 'payment.failed': {
         const validatedData = OrderEventSchema.parse(data);
-        await this.coordinator.processNotification({
-          eventType: 'admin.payment_failed',
-          recipientPhone: env.ADMIN_PHONE,
-          waTemplateName: 'admin_payment_failed',
-          waComponents: [
-            { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }] }
-          ],
-          fallbackSmsBody: `ADMIN ALERT: Payment failed for order ${validatedData.orderId}.`
-        });
+        const settings = await this.settingsService.getNotificationSettings();
+        await this.sendWithPreference(
+          {
+            eventType: 'admin.payment_failed',
+            orderId: validatedData.orderId,
+            waTemplateName: 'admin_payment_failed',
+            waComponents: [
+              { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }] }
+            ],
+            fallbackSmsBody: `ADMIN ALERT: Payment failed for order ${validatedData.orderId}.`
+          },
+          settings.adminWhatsapp,
+          true,
+          'preference:payment_failed'
+        );
         break;
       }
 
@@ -216,15 +238,21 @@ export class EventConsumer {
 
       case 'return.requested': {
         const validatedData = ReturnEventSchema.parse(data);
-        await this.coordinator.processNotification({
-          eventType: 'admin.return_requested',
-          recipientPhone: env.ADMIN_PHONE,
-          waTemplateName: 'admin_return_requested',
-          waComponents: [
-            { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }] }
-          ],
-          fallbackSmsBody: `ADMIN ALERT: Return requested for order ${validatedData.orderId}.`
-        });
+        const settings = await this.settingsService.getNotificationSettings();
+        await this.sendWithPreference(
+          {
+            eventType: 'admin.return_requested',
+            orderId: validatedData.orderId,
+            waTemplateName: 'admin_return_requested',
+            waComponents: [
+              { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }] }
+            ],
+            fallbackSmsBody: `ADMIN ALERT: Return requested for order ${validatedData.orderId}. Reason: ${validatedData.reason || 'N/A'}.`
+          },
+          settings.adminWhatsapp,
+          settings.preferences.returns,
+          'preference:returns'
+        );
         break;
       }
 
@@ -251,57 +279,86 @@ export class EventConsumer {
 
       case 'stock.low': {
         const validatedData = StockEventSchema.parse(data);
-        await this.coordinator.processNotification({
-          eventType: name,
-          recipientPhone: env.ADMIN_PHONE,
-          waTemplateName: 'admin_stock_alert',
-          waComponents: [
-            { type: 'body', parameters: [{ type: 'text', text: validatedData.productName }, { type: 'text', text: String(validatedData.stockCount) }] }
-          ],
-          fallbackSmsBody: `ALERT: Stock low for ${validatedData.productName} (${validatedData.stockCount} units left).`
-        });
+        const settings = await this.settingsService.getNotificationSettings();
+        await this.sendWithPreference(
+          {
+            eventType: name,
+            waTemplateName: 'admin_stock_alert',
+            waComponents: [
+              { type: 'body', parameters: [{ type: 'text', text: validatedData.productName }, { type: 'text', text: String(validatedData.stockCount) }] }
+            ],
+            fallbackSmsBody: `Low stock: ${validatedData.productName} ${validatedData.size || ''} ${validatedData.colour || ''} (SKU ${validatedData.sku || 'N/A'}) — ${validatedData.stockCount} units left.`
+          },
+          settings.inventoryManagerWhatsapp,
+          settings.preferences.stock_low,
+          'preference:stock_low'
+        );
         break;
       }
 
       case 'stock.critical': {
         const validatedData = StockEventSchema.parse(data);
-        await this.coordinator.processNotification({
+        const settings = await this.settingsService.getNotificationSettings();
+        const request = {
           eventType: name,
-          recipientPhone: env.ADMIN_PHONE,
           waTemplateName: 'admin_stock_critical',
           waComponents: [
             { type: 'body', parameters: [{ type: 'text', text: validatedData.productName }, { type: 'text', text: String(validatedData.stockCount) }] }
           ],
-          fallbackSmsBody: `CRITICAL: ${validatedData.productName} is out of stock (${validatedData.stockCount}).`
-        });
+          fallbackSmsBody: `STOCK OUT: ${validatedData.productName} ${validatedData.size || ''} ${validatedData.colour || ''} (SKU ${validatedData.sku || 'N/A'}) is out of stock (${validatedData.stockCount}).`
+        };
+
+        await this.sendWithPreference(
+          request,
+          settings.adminWhatsapp,
+          settings.preferences.stock_critical,
+          'preference:stock_critical'
+        );
+        await this.sendWithPreference(
+          request,
+          settings.inventoryManagerWhatsapp,
+          settings.preferences.stock_critical,
+          'preference:stock_critical'
+        );
         break;
       }
 
       case 'return.pickup_failed': {
         const validatedData = ReturnEventSchema.parse(data);
-        await this.coordinator.processNotification({
-          eventType: name,
-          recipientPhone: env.ADMIN_PHONE,
-          waTemplateName: 'admin_pickup_failed',
-          waComponents: [
-            { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }, { type: 'text', text: validatedData.returnId || 'N/A' }] }
-          ],
-          fallbackSmsBody: `ADMIN ALERT: Shiprocket pickup failed for return ${validatedData.returnId || 'N/A'} (order ${validatedData.orderId}). ${validatedData.reason || ''}`.trim()
-        });
+        const settings = await this.settingsService.getNotificationSettings();
+        await this.sendWithPreference(
+          {
+            eventType: name,
+            orderId: validatedData.orderId,
+            waTemplateName: 'admin_pickup_failed',
+            waComponents: [
+              { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }, { type: 'text', text: validatedData.returnId || 'N/A' }] }
+            ],
+            fallbackSmsBody: `ADMIN ALERT: Shiprocket pickup failed for return ${validatedData.returnId || 'N/A'} (order ${validatedData.orderId}). ${validatedData.reason || ''}`.trim()
+          },
+          settings.adminWhatsapp,
+          settings.preferences.returns,
+          'preference:returns'
+        );
         break;
       }
 
       case 'admin.user_created': {
         const validatedData = AdminEventSchema.parse(data);
-        await this.coordinator.processNotification({
-          eventType: name,
-          recipientPhone: env.ADMIN_PHONE,
-          waTemplateName: 'admin_user_created',
-          waComponents: [
-            { type: 'body', parameters: [{ type: 'text', text: validatedData.adminName || 'New admin' }, { type: 'text', text: validatedData.role || 'unknown' }] }
-          ],
-          fallbackSmsBody: `ADMIN ALERT: New admin user ${validatedData.adminName || 'unknown'} created with role ${validatedData.role || 'unknown'}.`
-        });
+        const settings = await this.settingsService.getNotificationSettings();
+        await this.sendWithPreference(
+          {
+            eventType: name,
+            waTemplateName: 'admin_user_created',
+            waComponents: [
+              { type: 'body', parameters: [{ type: 'text', text: validatedData.adminName || 'New admin' }, { type: 'text', text: validatedData.role || 'unknown' }] }
+            ],
+            fallbackSmsBody: `ADMIN ALERT: New admin user ${validatedData.adminName || 'unknown'} created with role ${validatedData.role || 'unknown'}.`
+          },
+          settings.adminWhatsapp,
+          true,
+          'preference:admin_user_created'
+        );
         break;
       }
 
@@ -353,6 +410,26 @@ export class EventConsumer {
   async close() {
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.scheduler.close();
+  }
+
+  private async sendWithPreference(
+    request: Omit<NotificationRequest, 'recipientPhone'>,
+    recipientPhone: string | null,
+    preferenceEnabled: boolean,
+    skipReason: string
+  ): Promise<void> {
+    if (!recipientPhone) {
+      logger.warn(`Notification skipped: missing recipient for ${request.eventType}`);
+      return;
+    }
+
+    const payload: NotificationRequest = { ...request, recipientPhone };
+    if (!preferenceEnabled) {
+      await this.coordinator.logSkippedNotification(payload, skipReason);
+      return;
+    }
+
+    await this.coordinator.processNotification(payload);
   }
 
   private async getOrderContext(orderId: string): Promise<{

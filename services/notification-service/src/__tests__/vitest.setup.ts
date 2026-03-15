@@ -15,6 +15,9 @@ vi.mock('@fs/shared', () => ({
   getRedisClient: vi.fn().mockReturnValue({
     on: vi.fn(),
     close: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(null),
+    setex: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
   }),
   getDbPool: vi.fn().mockReturnValue({
     query: vi.fn(),

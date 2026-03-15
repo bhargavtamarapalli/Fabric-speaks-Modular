@@ -9,7 +9,7 @@ export interface NotificationLog {
   userId?: string;
   orderId?: string;
   eventType: string;
-  recipient: string;
+  recipient?: string | null;
   channel: NotificationChannel;
   status: NotificationStatus;
   providerResponse?: Record<string, unknown>;
@@ -33,7 +33,7 @@ export class NotificationLogRepository extends BaseRepository {
       log.userId || null,
       log.orderId || null,
       log.eventType,
-      log.recipient,
+      log.recipient || null,
       log.channel,
       log.status,
       log.providerResponse ? JSON.stringify(log.providerResponse) : null,

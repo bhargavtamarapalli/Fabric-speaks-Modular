@@ -89,7 +89,9 @@ export class ReturnService {
     this.enqueueEvent('return.requested', {
       userId,
       orderId,
+      returnId: newReturn.id,
       pickupDate: null,
+      reason: returnType
     });
     
     return newReturn;

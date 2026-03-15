@@ -62,6 +62,9 @@ export class InventoryService {
     if (updated.stockQty <= 0) {
       this.enqueueEvent('stock.critical', {
         variantId: updated.variantId,
+        sku: updated.sku,
+        size: updated.size,
+        colour: updated.colour,
         productName: updated.productName,
         stockCount: updated.stockQty,
         threshold: updated.thresholdQty
@@ -69,6 +72,9 @@ export class InventoryService {
     } else if (updated.stockQty < updated.thresholdQty) {
       this.enqueueEvent('stock.low', {
         variantId: updated.variantId,
+        sku: updated.sku,
+        size: updated.size,
+        colour: updated.colour,
         productName: updated.productName,
         stockCount: updated.stockQty,
         threshold: updated.thresholdQty
@@ -115,6 +121,9 @@ export class InventoryService {
               if (updated.stockQty <= 0) {
                 this.enqueueEvent('stock.critical', {
                   variantId: updated.variantId,
+                  sku: updated.sku,
+                  size: updated.size,
+                  colour: updated.colour,
                   productName: updated.productName,
                   stockCount: updated.stockQty,
                   threshold: updated.thresholdQty
@@ -122,6 +131,9 @@ export class InventoryService {
               } else if (updated.stockQty < updated.thresholdQty) {
                 this.enqueueEvent('stock.low', {
                   variantId: updated.variantId,
+                  sku: updated.sku,
+                  size: updated.size,
+                  colour: updated.colour,
                   productName: updated.productName,
                   stockCount: updated.stockQty,
                   threshold: updated.thresholdQty

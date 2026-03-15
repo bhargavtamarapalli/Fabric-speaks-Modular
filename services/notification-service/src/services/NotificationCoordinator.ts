@@ -123,4 +123,21 @@ export class NotificationCoordinator {
 
     return { successCount, failedCount };
   }
+
+  async logSkippedNotification(request: NotificationRequest, reason: string): Promise<void> {
+    try {
+      await this.logRepo.createLog({
+        userId: request.userId,
+        orderId: request.orderId,
+        eventType: request.eventType,
+        recipient: request.recipientPhone,
+        channel: 'whatsapp',
+        status: 'FAILED',
+        providerResponse: { skipped: true, reason },
+        templateId: request.waTemplateName
+      });
+    } catch (error) {
+      logger.warn(`Failed to log skipped notification for ${request.recipientPhone}`, error);
+    }
+  }
 }

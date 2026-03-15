@@ -16,6 +16,9 @@ export const OrderEventSchema = z.object({
 
 export const StockEventSchema = z.object({
   variantId: z.string().optional(),
+  sku: z.string().optional(),
+  size: z.string().optional(),
+  colour: z.string().optional(),
   productName: z.string(),
   stockCount: z.union([z.string(), z.number()]),
   threshold: z.union([z.string(), z.number()]).optional(),

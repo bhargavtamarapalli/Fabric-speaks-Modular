@@ -10,6 +10,8 @@ export interface VariantStock {
     healthStatus: string;
     avgDailySales?: number;
     daysRemaining?: number;
+    size?: string | null;
+    colour?: string | null;
 }
 
 export class InventoryRepository extends BaseRepository {
@@ -17,7 +19,9 @@ export class InventoryRepository extends BaseRepository {
         const query = `
             SELECT 
                 v.id as "variantId", 
-                v.sku, 
+                v.sku,
+                v.size,
+                v.colour,
                 p.name as "productName", 
                 v.qty as "stockQty",
                 v.threshold_qty as "thresholdQty"
@@ -34,7 +38,9 @@ export class InventoryRepository extends BaseRepository {
             stockQty: Number(row.stockQty),
             reservedQty: 0,
             thresholdQty: Number(row.thresholdQty),
-            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty))
+            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty)),
+            size: row.size ?? null,
+            colour: row.colour ?? null
         }));
     }
 
@@ -42,7 +48,9 @@ export class InventoryRepository extends BaseRepository {
         const query = `
             SELECT 
                 v.id as "variantId", 
-                v.sku, 
+                v.sku,
+                v.size,
+                v.colour,
                 p.name as "productName", 
                 v.qty as "stockQty",
                 v.threshold_qty as "thresholdQty"
@@ -60,7 +68,9 @@ export class InventoryRepository extends BaseRepository {
             stockQty: Number(row.stockQty),
             reservedQty: 0,
             thresholdQty: Number(row.thresholdQty),
-            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty))
+            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty)),
+            size: row.size ?? null,
+            colour: row.colour ?? null
         };
     }
 
@@ -148,6 +158,8 @@ export class InventoryRepository extends BaseRepository {
             SELECT 
                 v.id as "variantId", 
                 v.sku, 
+                v.size,
+                v.colour,
                 p.name as "productName", 
                 v.qty as "stockQty",
                 v.threshold_qty as "thresholdQty",
@@ -174,7 +186,9 @@ export class InventoryRepository extends BaseRepository {
                 thresholdQty: Number(row.thresholdQty),
                 healthStatus: this.calculateHealth(stockQty, Number(row.thresholdQty)),
                 avgDailySales,
-                daysRemaining
+                daysRemaining,
+                size: row.size ?? null,
+                colour: row.colour ?? null
             };
         });
     }

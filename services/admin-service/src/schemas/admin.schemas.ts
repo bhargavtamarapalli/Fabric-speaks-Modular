@@ -40,6 +40,12 @@ export const CreateAdminUserSchema = z.object({
 
 export type CreateAdminUserDto = z.infer<typeof CreateAdminUserSchema>;
 
+const OPTIONAL_VALUE_KEYS = new Set([
+  'admin_whatsapp',
+  'inventory_manager_whatsapp',
+  'admin_notification_preferences'
+]);
+
 export const UpdateSettingSchema = z.object({
   key: z.enum([
     'store_name',
@@ -49,9 +55,20 @@ export const UpdateSettingSchema = z.object({
     'free_shipping_above',
     'cod_enabled',
     'stock_alert_threshold',
-    'razorpay_live_mode'
+    'razorpay_live_mode',
+    'admin_whatsapp',
+    'inventory_manager_whatsapp',
+    'admin_notification_preferences'
   ]),
-  value: z.string().min(1).max(500),
+  value: z.string().max(500),
+}).superRefine((data, ctx) => {
+  if (!OPTIONAL_VALUE_KEYS.has(data.key) && data.value.trim().length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['value'],
+      message: 'Value is required'
+    });
+  }
 });
 
 export type UpdateSettingDto = z.infer<typeof UpdateSettingSchema>;
