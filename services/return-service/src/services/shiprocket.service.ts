@@ -8,6 +8,10 @@ export class ShiprocketService {
   private tokenExpiry: number | null = null;
 
   private async authenticate() {
+    if (env.SHIPROCKET_API_KEY) {
+      return env.SHIPROCKET_API_KEY;
+    }
+
     if (this.token && this.tokenExpiry && Date.now() < this.tokenExpiry) {
       return this.token;
     }

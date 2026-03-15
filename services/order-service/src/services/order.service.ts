@@ -5,6 +5,7 @@ import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { ShiprocketClient } from './shiprocket.client';
 import { randomBytes } from 'crypto';
 import axios from 'axios';
+import { env } from '../config/env';
 
 export class OrderService {
   private eventQueue: Queue;
@@ -630,7 +631,7 @@ export class OrderService {
       const shiprocketOrder = {
         order_id: order.id,
         order_date: order.created_at.toISOString(),
-        pickup_location: 'Primary',
+        pickup_location: env.SHIPROCKET_PICKUP_LOCATION,
         billing_customer_name: customerName,
         billing_email: customerEmail,
         billing_phone: customerPhone,
@@ -699,8 +700,8 @@ export class OrderService {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Missing Razorpay payment id for refund');
     }
 
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = env.RAZORPAY_KEY_ID;
+    const keySecret = env.RAZORPAY_KEY_SECRET;
     if (!keyId || !keySecret) {
       throw new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Razorpay credentials are not configured');
     }

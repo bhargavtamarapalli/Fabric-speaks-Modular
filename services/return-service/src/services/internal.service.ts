@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getDbPool, getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
 import { randomUUID } from 'crypto';
+import { env } from '../config/env';
 
 type PaymentStatus = 'PENDING' | 'CAPTURED' | 'FAILED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';
 type RefundLookupStatus = 'pending' | 'processed' | 'failed' | 'unknown';
@@ -63,7 +64,7 @@ interface PaymentRecord {
   updatedAt: Date;
 }
 
-const RAZORPAY_API_URL = process.env.RAZORPAY_API_URL || 'https://api.razorpay.com/v1';
+const RAZORPAY_API_URL = env.RAZORPAY_API_URL;
 const REFUND_STATUS_CACHE_TTL_SECONDS = 60 * 5;
 
 const mapRefundStatus = (rawStatus: unknown): RefundLookupStatus => {
@@ -422,8 +423,8 @@ export class InternalService {
   }
 
   private getRazorpayCredentials() {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = env.RAZORPAY_KEY_ID;
+    const keySecret = env.RAZORPAY_KEY_SECRET;
 
     if (!keyId || !keySecret) {
       return null;
