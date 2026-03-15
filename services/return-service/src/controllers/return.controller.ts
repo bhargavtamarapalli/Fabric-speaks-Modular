@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ReturnService } from '../services/return.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 import { ReturnStatus } from '../repositories/return.repository';
+import { updateStatusSchema, resolveReturnSchema } from '../schemas/return.schemas';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 
 export class ReturnController {
@@ -54,7 +55,7 @@ export class ReturnController {
 
   updateStatus = catchAsync(async (req: Request, res: Response) => {
     const { returnId } = req.params;
-    const { status, agentNotes } = req.body;
+    const { status, agentNotes } = updateStatusSchema.parse(req.body);
     
     if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     const adminId = req.user.userId;
@@ -94,7 +95,7 @@ export class ReturnController {
 
   resolveReturn = catchAsync(async (req: Request, res: Response) => {
     const { returnId } = req.params;
-    const { resolution, agentNotes } = req.body;
+    const { resolution, agentNotes } = resolveReturnSchema.parse(req.body);
     
     if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     const adminId = req.user.userId;

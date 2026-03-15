@@ -19,13 +19,10 @@ export class CategoryRepository extends BaseRepository implements ICategoryRepos
     }
 
     async create(dto: any): Promise<Category> {
-        const columns = Object.keys(dto).map(k => k.replace(/[A-Z]/g, l => `_${l.toLowerCase()}`));
-        const values = Object.values(dto);
-        const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
-
         const result = await this.query(
-            `INSERT INTO categories (${columns.join(', ')}) VALUES (${placeholders}) RETURNING *`,
-            values
+            `INSERT INTO categories (name, slug, description, image_url, display_order, is_active) 
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [dto.name, dto.slug, dto.description, dto.imageUrl, dto.displayOrder ?? 0, dto.isActive ?? true]
         );
         return this.mapToCamelCase<Category>(result.rows[0]);
     }
@@ -35,11 +32,14 @@ export class CategoryRepository extends BaseRepository implements ICategoryRepos
         const values: any[] = [id];
         let i = 2;
 
-        for (const [key, value] of Object.entries(dto)) {
-            const snakeKey = key.replace(/[A-Z]/g, l => `_${l.toLowerCase()}`);
-            updates.push(`${snakeKey} = $${i++}`);
-            values.push(value);
-        }
+        if (dto.name !== undefined) { updates.push(`name = $${i++}`); values.push(dto.name); }
+        if (dto.slug !== undefined) { updates.push(`slug = $${i++}`); values.push(dto.slug); }
+        if (dto.description !== undefined) { updates.push(`description = $${i++}`); values.push(dto.description); }
+        if (dto.imageUrl !== undefined) { updates.push(`image_url = $${i++}`); values.push(dto.imageUrl); }
+        if (dto.displayOrder !== undefined) { updates.push(`display_order = $${i++}`); values.push(dto.displayOrder); }
+        if (dto.isActive !== undefined) { updates.push(`is_active = $${i++}`); values.push(dto.isActive); }
+
+        if (updates.length === 0) return this.findById(id) as Promise<Category>;
 
         const result = await this.query(
             `UPDATE categories SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $1 RETURNING *`,

@@ -43,21 +43,21 @@ export class CollectionRepository extends BaseRepository implements ICollectionR
     }
 
     async update(id: string, dto: any): Promise<Collection> {
-        const { rules_json, ...rest } = dto;
         const updates: string[] = [];
         const values: any[] = [id];
         let i = 2;
 
-        for (const [key, value] of Object.entries(rest)) {
-            const snakeKey = key.replace(/[A-Z]/g, l => `_${l.toLowerCase()}`);
-            updates.push(`${snakeKey} = $${i++}`);
-            values.push(value);
-        }
+        if (dto.name !== undefined) { updates.push(`name = $${i++}`); values.push(dto.name); }
+        if (dto.slug !== undefined) { updates.push(`slug = $${i++}`); values.push(dto.slug); }
+        if (dto.type !== undefined) { updates.push(`type = $${i++}`); values.push(dto.type); }
+        if (dto.rulesJson !== undefined) { updates.push(`rules_json = $${i++}`); values.push(JSON.stringify(dto.rulesJson)); }
+        if (dto.heroImageMobileUrl !== undefined) { updates.push(`hero_image_mobile_url = $${i++}`); values.push(dto.heroImageMobileUrl); }
+        if (dto.heroImageDesktopUrl !== undefined) { updates.push(`hero_image_desktop_url = $${i++}`); values.push(dto.heroImageDesktopUrl); }
+        if (dto.description !== undefined) { updates.push(`description = $${i++}`); values.push(dto.description); }
+        if (dto.isActive !== undefined) { updates.push(`is_active = $${i++}`); values.push(dto.isActive); }
+        if (dto.displayOrder !== undefined) { updates.push(`display_order = $${i++}`); values.push(dto.displayOrder); }
 
-        if (rules_json) {
-            updates.push(`rules_json = $${i++}`);
-            values.push(JSON.stringify(rules_json));
-        }
+        if (updates.length === 0) return this.findById(id) as Promise<Collection>;
 
         const result = await this.query(
             `UPDATE collections SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $1 RETURNING *`,
