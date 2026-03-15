@@ -107,12 +107,15 @@ export class AdminService {
   }
 
   async getDashboardMetrics() {
-    const [revenue, trends, topProducts, codStats, failedPayments] = await Promise.all([
+    const [revenue, trends, topProducts, codStats, failedPayments, funnel, health, abandonedRate] = await Promise.all([
       this.dashboardRepo.getRevenueMetrics(30),
       this.dashboardRepo.getOrderTrends(30),
       this.dashboardRepo.getTopProducts(5),
       this.dashboardRepo.getCODStats(),
-      this.dashboardRepo.getFailedPaymentsCount()
+      this.dashboardRepo.getFailedPaymentsCount(),
+      this.dashboardRepo.getConversionFunnel(30),
+      this.dashboardRepo.getSystemHealth(),
+      this.dashboardRepo.getAbandonedCartRate()
     ]);
     
     return {
@@ -121,7 +124,9 @@ export class AdminService {
       topProducts,
       cod: codStats,
       failedPayments,
-      // Placeholder for others if needed
+      funnel,
+      health,
+      abandonedRate,
       shiprocketIssues: 0,
       fraudFlags: codStats.fraud_flagged
     };
