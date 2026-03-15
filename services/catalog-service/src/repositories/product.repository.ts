@@ -29,13 +29,13 @@ export class ProductRepository extends BaseRepository implements IProductReposit
         let paramIdx = 1;
 
         if (search) {
-            whereClauses.push(`(to_tsvector('english', p.name || ' ' || p.fabric_type) @@ plainto_tsquery('english', $${paramIdx}))`);
+            whereClauses.push(`(to_tsvector('english', p.name || ' ' || COALESCE(p.attributes->>'fabric_type', '')) @@ plainto_tsquery('english', $${paramIdx}))`);
             params.push(search);
             paramIdx++;
         }
 
         if (fabric) {
-            whereClauses.push(`p.fabric_type = $${paramIdx}`);
+            whereClauses.push(`p.attributes->>'fabric_type' = $${paramIdx}`);
             params.push(fabric);
             paramIdx++;
         }
@@ -72,7 +72,34 @@ export class ProductRepository extends BaseRepository implements IProductReposit
     }
 
     async create(dto: CreateProductDto): Promise<Product> {
-        const snakeDto = this.mapToSnakeCase(dto);
+        // Extract fabric fields to map to JSONB 'attributes' column
+        const fabricFields = [
+            'fabricType',
+            'gsmWeight',
+            'weaveType',
+            'breathabilityRating',
+            'careInstructions',
+            'fabricOrigin'
+        ];
+        
+        const attributes: Record<string, any> = {};
+        const snakeDto: Record<string, any> = {};
+        
+        for (const [key, value] of Object.entries(dto)) {
+            if (fabricFields.includes(key)) {
+                // Map camelCase to snake_case for JSONB storage
+                const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+                attributes[snakeKey] = value;
+            } else {
+                // Map non-fabric fields normally
+                const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+                snakeDto[snakeKey] = value;
+            }
+        }
+        
+        // Add attributes JSONB
+        snakeDto['attributes'] = JSON.stringify(attributes);
+        
         const columns = Object.keys(snakeDto);
         const values = Object.values(snakeDto);
         const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
@@ -83,7 +110,30 @@ export class ProductRepository extends BaseRepository implements IProductReposit
     }
 
     async update(id: string, dto: UpdateProductDto): Promise<Product> {
-        const snakeDto = this.mapToSnakeCase(dto);
+        const fabricFields = [
+            'fabricType',
+            'gsmWeight',
+            'weaveType',
+            'breathabilityRating',
+            'careInstructions',
+            'fabricOrigin'
+        ];
+
+        const attributes: Record<string, any> = {};
+        const snakeDto: Record<string, any> = {};
+
+        for (const [key, value] of Object.entries(dto)) {
+            if (value === undefined) continue;
+            
+            if (fabricFields.includes(key)) {
+                const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+                attributes[snakeKey] = value;
+            } else {
+                const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+                snakeDto[snakeKey] = value;
+            }
+        }
+
         const updates: string[] = [];
         const values: unknown[] = [id];
         let paramIdx = 2;
@@ -94,6 +144,18 @@ export class ProductRepository extends BaseRepository implements IProductReposit
             paramIdx++;
         }
 
+        if (Object.keys(attributes).length > 0) {
+            updates.push(`attributes = attributes || $${paramIdx}`);
+            values.push(JSON.stringify(attributes));
+            paramIdx++;
+        }
+
+        if (updates.length === 0) {
+            const result = await this.findById(id);
+            if (!result) throw new Error('Product not found');
+            return result;
+        }
+
         const queryStr = `UPDATE products SET ${updates.join(', ')}, updated_at = now() WHERE id = $1 AND is_deleted = false RETURNING *`;
         const result = await this.query(queryStr, values);
         if (!result.rows[0]) throw new Error('Product not found');
@@ -102,7 +164,7 @@ export class ProductRepository extends BaseRepository implements IProductReposit
 
     async softDelete(id: string): Promise<void> {
         await this.query(
-            'UPDATE products SET is_deleted = true, updated_at = now() WHERE id = $1',
+            'UPDATE products SET is_deleted = true, is_active = false, updated_at = now() WHERE id = $1',
             [id]
         );
     }
