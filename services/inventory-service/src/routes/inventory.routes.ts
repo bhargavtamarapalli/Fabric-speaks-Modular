@@ -34,9 +34,10 @@ router.patch('/:variantId', requireWriteAccess, validateBody(ManualAdjustmentSch
 // Bulk CSV adjustment — write access only
 router.post('/adjustment/bulk', requireWriteAccess, upload.single('file'), inventoryController.bulkAdjustment);
 
-// INV-04/05: Expected arrivals — write access only
+// INV-04/05/07: Expected arrivals — write access only
 router.get('/expected', requireWriteAccess, inventoryController.getExpectedArrivals);
 router.post('/expected', requireWriteAccess, validateBody(ExpectedArrivalSchema), inventoryController.addExpectedArrival);
+router.patch('/expected/:id/receive', requireWriteAccess, inventoryController.markArrivalReceived);
 
 // INV-05: Stock health dashboard — read access (SA + IM can see full data)
 router.get('/health', requireWriteAccess, inventoryController.getHealth);

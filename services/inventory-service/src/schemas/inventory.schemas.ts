@@ -1,20 +1,32 @@
 import { z } from 'zod';
 
+export const AdjustmentReasonSchema = z.enum([
+  'damaged',
+  'miscounted',
+  'theft',
+  'return_restocked',
+  'supplier_short_shipped',
+  'initial_stock',
+  'correction',
+  'other'
+]);
+
 export const ManualAdjustmentSchema = z.object({
   newQty: z.number().int().nonnegative({ message: 'Stock quantity cannot be negative' }),
-  reason: z.string().min(1, { message: 'Reason is required for manual adjustment' })
+  reason: AdjustmentReasonSchema
 });
 
 export const BulkAdjustmentRowSchema = z.object({
   variant_id: z.string().uuid({ message: 'Invalid variant ID format' }),
   new_qty: z.coerce.number().int().nonnegative({ message: 'Invalid quantity' }),
-  reason: z.string().min(1, { message: 'Reason is required' })
+  reason: AdjustmentReasonSchema
 });
 
 export const ExpectedArrivalSchema = z.object({
-  variantId: z.string().uuid({ message: 'Invalid variant ID format' }),
-  expectedQty: z.number().int().positive({ message: 'Expected quantity must be greater than zero' }),
-  arrivalDate: z.string().datetime({ message: 'Invalid arrival date format' })
+  variant_id: z.string().uuid({ message: 'Invalid variant ID format' }),
+  expected_qty: z.number().int().positive({ message: 'Expected quantity must be greater than zero' }),
+  expected_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format (YYYY-MM-DD)' }),
+  notes: z.string().max(500).optional()
 });
 
 export type ManualAdjustmentInput = z.infer<typeof ManualAdjustmentSchema>;

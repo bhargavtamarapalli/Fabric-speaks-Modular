@@ -128,7 +128,7 @@ export class InventoryService {
     });
   }
 
-  async addExpectedArrival(data: Omit<ExpectedStock, 'id' | 'status'>, adminUserId: string): Promise<ExpectedStock> {
+  async addExpectedArrival(data: Omit<ExpectedStock, 'id' | 'is_received' | 'received_at'>, adminUserId: string): Promise<ExpectedStock> {
     const variant = await this.invRepo.getVariant(data.variant_id);
     if (!variant) {
       throw new AppError(ErrorCode.NOT_FOUND, `Variant ${data.variant_id} not found`);
@@ -146,6 +146,40 @@ export class InventoryService {
     });
 
     return arrival;
+  }
+
+  async markArrivalReceived(arrivalId: string, adminUserId: string): Promise<void> {
+    const arrival = await this.expectedRepo.getById(arrivalId);
+    if (!arrival) {
+      throw new AppError(ErrorCode.NOT_FOUND, `Arrival ${arrivalId} not found`);
+    }
+
+    if (arrival.is_received) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Arrival ${arrivalId} is already marked as received`);
+    }
+
+    await this.expectedRepo.receiveArrival(arrivalId, adminUserId);
+
+    await this.auditLogRepo.insert({
+      adminId: adminUserId,
+      action: 'MARK_ARRIVAL_RECEIVED',
+      entityType: 'EXPECTED_STOCK',
+      entityId: arrivalId,
+      beforeJson: { is_received: false },
+      afterJson: { is_received: true, received_at: new Date() }
+    });
+
+    logger.info(`Arrival ${arrivalId} marked as received by ${adminUserId}`);
+    
+    // Check if replenished stock triggers events
+    const updatedVariant = await this.invRepo.getVariant(arrival.variant_id);
+    if (updatedVariant && updatedVariant.stockQty > 0) {
+       await this.eventQueue.add('stock.replenished', {
+          variantId: updatedVariant.variantId,
+          productName: updatedVariant.productName,
+          stockCount: updatedVariant.stockQty
+       });
+    }
   }
 
   async getExpectedArrivals(): Promise<ExpectedStock[]> {
