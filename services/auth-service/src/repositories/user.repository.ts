@@ -10,6 +10,8 @@ export interface User {
     firebase_uid: string;
     role: string;
     is_deleted: boolean;
+    session_version?: number;
+    session_revoked_at?: Date | null;
 }
 
 export interface IUserRepository {

@@ -7,6 +7,11 @@ export interface NotificationPreferences {
   stock_critical: boolean;
   stock_low: boolean;
   returns: boolean;
+  payment_failed: boolean;
+  large_orders: boolean;
+  admin_user_created: boolean;
+  failed_admin_login: boolean;
+  pickup_failed: boolean;
 }
 
 export interface NotificationSettings {
@@ -26,7 +31,12 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   cod_orders: true,
   stock_critical: true,
   stock_low: true,
-  returns: true
+  returns: true,
+  payment_failed: true,
+  large_orders: true,
+  admin_user_created: true,
+  failed_admin_login: true,
+  pickup_failed: true
 };
 
 const normalizePhone = (value?: string | null): string | null => {

@@ -13,6 +13,12 @@ export class BannerController {
     res.json({ success: true, data: banners });
   });
 
+  listActiveBanners = catchAsync(async (req: Request, res: Response) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+    const banners = await this.bannerService.listActiveBanners(Number.isNaN(limit) ? 10 : limit);
+    res.json({ success: true, data: banners });
+  });
+
   createBanner = catchAsync(async (req: Request, res: Response) => {
     const adminId = req.user?.userId;
     if (!adminId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');

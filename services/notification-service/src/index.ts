@@ -1,10 +1,12 @@
 import { createBaseApp, globalErrorHandler, logger } from '@fs/shared';
 import { env } from './config/env';
 import { EventConsumer } from './workers/EventConsumer';
+import { BroadcastWorker } from './workers/BroadcastWorker';
 import notificationRoutes from './routes/notification.routes';
 
 const app = createBaseApp({ serviceName: 'notification-service' });
 const eventConsumer = new EventConsumer();
+const broadcastWorker = new BroadcastWorker();
 
 app.use(notificationRoutes);
 
@@ -24,6 +26,7 @@ const start = () => {
     server.close(async () => {
       logger.info('HTTP server closed.');
       await eventConsumer.close();
+      await broadcastWorker.close();
       logger.info('Event consumer closed.');
       process.exit(0);
     });

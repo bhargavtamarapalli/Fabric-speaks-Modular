@@ -246,6 +246,14 @@ export class InventoryService {
     return this.invRepo.getRestockSuggestions();
   }
 
+  async getDeadStock(days: number = 30) {
+    return this.invRepo.getDeadStock(days);
+  }
+
+  async getDemandPatterns(days: number = 30) {
+    return this.invRepo.getDemandPatterns(days);
+  }
+
   private enqueueEvent(name: string, payload: Record<string, unknown>): void {
     void this.eventQueue.add(name, payload).catch((error) => {
       logger.warn(`[InventoryService] Failed to enqueue ${name}`, error);

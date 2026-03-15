@@ -143,11 +143,38 @@ export const ReorderCollectionProductsSchema = z.object({
     productIds: z.array(z.string().uuid()).min(1)
 });
 
+export const BulkPriceUpdateSchema = z.object({
+    targetType: z.enum(['product', 'variant', 'collection', 'brand', 'global']),
+    targetIds: z.array(z.string().uuid()).optional().default([]),
+    adjustmentType: z.enum(['PERCENT', 'FIXED']),
+    adjustmentValue: z.number().min(-1000).max(1000),
+    applyTo: z.enum(['base_price', 'price_override']).default('base_price')
+}).refine((data) => {
+    if (data.targetType === 'global') return true;
+    return data.targetIds.length > 0;
+}, {
+    message: 'targetIds required for non-global bulk updates',
+    path: ['targetIds']
+});
+
+export const SchedulePriceChangeSchema = BulkPriceUpdateSchema.extend({
+    scheduledAt: z.string().datetime()
+});
+
+export const PriceChangeListQuerySchema = z.object({
+    status: z.enum(['scheduled', 'processing', 'applied', 'failed', 'cancelled']).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0)
+});
+
 export type AdminProductQueryDto = z.infer<typeof AdminProductQuerySchema>;
 export type CreateCategoryDto = z.infer<typeof CreateCategorySchema>;
 export type UpdateCategoryDto = z.infer<typeof UpdateCategorySchema>;
 export type UpdateCollectionDto = z.infer<typeof UpdateCollectionSchema>;
 export type UpdateBrandDto = z.infer<typeof UpdateBrandSchema>;
+export type BulkPriceUpdateDto = z.infer<typeof BulkPriceUpdateSchema>;
+export type SchedulePriceChangeDto = z.infer<typeof SchedulePriceChangeSchema>;
+export type PriceChangeListQueryDto = z.infer<typeof PriceChangeListQuerySchema>;
 
 export const BulkUploadSchema = z.array(z.object({
     name: z.string().min(1, 'Product name required'),

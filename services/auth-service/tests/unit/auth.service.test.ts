@@ -33,6 +33,7 @@ describe('AuthService', () => {
     let mockUserRepo: any;
 
     let mockAuditLogRepo: any;
+    let mockAdminLoginRepo: any;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -49,7 +50,12 @@ describe('AuthService', () => {
             insert: vi.fn(),
         };
 
-        authService = new AuthService(mockUserRepo, mockAuditLogRepo);
+        mockAdminLoginRepo = {
+            recordAttempt: vi.fn(),
+            countRecentFailures: vi.fn(),
+        };
+
+        authService = new AuthService(mockUserRepo, mockAuditLogRepo, mockAdminLoginRepo);
     });
 
     describe('verifyFirebaseToken', () => {

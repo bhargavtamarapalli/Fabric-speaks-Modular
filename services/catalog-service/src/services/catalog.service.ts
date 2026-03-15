@@ -291,6 +291,34 @@ export class CatalogService {
         return updated;
     }
 
+    async bulkUpdatePrices(dto: { targetType: 'product' | 'variant' | 'collection' | 'brand' | 'global'; targetIds: string[]; adjustmentType: 'PERCENT' | 'FIXED'; adjustmentValue: number; applyTo: 'base_price' | 'price_override' }, adminId: string) {
+        const updatedCount = await (this.variantRepo as any).bulkAdjustPrices({
+            targetType: dto.targetType,
+            targetIds: dto.targetIds,
+            adjustmentType: dto.adjustmentType,
+            adjustmentValue: dto.adjustmentValue,
+            applyTo: dto.applyTo
+        });
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'pricing.bulk_update',
+            entityType: 'pricing',
+            entityId: '00000000-0000-0000-0000-000000000100',
+            afterJson: {
+                targetType: dto.targetType,
+                targetIds: dto.targetIds,
+                adjustmentType: dto.adjustmentType,
+                adjustmentValue: dto.adjustmentValue,
+                applyTo: dto.applyTo,
+                updatedCount
+            }
+        });
+
+        await this.clearCatalogCache();
+        return { updatedCount };
+    }
+
     async createVariant(productId: string, dto: CreateVariantInputDto, adminId: string): Promise<Variant> {
         const product = await this.productRepo.findById(productId);
         if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);

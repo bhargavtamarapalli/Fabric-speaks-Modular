@@ -33,6 +33,11 @@ export class ConfigController {
     res.json({ success: true, data: result });
   });
 
+  getHomepageConfigPublic = catchAsync(async (_req: Request, res: Response) => {
+    const result = await this.configService.getHomepageConfigPublic();
+    res.json({ success: true, data: result });
+  });
+
   getNavigationConfig = catchAsync(async (req: Request, res: Response) => {
     const result = await this.configService.getNavigationConfig();
     res.json({ success: true, data: result });

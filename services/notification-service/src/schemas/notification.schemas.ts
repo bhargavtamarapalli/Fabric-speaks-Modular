@@ -41,6 +41,13 @@ export const AdminEventSchema = z.object({
   createdBy: z.string().uuid().optional(),
 });
 
+export const AdminLoginEventSchema = z.object({
+  adminId: z.string().uuid().optional(),
+  mobile: z.string().optional(),
+  ipAddress: z.string().optional(),
+  attempts: z.union([z.string(), z.number()]).optional(),
+});
+
 export const BroadcastNotificationSchema = z.object({
   recipientPhones: z.array(z.string().regex(/^\+91[0-9]{10}$/)).min(1).max(100),
   waTemplateName: z.string().min(1),
@@ -52,4 +59,5 @@ export type OrderEvent = z.infer<typeof OrderEventSchema>;
 export type StockEvent = z.infer<typeof StockEventSchema>;
 export type ReturnEvent = z.infer<typeof ReturnEventSchema>;
 export type AdminEvent = z.infer<typeof AdminEventSchema>;
+export type AdminLoginEvent = z.infer<typeof AdminLoginEventSchema>;
 export type BroadcastNotification = z.infer<typeof BroadcastNotificationSchema>;

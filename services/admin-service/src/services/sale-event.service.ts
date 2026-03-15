@@ -108,7 +108,7 @@ export class SaleEventService {
     );
 
     if (!saleEvent.is_active) {
-      await this.saleEventRepo.update(id, { is_active: true });
+      await this.saleEventRepo.update(id, { is_active: true, paused_at: null as any });
     }
 
     await this.auditLogRepo.insert({
@@ -145,6 +145,46 @@ export class SaleEventService {
     });
 
     return { updatedCount };
+  }
+
+  async pauseSaleEvent(id: string, adminId: string, reason?: string) {
+    const saleEvent = await this.getSaleEvent(id);
+    const scopeIds = Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : [];
+
+    const updatedCount = await this.saleTargetRepo.endSale(saleEvent.scope, scopeIds);
+    const pausedAt = new Date();
+
+    if (saleEvent.is_active) {
+      await this.saleEventRepo.update(id, { is_active: false, paused_at: pausedAt as any });
+    }
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'sale_event_pause',
+      entityType: 'sale_event',
+      entityId: id,
+      afterJson: { updatedCount, reason, pausedAt }
+    });
+
+    return { updatedCount, pausedAt };
+  }
+
+  async extendSaleEvent(id: string, hours: number, adminId: string) {
+    const saleEvent = await this.getSaleEvent(id);
+    const newEndsAt = new Date(saleEvent.ends_at.getTime() + hours * 60 * 60 * 1000);
+
+    const updated = await this.saleEventRepo.update(id, { ends_at: newEndsAt });
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'sale_event_extend',
+      entityType: 'sale_event',
+      entityId: id,
+      beforeJson: { ends_at: saleEvent.ends_at },
+      afterJson: { ends_at: updated.ends_at, hours }
+    });
+
+    return updated;
   }
 
   private computeSalePrice(basePrice: number, discountType: 'PERCENT' | 'FIXED', discountValue: number): number {

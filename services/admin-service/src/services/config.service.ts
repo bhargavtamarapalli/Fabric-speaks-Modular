@@ -37,6 +37,21 @@ export class ConfigService {
     return this.repo.getHomepageConfig();
   }
 
+  async getHomepageConfigPublic() {
+    const sections = await this.repo.getHomepageConfig();
+    const now = new Date();
+
+    return sections.filter((section) => {
+      if (!section.is_active) return false;
+      const config = section.config_json ?? section.configJson ?? {};
+      const startsAt = config.startsAt ? new Date(config.startsAt) : null;
+      const endsAt = config.endsAt ? new Date(config.endsAt) : null;
+      if (startsAt && now < startsAt) return false;
+      if (endsAt && now > endsAt) return false;
+      return true;
+    });
+  }
+
   async updateNavigationConfig(data: UpdateNavigationConfigDto, adminId: string) {
     const items = this.normalizeNavigationItems(data);
     

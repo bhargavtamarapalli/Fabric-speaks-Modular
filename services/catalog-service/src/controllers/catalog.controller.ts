@@ -2,13 +2,15 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
-import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, UpdateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, ReorderCollectionProductsSchema, IdParamSchema, BulkUpdateVariantsSchema, CreateVariantSchema, UpdateVariantSchema, VariantIdParamSchema } from '../schemas/catalog.schemas';
+import { PriceChangeService } from '../services/price-change.service';
+import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, UpdateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, ReorderCollectionProductsSchema, IdParamSchema, BulkUpdateVariantsSchema, CreateVariantSchema, UpdateVariantSchema, VariantIdParamSchema, BulkPriceUpdateSchema, SchedulePriceChangeSchema, PriceChangeListQuerySchema } from '../schemas/catalog.schemas';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class CatalogController {
     constructor(
         private readonly catalogService: CatalogService,
-        private readonly bulkUploadService: BulkUploadService
+        private readonly bulkUploadService: BulkUploadService,
+        private readonly priceChangeService: PriceChangeService
     ) {}
 
     listProducts = catchAsync(async (req: Request, res: Response) => {
@@ -122,6 +124,32 @@ export class CatalogController {
         const result = await this.bulkUploadService.queueUpload(csvData, req.user!.userId);
         
         res.status(200).json({ success: true, data: result });
+    });
+
+    bulkPriceUpdate = catchAsync(async (req: Request, res: Response) => {
+        const dto = BulkPriceUpdateSchema.parse(req.body);
+        const result = await this.catalogService.bulkUpdatePrices(dto, req.user!.userId);
+        res.status(200).json({ success: true, data: result });
+    });
+
+    schedulePriceChange = catchAsync(async (req: Request, res: Response) => {
+        const dto = SchedulePriceChangeSchema.parse(req.body);
+        const scheduled = await this.priceChangeService.schedulePriceChange({
+            targetType: dto.targetType,
+            targetIds: dto.targetIds,
+            adjustmentType: dto.adjustmentType,
+            adjustmentValue: dto.adjustmentValue,
+            applyTo: dto.applyTo,
+            scheduledAt: new Date(dto.scheduledAt),
+            createdBy: req.user!.userId
+        }, req.user!.userId);
+        res.status(201).json({ success: true, data: scheduled });
+    });
+
+    listScheduledPriceChanges = catchAsync(async (req: Request, res: Response) => {
+        const query = PriceChangeListQuerySchema.parse(req.query);
+        const items = await this.priceChangeService.listScheduled(query);
+        res.status(200).json({ success: true, data: { items }, meta: query });
     });
 
     getBulkTemplate = catchAsync(async (req: Request, res: Response) => {

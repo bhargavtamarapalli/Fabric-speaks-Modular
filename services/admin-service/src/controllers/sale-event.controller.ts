@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { SaleEventService } from '../services/sale-event.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
-import { SaleEventSchema, UpdateSaleEventSchema, SaleEventPreviewQuerySchema } from '../schemas/content.schemas';
+import { SaleEventSchema, UpdateSaleEventSchema, SaleEventPreviewQuerySchema, SaleEventPauseSchema, SaleEventExtendSchema } from '../schemas/content.schemas';
 import { IdParamSchema } from '../schemas/admin.schemas';
 
 export class SaleEventController {
@@ -80,6 +80,26 @@ export class SaleEventController {
     if (!adminId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
 
     const result = await this.saleEventService.endSaleEvent(id, adminId);
+    res.json({ success: true, data: result });
+  });
+
+  pauseSaleEvent = catchAsync(async (req: Request, res: Response) => {
+    const { id } = IdParamSchema.parse(req.params);
+    const adminId = req.user?.userId;
+    if (!adminId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+    const dto = SaleEventPauseSchema.parse(req.body);
+    const result = await this.saleEventService.pauseSaleEvent(id, adminId, dto.reason);
+    res.json({ success: true, data: result });
+  });
+
+  extendSaleEvent = catchAsync(async (req: Request, res: Response) => {
+    const { id } = IdParamSchema.parse(req.params);
+    const adminId = req.user?.userId;
+    if (!adminId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+    const dto = SaleEventExtendSchema.parse(req.body);
+    const result = await this.saleEventService.extendSaleEvent(id, dto.hours, adminId);
     res.json({ success: true, data: result });
   });
 }

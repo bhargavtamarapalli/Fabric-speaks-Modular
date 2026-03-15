@@ -244,6 +244,63 @@ export class VariantRepository extends BaseRepository implements IVariantReposit
         return rows[0]?.count ?? 0;
     }
 
+    async bulkAdjustPrices(options: {
+        targetType: 'product' | 'variant' | 'collection' | 'brand' | 'global';
+        targetIds: string[];
+        adjustmentType: 'PERCENT' | 'FIXED';
+        adjustmentValue: number;
+        applyTo: 'base_price' | 'price_override';
+    }): Promise<number> {
+        const params: any[] = [];
+        let joinClause = 'JOIN products p ON p.id = v.product_id';
+        let whereClause = `v.is_deleted = false AND v.is_active = true AND p.is_deleted = false AND p.is_active = true`;
+
+        if (options.targetType !== 'global') {
+            params.push(options.targetIds);
+            const idParam = `$${params.length}`;
+            switch (options.targetType) {
+                case 'product':
+                    whereClause += ` AND p.id = ANY(${idParam})`;
+                    break;
+                case 'variant':
+                    whereClause += ` AND v.id = ANY(${idParam})`;
+                    break;
+                case 'collection':
+                    joinClause += ' JOIN collection_products cp ON cp.product_id = p.id';
+                    whereClause += ` AND cp.collection_id = ANY(${idParam})`;
+                    break;
+                case 'brand':
+                    whereClause += ` AND p.brand_id = ANY(${idParam})`;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        const valueParamIndex = params.length + 1;
+        params.push(options.adjustmentValue);
+
+        const targetColumn = options.applyTo === 'price_override' ? 'price_override' : 'base_price';
+        const baseExpression = options.applyTo === 'price_override'
+            ? 'COALESCE(v.price_override, v.base_price)'
+            : 'v.base_price';
+
+        const priceExpression = options.adjustmentType === 'PERCENT'
+            ? `GREATEST(ROUND(${baseExpression} * (1 + $${valueParamIndex} / 100.0), 2), 0)`
+            : `GREATEST(${baseExpression} + $${valueParamIndex}, 0)`;
+
+        const query = `
+            UPDATE variants v
+            SET ${targetColumn} = ${priceExpression},
+                updated_at = now()
+            ${joinClause}
+            WHERE ${whereClause}
+        `;
+
+        const result = await this.query(query, params);
+        return result.rowCount ?? 0;
+    }
+
     private mapVariant(row: Record<string, any>): Variant {
         const mapped = this.mapToCamelCase<Variant>(row);
         return {

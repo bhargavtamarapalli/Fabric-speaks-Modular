@@ -14,6 +14,21 @@ export interface VariantStock {
     colour?: string | null;
 }
 
+export interface DeadStockVariant {
+    variantId: string;
+    sku: string;
+    productName: string;
+    size: string | null;
+    colour: string | null;
+    stockQty: number;
+    lastSoldAt: Date | null;
+}
+
+export interface DemandPattern {
+    label: string;
+    unitsSold: number;
+}
+
 export class InventoryRepository extends BaseRepository {
     async getAllVariants(sortBy: 'asc' | 'desc' = 'asc'): Promise<VariantStock[]> {
         const query = `
@@ -197,5 +212,75 @@ export class InventoryRepository extends BaseRepository {
         const all = await this.getInventoryWithSalesData();
         // RULE INV-10: Variants with < 7 days remaining
         return all.filter(v => (v.daysRemaining !== undefined && v.daysRemaining < 7) || v.healthStatus === 'CRITICAL');
+    }
+
+    async getDeadStock(days: number = 30): Promise<DeadStockVariant[]> {
+        const query = `
+            WITH last_sales AS (
+                SELECT
+                    oi.variant_id,
+                    MAX(oi.created_at) as last_sold_at
+                FROM order_items oi
+                GROUP BY oi.variant_id
+            )
+            SELECT
+                v.id as "variantId",
+                v.sku,
+                p.name as "productName",
+                v.size,
+                v.colour,
+                v.qty as "stockQty",
+                ls.last_sold_at as "lastSoldAt"
+            FROM variants v
+            JOIN products p ON v.product_id = p.id
+            LEFT JOIN last_sales ls ON ls.variant_id = v.id
+            WHERE v.is_deleted = false
+              AND v.is_active = true
+              AND COALESCE(ls.last_sold_at, v.created_at) < now() - interval '1 day' * $1
+            ORDER BY ls.last_sold_at NULLS FIRST, v.qty DESC
+        `;
+        const { rows } = await this.query(query, [days]);
+        return rows.map(row => ({
+            variantId: row.variantId,
+            sku: row.sku,
+            productName: row.productName,
+            size: row.size ?? null,
+            colour: row.colour ?? null,
+            stockQty: Number(row.stockQty),
+            lastSoldAt: row.lastSoldAt ? new Date(row.lastSoldAt) : null
+        }));
+    }
+
+    async getDemandPatterns(days: number = 30): Promise<{ sizes: DemandPattern[]; colours: DemandPattern[] }> {
+        const sizeQuery = `
+            SELECT
+                COALESCE(v.size, 'Unknown') as label,
+                SUM(oi.quantity) as units
+            FROM order_items oi
+            JOIN variants v ON v.id = oi.variant_id
+            WHERE oi.created_at >= now() - interval '1 day' * $1
+            GROUP BY label
+            ORDER BY units DESC
+        `;
+        const colourQuery = `
+            SELECT
+                COALESCE(v.colour, 'Unknown') as label,
+                SUM(oi.quantity) as units
+            FROM order_items oi
+            JOIN variants v ON v.id = oi.variant_id
+            WHERE oi.created_at >= now() - interval '1 day' * $1
+            GROUP BY label
+            ORDER BY units DESC
+        `;
+
+        const [sizeRes, colourRes] = await Promise.all([
+            this.query(sizeQuery, [days]),
+            this.query(colourQuery, [days])
+        ]);
+
+        return {
+            sizes: sizeRes.rows.map(row => ({ label: row.label, unitsSold: Number(row.units) })),
+            colours: colourRes.rows.map(row => ({ label: row.label, unitsSold: Number(row.units) }))
+        };
     }
 }

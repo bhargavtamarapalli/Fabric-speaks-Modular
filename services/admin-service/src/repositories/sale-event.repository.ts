@@ -13,6 +13,7 @@ export interface SaleEvent {
   starts_at: Date;
   ends_at: Date;
   is_active: boolean;
+  paused_at?: Date | null;
   created_by: string;
   created_at: Date;
   updated_at: Date;

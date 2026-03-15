@@ -22,6 +22,7 @@ export interface JwtPayload {
   userId: string;
   role: Role;
   mobile?: string;
+  sessionVersion?: number;
 }
 
 export interface ApiResponse<T = unknown> {

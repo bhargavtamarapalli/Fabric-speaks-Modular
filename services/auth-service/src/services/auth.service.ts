@@ -1,12 +1,13 @@
 import { IUserRepository, User } from '../repositories/user.repository';
 import { firebaseAuth } from '../lib/firebase';
-import { AppError, ErrorCode, JwtPayload } from '@fs/shared';
+import { AppError, ErrorCode, JwtPayload, getRedisClient, maskMobile } from '@fs/shared';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import crypto from 'crypto';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
-import { getRedisClient } from '@fs/shared';
 import { AUTH_CONSTANTS } from '../config/constants';
+import { AdminLoginAttemptRepository } from '../repositories/admin-login-attempt.repository';
+import { Queue } from 'bullmq';
 
 export interface AuthResult {
     user: {
@@ -18,10 +19,15 @@ export interface AuthResult {
 }
 
 export class AuthService {
+    private eventQueue: Queue;
+
     constructor(
         private readonly userRepo: IUserRepository,
-        private readonly auditLogRepo: AuditLogRepository
-    ) { }
+        private readonly auditLogRepo: AuditLogRepository,
+        private readonly adminLoginRepo: AdminLoginAttemptRepository
+    ) {
+        this.eventQueue = new Queue('platform_events', { connection: getRedisClient() });
+    }
 
     /**
      * Generates a deterministic hash for the mobile number
@@ -73,6 +79,7 @@ export class AuthService {
                 userId: user.id,
                 role: user.role as any,
                 mobile: user.mobile.slice(-4), // Last 4 digits only (RULE 5: PII masking)
+                sessionVersion: user.session_version ?? 0
             };
 
             const token = jwt.sign(payload, env.APP_JWT_SECRET, { 
@@ -137,5 +144,32 @@ export class AuthService {
         } catch (e) {
             // Ignore if Firebase user already deleted
         }
+    }
+
+    async recordAdminLoginFailure(mobile: string, ipAddress?: string | null, reason?: string) {
+        const mobileHash = this.hashMobile(mobile);
+        await this.adminLoginRepo.recordAttempt({
+            mobileHash,
+            ipAddress: ipAddress ?? null,
+            success: false,
+            reason: reason ?? null
+        });
+
+        const user = await this.userRepo.findByMobileHash(mobileHash);
+        if (!user || user.role === 'customer') {
+            return { recorded: true, admin: false };
+        }
+
+        const failureCount = await this.adminLoginRepo.countRecentFailures(mobileHash, 15);
+        if (failureCount >= 3) {
+            await this.eventQueue.add('admin.login_failed', {
+                adminId: user.id,
+                mobile: maskMobile(mobile),
+                ipAddress: ipAddress ?? undefined,
+                attempts: failureCount
+            });
+        }
+
+        return { recorded: true, admin: true, attempts: failureCount };
     }
 }

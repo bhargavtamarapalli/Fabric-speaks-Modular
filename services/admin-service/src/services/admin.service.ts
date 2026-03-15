@@ -119,6 +119,24 @@ export class AdminService {
     return { deleted: true };
   }
 
+  async resetAdminSession(userId: string, adminId: string, requesterRole: string) {
+    if (requesterRole !== 'superAdmin') {
+      throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Insufficient permissions to reset sessions');
+    }
+
+    const reset = await this.adminUserRepo.resetSession(userId);
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'admin_session_reset',
+      entityType: 'user',
+      entityId: userId,
+      afterJson: { sessionVersion: reset.sessionVersion, revokedAt: reset.revokedAt }
+    });
+
+    return reset;
+  }
+
   async getDashboardMetrics() {
     const [revenue, trends, topProducts, topFabrics, codStats, failedPayments, funnel, health, abandonedRate, dailyComparison, weeklyComparison] = await Promise.all([
       this.dashboardRepo.getRevenueMetrics(30),

@@ -3,10 +3,11 @@ import { getRedisClient, getDbPool } from '@fs/shared';
 import { logger } from '@fs/shared';
 import { NotificationCoordinator, NotificationRequest } from '../services/NotificationCoordinator';
 import { LoyaltyScheduler } from './LoyaltyScheduler';
-import { OrderEventSchema, StockEventSchema, ReturnEventSchema, AdminEventSchema } from '../schemas/notification.schemas';
+import { OrderEventSchema, StockEventSchema, ReturnEventSchema, AdminEventSchema, AdminLoginEventSchema } from '../schemas/notification.schemas';
 import { NotificationSettingsService } from '../services/NotificationSettingsService';
 
 const QUEUE_NAMES = ['platform_events', 'order_events', 'payment-events'];
+const LARGE_ORDER_THRESHOLD = 5000;
 
 export class EventConsumer {
   private workers: Worker[];
@@ -105,6 +106,24 @@ export class EventConsumer {
             'preference:cod_orders'
           );
         }
+
+        const totalAmount = Number(validatedData.totalAmount ?? context?.totalAmount ?? 0);
+        if (totalAmount >= LARGE_ORDER_THRESHOLD) {
+          await this.sendWithPreference(
+            {
+              eventType: 'admin.large_order',
+              orderId: validatedData.orderId,
+              waTemplateName: 'admin_large_order',
+              waComponents: [
+                { type: 'body', parameters: [{ type: 'text', text: validatedData.orderId }, { type: 'text', text: String(totalAmount) }] }
+              ],
+              fallbackSmsBody: `ADMIN ALERT: Large order ${validatedData.orderId} placed for Rs. ${totalAmount}.`
+            },
+            settings.adminWhatsapp,
+            settings.preferences.large_orders,
+            'preference:large_orders'
+          );
+        }
         break;
       }
 
@@ -164,7 +183,7 @@ export class EventConsumer {
             fallbackSmsBody: `ADMIN ALERT: Payment failed for order ${validatedData.orderId}.`
           },
           settings.adminWhatsapp,
-          true,
+          settings.preferences.payment_failed,
           'preference:payment_failed'
         );
         break;
@@ -337,8 +356,8 @@ export class EventConsumer {
             fallbackSmsBody: `ADMIN ALERT: Shiprocket pickup failed for return ${validatedData.returnId || 'N/A'} (order ${validatedData.orderId}). ${validatedData.reason || ''}`.trim()
           },
           settings.adminWhatsapp,
-          settings.preferences.returns,
-          'preference:returns'
+          settings.preferences.pickup_failed,
+          'preference:pickup_failed'
         );
         break;
       }
@@ -356,8 +375,27 @@ export class EventConsumer {
             fallbackSmsBody: `ADMIN ALERT: New admin user ${validatedData.adminName || 'unknown'} created with role ${validatedData.role || 'unknown'}.`
           },
           settings.adminWhatsapp,
-          true,
+          settings.preferences.admin_user_created,
           'preference:admin_user_created'
+        );
+        break;
+      }
+
+      case 'admin.login_failed': {
+        const validatedData = AdminLoginEventSchema.parse(data);
+        const settings = await this.settingsService.getNotificationSettings();
+        await this.sendWithPreference(
+          {
+            eventType: name,
+            waTemplateName: 'admin_login_failed',
+            waComponents: [
+              { type: 'body', parameters: [{ type: 'text', text: validatedData.mobile || 'unknown' }, { type: 'text', text: String(validatedData.attempts ?? '1') }] }
+            ],
+            fallbackSmsBody: `SECURITY ALERT: Failed admin login attempts for ${validatedData.mobile || 'unknown'} (${validatedData.attempts ?? 1} attempts). IP: ${validatedData.ipAddress || 'unknown'}.`
+          },
+          settings.adminWhatsapp,
+          settings.preferences.failed_admin_login,
+          'preference:failed_admin_login'
         );
         break;
       }

@@ -102,3 +102,14 @@ export const SaleEventPreviewQuerySchema = z.object({
   offset: z.preprocess((val) => Number(val), z.number().int().min(0).optional())
 });
 export type SaleEventPreviewQueryDto = z.infer<typeof SaleEventPreviewQuerySchema>;
+
+export const SaleEventPauseSchema = z.object({
+  reason: z.string().max(200).optional()
+});
+
+export const SaleEventExtendSchema = z.object({
+  hours: z.number().int().min(1).max(168)
+});
+
+export type SaleEventPauseDto = z.infer<typeof SaleEventPauseSchema>;
+export type SaleEventExtendDto = z.infer<typeof SaleEventExtendSchema>;

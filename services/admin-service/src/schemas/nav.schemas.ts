@@ -68,7 +68,11 @@ const HomepageSectionSchema = z.discriminatedUnion('type', [
       text: z.string(),
       link: z.string().optional(),
       bgColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-      textColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()
+      textColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+      startsAt: z.string().datetime().optional(),
+      endsAt: z.string().datetime().optional(),
+      countdownEndsAt: z.string().datetime().optional(),
+      countdownLabel: z.string().max(100).optional()
     })
   })
 ]);

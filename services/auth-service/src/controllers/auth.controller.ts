@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
-import { VerifyOtpSchema, LoginOtpSchema } from '../schemas/auth.schemas';
+import { VerifyOtpSchema, LoginOtpSchema, AdminLoginFailureSchema } from '../schemas/auth.schemas';
 import { catchAsync, setAuthCookie, clearAuthCookie } from '@fs/shared';
 
 export class AuthController {
@@ -64,5 +64,12 @@ export class AuthController {
             success: true,
             message: 'Account permanently deleted'
         });
+    });
+
+    recordAdminLoginFailure = catchAsync(async (req: Request, res: Response) => {
+        const dto = AdminLoginFailureSchema.parse(req.body);
+        const ipAddress = req.ip || req.headers['x-forwarded-for']?.toString() || null;
+        const result = await this.authService.recordAdminLoginFailure(dto.mobile, ipAddress, dto.reason);
+        return res.status(200).json({ success: true, data: result });
     });
 }

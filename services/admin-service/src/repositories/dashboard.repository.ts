@@ -41,6 +41,38 @@ export interface SystemHealth {
   activeSessions: number;
 }
 
+export interface CouponUsageRow {
+  id: string;
+  code: string;
+  discountType: string;
+  discountValue: number;
+  usedCount: number;
+  usersCount: number;
+  revenue: number;
+}
+
+export interface ReturnRateRow {
+  productId: string;
+  productName: string;
+  orderedQty: number;
+  returnedQty: number;
+  returnRate: number;
+}
+
+export interface SalePerformance {
+  orders: number;
+  unitsSold: number;
+  revenue: number;
+  avgOrderValue: number;
+}
+
+export interface LiveSaleMonitor {
+  orders: number;
+  revenue: number;
+  avgOrderValue: number;
+  windowMinutes: number;
+}
+
 export class DashboardRepository extends BaseRepository {
   async getRevenueMetrics(days: number = 30): Promise<RevenueMetrics> {
     const query = `
@@ -248,6 +280,143 @@ export class DashboardRepository extends BaseRepository {
       avgLatency: parseFloat(rows[0].avg_latency),
       activeSessions: parseInt(rows[0].active_sessions),
       errorRate: 0.02 // Placeholder 2% error rate proxy
+    };
+  }
+
+  async getCouponUsage(limit: number = 50, offset: number = 0): Promise<CouponUsageRow[]> {
+    const query = `
+      SELECT
+        c.id,
+        c.code,
+        c.discount_type as "discountType",
+        c.discount_value as "discountValue",
+        COUNT(o.id) as "usedCount",
+        COUNT(DISTINCT o.user_id) as "usersCount",
+        COALESCE(SUM(o.total_amount), 0) as revenue
+      FROM coupons c
+      LEFT JOIN orders o ON o.coupon_id = c.id
+      GROUP BY c.id
+      ORDER BY "usedCount" DESC
+      LIMIT $1 OFFSET $2
+    `;
+    const { rows } = await this.query(query, [limit, offset]);
+    return rows.map(row => ({
+      id: String(row.id),
+      code: row.code,
+      discountType: row.discountType,
+      discountValue: Number(row.discountValue),
+      usedCount: parseInt(row.usedCount, 10),
+      usersCount: parseInt(row.usersCount, 10),
+      revenue: Number(row.revenue)
+    }));
+  }
+
+  async getReturnRateByProduct(limit: number = 50, offset: number = 0): Promise<ReturnRateRow[]> {
+    const query = `
+      WITH ordered AS (
+        SELECT product_id, SUM(quantity) as ordered_qty
+        FROM order_items
+        GROUP BY product_id
+      ),
+      returned AS (
+        SELECT oi.product_id, SUM(ri.quantity) as returned_qty
+        FROM return_items ri
+        JOIN return_requests rr ON rr.id = ri.return_request_id
+        JOIN order_items oi ON oi.id = ri.order_item_id
+        WHERE rr.is_deleted = false
+        GROUP BY oi.product_id
+      )
+      SELECT
+        p.id as "productId",
+        p.name as "productName",
+        COALESCE(o.ordered_qty, 0) as "orderedQty",
+        COALESCE(r.returned_qty, 0) as "returnedQty",
+        CASE
+          WHEN COALESCE(o.ordered_qty, 0) = 0 THEN 0
+          ELSE ROUND((COALESCE(r.returned_qty, 0)::decimal / o.ordered_qty) * 100, 2)
+        END as "returnRate"
+      FROM products p
+      LEFT JOIN ordered o ON o.product_id = p.id
+      LEFT JOIN returned r ON r.product_id = p.id
+      WHERE p.is_deleted = false
+      ORDER BY "returnRate" DESC, "orderedQty" DESC
+      LIMIT $1 OFFSET $2
+    `;
+    const { rows } = await this.query(query, [limit, offset]);
+    return rows.map(row => ({
+      productId: String(row.productId),
+      productName: row.productName,
+      orderedQty: Number(row.orderedQty),
+      returnedQty: Number(row.returnedQty),
+      returnRate: Number(row.returnRate)
+    }));
+  }
+
+  async getSalePerformance(
+    startsAt: Date,
+    endsAt: Date,
+    joinClause: string = '',
+    filterClause: string = '',
+    params: unknown[] = []
+  ): Promise<SalePerformance> {
+    const scopeFilter = filterClause ? `AND ${filterClause}` : '';
+    const query = `
+      SELECT
+        COUNT(DISTINCT o.id) as orders,
+        COALESCE(SUM(oi.quantity), 0) as units_sold,
+        COALESCE(SUM(oi.quantity * oi.unit_price), 0) as revenue
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN products p ON p.id = oi.product_id
+      ${joinClause}
+      WHERE o.created_at >= $1 AND o.created_at <= $2
+        AND p.is_deleted = false
+        AND p.is_active = true
+        ${scopeFilter}
+    `;
+    const { rows } = await this.query(query, [startsAt, endsAt, ...params]);
+    const orders = parseInt(rows[0]?.orders ?? 0, 10);
+    const revenue = Number(rows[0]?.revenue ?? 0);
+    return {
+      orders,
+      unitsSold: Number(rows[0]?.units_sold ?? 0),
+      revenue,
+      avgOrderValue: orders === 0 ? 0 : Number((revenue / orders).toFixed(2))
+    };
+  }
+
+  async getLiveSaleMonitor(
+    windowMinutes: number = 30,
+    joinClause: string = '',
+    filterClause: string = '',
+    params: unknown[] = [],
+    saleOnly: boolean = false
+  ): Promise<LiveSaleMonitor> {
+    const scopeFilter = filterClause ? `AND ${filterClause}` : '';
+    const saleFilter = saleOnly ? 'AND v.sale_active = true' : '';
+    const query = `
+      SELECT
+        COUNT(DISTINCT o.id) as orders,
+        COALESCE(SUM(oi.quantity * oi.unit_price), 0) as revenue
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN products p ON p.id = oi.product_id
+      JOIN variants v ON v.id = oi.variant_id
+      ${joinClause}
+      WHERE o.created_at >= now() - interval '1 minute' * $1
+        AND p.is_deleted = false
+        AND p.is_active = true
+        ${saleFilter}
+        ${scopeFilter}
+    `;
+    const { rows } = await this.query(query, [windowMinutes, ...params]);
+    const orders = parseInt(rows[0]?.orders ?? 0, 10);
+    const revenue = Number(rows[0]?.revenue ?? 0);
+    return {
+      orders,
+      revenue,
+      avgOrderValue: orders === 0 ? 0 : Number((revenue / orders).toFixed(2)),
+      windowMinutes
     };
   }
 }
