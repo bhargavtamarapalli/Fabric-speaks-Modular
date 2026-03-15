@@ -1,30 +1,23 @@
-import { BaseRepository, DbClient } from '@fs/shared';
+import { BaseRepository } from '@fs/shared';
 import { Pool } from 'pg';
 import { Redis } from 'ioredis';
-import { getEffectivePrice } from '@fs/shared';
 
 export interface CartItem {
-    variantId: string;
-    quantity: number;
-    price?: number; // RULE 1: Stored here for guests and time-locking
-    // Hydrated fields (UI only)
-    productId?: string;
-    name?: string;
-    sku?: string;
-    stock_qty?: number;
+  variantId: string;
+  quantity: number;
+  price?: number;
+  stock_qty?: number;
 }
 
 export class CartRepository extends BaseRepository {
-    private readonly REDIS_PREFIX = 'cart:guest:';
-    private readonly TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+  private readonly tableName = 'carts';
+  private readonly GUEST_PREFIX = 'cart:guest:';
 
-    constructor(db: Pool | DbClient, private redis: Redis) {
-        super(db);
-    }
+  constructor(db: Pool, private redis: Redis) {
+    super(db);
+  }
 
-    // ==========================================================
-    // USER CART (PostgreSQL)
-    // ==========================================================
+  // --- DB Operations ---
 
     async getUserCart(userId: string): Promise<CartItem[]> {
         const query = `
@@ -69,50 +62,44 @@ export class CartRepository extends BaseRepository {
         await this.query(query, [userId, variantId, quantity, priceAtAdd]);
     }
 
-    async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
-        const query = `
-            UPDATE cart_items 
-            SET quantity = $3, updated_at = now()
-            WHERE user_id = $1 AND variant_id = $2
-        `;
-        await this.query(query, [userId, variantId, quantity]);
-    }
+  // Update user item qty
+  async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
+    await this.query(
+      'UPDATE cart_items SET quantity = $1 FROM carts WHERE cart_items.cart_id = carts.id AND carts.user_id = $2 AND variant_id = $3',
+      [quantity, userId, variantId]
+    );
+  }
 
-    async removeUserItem(userId: string, variantId: string): Promise<void> {
-        const query = `
-            DELETE FROM cart_items 
-            WHERE user_id = $1 AND variant_id = $2
-        `;
-        await this.query(query, [userId, variantId]);
-    }
+  // Remove user item
+  async removeUserItem(userId: string, variantId: string): Promise<void> {
+    await this.query(
+      'DELETE FROM cart_items USING carts WHERE cart_items.cart_id = carts.id AND carts.user_id = $1 AND variant_id = $2',
+      [userId, variantId]
+    );
+  }
 
-    async clearUserCart(userId: string): Promise<void> {
-        const query = `DELETE FROM cart_items WHERE user_id = $1`;
-        await this.query(query, [userId]);
-    }
+  // --- Guest Cart (Redis) Operations ---
 
-    // ==========================================================
-    // GUEST CART (Redis)
-    // ==========================================================
+  async getGuestCart(sessionId: string): Promise<CartItem[]> {
+    const data = await this.redis.get(`${this.GUEST_PREFIX}${sessionId}`);
+    return data ? JSON.parse(data) : [];
+  }
 
-    private getRedisKey(sessionId: string): string {
-        return `${this.REDIS_PREFIX}${sessionId}`;
-    }
+  async saveGuestCart(sessionId: string, items: CartItem[]): Promise<void> {
+    await this.redis.setex(`${this.GUEST_PREFIX}${sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(items));
+  }
 
-    async getGuestCart(sessionId: string): Promise<CartItem[]> {
-        const key = this.getRedisKey(sessionId);
-        const data = await this.redis.get(key);
-        if (!data) return [];
-        return JSON.parse(data) as CartItem[];
-    }
+  async clearGuestCart(sessionId: string): Promise<void> {
+    await this.redis.del(`${this.GUEST_PREFIX}${sessionId}`);
+  }
 
-    async saveGuestCart(sessionId: string, items: CartItem[]): Promise<void> {
-        const key = this.getRedisKey(sessionId);
-        await this.redis.setex(key, this.TTL_SECONDS, JSON.stringify(items));
-    }
+  // --- Coupon Cache ---
 
-    async clearGuestCart(sessionId: string): Promise<void> {
-        const key = this.getRedisKey(sessionId);
-        await this.redis.del(key);
-    }
+  async getCouponUsageCount(userId: string, couponId: string) {
+    const result = await this.query(
+      'SELECT COUNT(*) as count FROM user_coupon_usage WHERE user_id = $1 AND coupon_id = $2',
+      [userId, couponId]
+    );
+    return parseInt(result.rows[0].count, 10);
+  }
 }
