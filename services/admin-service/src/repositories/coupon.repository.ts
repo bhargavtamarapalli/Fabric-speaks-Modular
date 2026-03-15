@@ -1,4 +1,5 @@
 import { BaseRepository } from '@fs/shared';
+import { CreateCouponDto, UpdateCouponDto } from '../schemas/coupon.schemas';
 
 export interface AdminCoupon {
     id: string;
@@ -12,16 +13,28 @@ export interface AdminCoupon {
 }
 
 export class CouponRepository extends BaseRepository {
-    async list(filters: Record<string, unknown>): Promise<{ items: AdminCoupon[]; meta: Record<string, unknown> }> {
-        const { page = 1, limit = 20 } = filters;
-        const offset = ((page as number) - 1) * (limit as number);
+    async list(filters: { page?: number; limit?: number }): Promise<{ items: AdminCoupon[]; meta: { total: number; page: number; limit: number } }> {
+        const page = filters.page || 1;
+        const limit = filters.limit || 20;
+        const offset = (page - 1) * limit;
         
-        let query = 'SELECT * FROM coupons WHERE 1=1';
+        let query = 'SELECT * FROM coupons WHERE is_active = true';
         const params: unknown[] = [];
+        
+        query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        params.push(limit, offset);
+
         const { rows } = await this.query(query, params);
+        
+        const countRes = await this.query('SELECT COUNT(*) FROM coupons WHERE is_active = true');
+
         return {
             items: rows.map(r => this.mapToCamelCase<AdminCoupon>(r)),
-            meta: { total: rows.length }
+            meta: { 
+                total: parseInt(countRes.rows[0].count),
+                page,
+                limit
+            }
         };
     }
 
@@ -37,7 +50,7 @@ export class CouponRepository extends BaseRepository {
         return this.mapToCamelCase<AdminCoupon>(rows[0]);
     }
 
-    async create(data: Record<string, unknown>): Promise<AdminCoupon> {
+    async create(data: CreateCouponDto): Promise<AdminCoupon> {
         const query = `
             INSERT INTO coupons (code, discount_type, discount_value, min_order_amount)
             VALUES ($1, $2, $3, $4)
@@ -47,10 +60,31 @@ export class CouponRepository extends BaseRepository {
         return this.mapToCamelCase<AdminCoupon>(rows[0]);
     }
 
-    async update(id: string, data: Record<string, unknown>): Promise<AdminCoupon> {
-        // Simple update for demo purposes
-        const query = 'UPDATE coupons SET discount_value = $2, updated_at = now() WHERE id = $1 RETURNING *';
-        const { rows } = await this.query(query, [id, data.discountValue]);
+    async update(id: string, data: UpdateCouponDto): Promise<AdminCoupon> {
+        const fields: string[] = [];
+        const params: unknown[] = [id];
+        
+        if (data.isActive !== undefined) {
+            params.push(data.isActive);
+            fields.push(`is_active = $${params.length}`);
+        }
+        if (data.validUntil !== undefined) {
+            params.push(data.validUntil);
+            fields.push(`valid_until = $${params.length}`);
+        }
+        if (data.maxUsesTotal !== undefined) {
+            params.push(data.maxUsesTotal);
+            fields.push(`max_uses_total = $${params.length}`);
+        }
+
+        if (fields.length === 0) {
+            const result = await this.findById(id);
+            if (!result) throw new Error('Coupon not found');
+            return result;
+        }
+
+        const query = `UPDATE coupons SET ${fields.join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`;
+        const { rows } = await this.query(query, params);
         if (!rows.length) throw new Error('Coupon not found');
         return this.mapToCamelCase<AdminCoupon>(rows[0]);
     }

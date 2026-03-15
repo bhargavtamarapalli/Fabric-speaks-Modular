@@ -1,7 +1,7 @@
 import { ConfigRepository } from '../repositories/config.repository';
-
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { Redis } from 'ioredis';
+import { UpdateHomepageConfigDto, UpdateNavigationConfigDto } from '../schemas/nav.schemas';
 
 export class ConfigService {
   constructor(
@@ -10,7 +10,7 @@ export class ConfigService {
     private redis: Redis
   ) {}
 
-  async updateHomepageConfig(data: any, adminId: string) {
+  async updateHomepageConfig(data: UpdateHomepageConfigDto, adminId: string) {
     await this.repo.updateConfig('homepage', data);
 
     await this.auditLogRepo.insert({
@@ -18,14 +18,14 @@ export class ConfigService {
       action: 'homepage_update',
       entityType: 'config',
       entityId: '00000000-0000-0000-0000-000000000000', // Mock UUID for global config
-      afterJson: data
+      afterJson: data as unknown as Record<string, unknown>
     });
 
     await this.redis.del('config:homepage');
     return { success: true };
   }
 
-  async updateNavigationConfig(data: any, adminId: string) {
+  async updateNavigationConfig(data: UpdateNavigationConfigDto, adminId: string) {
     await this.repo.updateConfig('navigation', data);
 
     await this.auditLogRepo.insert({
@@ -33,7 +33,7 @@ export class ConfigService {
       action: 'navigation_update',
       entityType: 'config',
       entityId: '00000000-0000-0000-0000-000000000001', // Mock UUID for nav config
-      afterJson: data
+      afterJson: data as unknown as Record<string, unknown>
     });
 
     await this.redis.del('config:navigation');

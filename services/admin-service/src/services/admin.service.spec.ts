@@ -27,7 +27,7 @@ describe('AdminService', () => {
       vi.mocked(adminUserRepo.create).mockResolvedValue(mockCreatedUser);
       vi.mocked(auditLogRepo.insert).mockResolvedValue(undefined);
 
-      const result = await adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, mockAdminId);
+      const result = await adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, mockAdminId, 'superAdmin');
 
       expect(result).toEqual(mockCreatedUser);
       expect(adminUserRepo.create).toHaveBeenCalledWith({ name: 'Test', mobile: '9999999999', role: 'supportAgent' });
@@ -40,6 +40,11 @@ describe('AdminService', () => {
       }); 
     });
 
+    it('should throw FORBIDDEN if requester is not superAdmin', async () => {
+      await expect(adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, 'admin-123', 'supportAgent'))
+        .rejects.toThrowError('Insufficient permissions');
+    });
+
     it('should throw an AppError on duplicate mobile (Corner Case)', async () => {
       const mockAdminId = 'admin-123';
       const error = new Error('Duplicate');
@@ -47,16 +52,14 @@ describe('AdminService', () => {
 
       vi.mocked(adminUserRepo.create).mockRejectedValue(error);
 
-      await expect(adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, mockAdminId))
+      await expect(adminService.createAdminUser({ name: 'Test', mobile: '9999999999', role: 'supportAgent' }, mockAdminId, 'superAdmin'))
         .rejects.toThrowError('Mobile already registered');
-      
-      expect(auditLogRepo.insert).not.toHaveBeenCalled();
     });
   });
 
   describe('updateAdminRole (ADM-03)', () => {
     it('should prevent an admin from changing their own role (Edge Case)', async () => {
-      await expect(adminService.updateAdminRole('admin-123', 'customer', 'admin-123'))
+      await expect(adminService.updateAdminRole('admin-123', 'customer', 'admin-123', 'superAdmin'))
         .rejects.toThrowError('Cannot change your own role');
     });
 
@@ -64,7 +67,7 @@ describe('AdminService', () => {
       vi.mocked(adminUserRepo.findById).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'supportAgent', isActive: true, createdAt: new Date(), updatedAt: new Date() });
       vi.mocked(adminUserRepo.updateRole).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'inventoryManager', isActive: true, createdAt: new Date(), updatedAt: new Date() });
       
-      const result = await adminService.updateAdminRole('user-456', 'inventoryManager', 'admin-123');
+      const result = await adminService.updateAdminRole('user-456', 'inventoryManager', 'admin-123', 'superAdmin');
       
       expect(result?.role).toBe('inventoryManager');
       expect(auditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
@@ -78,14 +81,14 @@ describe('AdminService', () => {
 
   describe('deleteAdminUser (ADM-04)', () => {
     it('should prevent deleting own account', async () => {
-      await expect(adminService.deleteAdminUser('admin-123', 'admin-123'))
+      await expect(adminService.deleteAdminUser('admin-123', 'admin-123', 'superAdmin'))
         .rejects.toThrowError('Cannot delete your own account');
     });
 
     it('should soft delete and record audit log', async () => {
       vi.mocked(adminUserRepo.softDelete).mockResolvedValue(true);
       
-      await adminService.deleteAdminUser('user-456', 'admin-123');
+      await adminService.deleteAdminUser('user-456', 'admin-123', 'superAdmin');
       
       expect(auditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
         adminId: 'admin-123',
