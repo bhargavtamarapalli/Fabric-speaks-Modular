@@ -1,0 +1,98 @@
+import { SettingsRepository } from '../repositories/settings.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+
+// Allowed public keys that storefront can view without JWT
+const PUBLIC_KEYS = ['store_name', 'free_shipping_above', 'cod_enabled'];
+
+export class SettingsService {
+  constructor(
+    private settingsRepo: SettingsRepository,
+    private auditLogRepo: AuditLogRepository
+  ) {}
+
+  async getAllSettings(): Promise<Record<string, string>> {
+    // Check cache first
+    const redis = getRedisClient();
+    const cacheKey = 'settings:all';
+    
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      logger.warn('Failed to read settings from Redis cache', e);
+    }
+
+    // Cache miss or Redis error — fetch from DB
+    const settings = await this.settingsRepo.getAll();
+    
+    // Set cache for 5 minutes (300s)
+    try {
+      await redis.setex(cacheKey, 300, JSON.stringify(settings));
+    } catch (e) {
+      logger.warn('Failed to write settings to Redis cache', e);
+    }
+
+    return settings;
+  }
+
+  async getPublicSettings(): Promise<Record<string, string>> {
+    // Check cache first
+    const redis = getRedisClient();
+    const cacheKey = 'settings:public';
+    
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      logger.warn('Failed to read public settings from Redis', e);
+    }
+
+    // Cache miss — fetch only public keys from DB
+    const settings = await this.settingsRepo.getMultiple(PUBLIC_KEYS);
+    
+    // Set cache for 5 minutes
+    try {
+      await redis.setex(cacheKey, 300, JSON.stringify(settings));
+    } catch (e) {
+      logger.warn('Failed to write public settings to Redis', e);
+    }
+
+    return settings;
+  }
+
+  async updateSetting(key: string, value: string, adminId: string): Promise<any> {
+    // Fetch previous value for audit log
+    const oldValue = await this.settingsRepo.getByKey(key);
+    
+    // Save to DB
+    const updated = await this.settingsRepo.upsert(key, value, adminId);
+    
+    // Invalidate caches
+    const redis = getRedisClient();
+    try {
+      await redis.del('settings:all');
+      if (PUBLIC_KEYS.includes(key)) {
+        await redis.del('settings:public');
+      }
+    } catch (e) {
+      logger.error('Failed to invalidate settings cache during update', e);
+    }
+
+    // RULE 6: Audit log for admin write
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'UPDATE_STORE_SETTING',
+      entityType: 'STORE_SETTING',
+      entityId: key,
+      beforeJson: oldValue !== null ? { value: oldValue } : null,
+      afterJson: { value }
+    });
+
+    return updated;
+  }
+}
