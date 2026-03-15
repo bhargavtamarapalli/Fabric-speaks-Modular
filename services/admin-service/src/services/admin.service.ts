@@ -2,16 +2,22 @@ import { AdminUserRepository } from '../repositories/admin-user.repository';
 import { CustomerRepository } from '../repositories/customer.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { DashboardRepository } from '../repositories/dashboard.repository';
-import { AppError, ErrorCode } from '@fs/shared';
+import { AppError, ErrorCode, getRedisClient, logger } from '@fs/shared';
 import { AdminListQueryDto, AuditLogQueryDto, CreateAdminUserDto } from '../schemas/admin.schemas';
+import { Queue } from 'bullmq';
 
 export class AdminService {
+  private eventQueue: Queue;
+
   constructor(
     private adminUserRepo: AdminUserRepository,
     private customerRepo: CustomerRepository,
     private auditLogRepo: AuditLogRepository,
-    private dashboardRepo: DashboardRepository
-  ) {}
+    private dashboardRepo: DashboardRepository,
+    eventQueue?: Queue
+  ) {
+    this.eventQueue = eventQueue ?? new Queue('platform_events', { connection: getRedisClient() });
+  }
 
   async listAdminUsers(filters: AdminListQueryDto) {
     return this.adminUserRepo.list(filters);
@@ -47,6 +53,13 @@ export class AdminService {
         entityType: 'user',
         entityId: user.id,
         afterJson: { name: user.name, role: user.role }
+      });
+
+      this.enqueueEvent('admin.user_created', {
+        adminId: user.id,
+        adminName: user.name,
+        role: user.role,
+        createdBy: adminId
       });
       
       return user;
@@ -130,5 +143,11 @@ export class AdminService {
       shiprocketIssues: 0,
       fraudFlags: codStats.fraud_flagged
     };
+  }
+
+  private enqueueEvent(name: string, payload: Record<string, unknown>): void {
+    void this.eventQueue.add(name, payload).catch((error) => {
+      logger.warn(`[AdminService] Failed to enqueue ${name}`, error);
+    });
   }
 }

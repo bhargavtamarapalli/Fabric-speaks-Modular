@@ -2,7 +2,7 @@ import { BaseRepository } from '@fs/shared';
 import { v4 as uuidv4 } from 'uuid';
 
 export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED';
-export type NotificationChannel = 'WHATSAPP' | 'SMS' | 'EMAIL';
+export type NotificationChannel = 'whatsapp' | 'sms' | 'email';
 
 export interface NotificationLog {
   id: string;
@@ -23,7 +23,7 @@ export class NotificationLogRepository extends BaseRepository {
   ): Promise<NotificationLog> {
     const id = uuidv4();
     const query = `
-      INSERT INTO notification_logs 
+      INSERT INTO notification_log 
         (id, user_id, order_id, event_type, recipient, channel, status, provider_response, template_id) 
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
       RETURNING *;
@@ -41,7 +41,7 @@ export class NotificationLogRepository extends BaseRepository {
     ];
 
     const result = await this.query(query, values);
-    return this.mapToCamelCase<NotificationLog>(result.rows[0]);
+    return this.mapRow(result.rows[0]);
   }
 
   async updateStatus(
@@ -50,8 +50,12 @@ export class NotificationLogRepository extends BaseRepository {
     providerResponse?: Record<string, unknown>
   ): Promise<NotificationLog | null> {
     const query = `
-      UPDATE notification_logs 
-      SET status = $1, provider_response = $2 
+      UPDATE notification_log 
+      SET
+        status = $1,
+        provider_response = $2,
+        error_code = COALESCE($4, error_code),
+        wa_message_id = COALESCE($5, wa_message_id)
       WHERE id = $3 
       RETURNING *;
     `;
@@ -59,9 +63,22 @@ export class NotificationLogRepository extends BaseRepository {
       status,
       providerResponse ? JSON.stringify(providerResponse) : null,
       id,
+      providerResponse && 'error' in providerResponse ? String(providerResponse.error) : null,
+      providerResponse && 'messages' in providerResponse && Array.isArray((providerResponse as any).messages)
+        ? String((providerResponse as any).messages[0]?.id || '')
+        : null,
     ];
 
     const result = await this.query(query, values);
-    return result.rows[0] ? this.mapToCamelCase<NotificationLog>(result.rows[0]) : null;
+    return result.rows[0] ? this.mapRow(result.rows[0]) : null;
+  }
+
+  private mapRow(row: Record<string, unknown>): NotificationLog {
+    const mapped = this.mapToCamelCase<any>(row);
+    return {
+      ...mapped,
+      createdAt: mapped.sentAt ?? mapped.createdAt,
+      channel: String(mapped.channel).toLowerCase() as NotificationChannel,
+    };
   }
 }

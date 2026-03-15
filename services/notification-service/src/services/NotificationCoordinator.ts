@@ -3,6 +3,7 @@ import { SmsService } from './SmsService';
 import { NotificationLogRepository } from '../repositories/NotificationLogRepository';
 import { AuditLogRepository } from '../repositories/AuditLogRepository';
 import { logger, getDbPool } from '@fs/shared';
+const BROADCAST_AUDIT_ENTITY_ID = '00000000-0000-0000-0000-000000000010';
 
 export interface NotificationRequest {
   userId?: string;
@@ -37,7 +38,7 @@ export class NotificationCoordinator {
         orderId: request.orderId,
         eventType: request.eventType,
         recipient: request.recipientPhone,
-        channel: 'WHATSAPP',
+        channel: 'whatsapp',
         status: 'PENDING',
         templateId: request.waTemplateName
       });
@@ -65,7 +66,7 @@ export class NotificationCoordinator {
         orderId: request.orderId,
         eventType: request.eventType,
         recipient: request.recipientPhone,
-        channel: 'SMS',
+        channel: 'sms',
         status: 'PENDING'
       });
 
@@ -111,7 +112,7 @@ export class NotificationCoordinator {
         adminId,
         action: 'ADMIN_BROADCAST',
         entityType: 'NOTIFICATION',
-        entityId: 'BATCH',
+        entityId: BROADCAST_AUDIT_ENTITY_ID,
         afterJson: {
             recipientCount: request.recipientPhones.length,
             successCount,

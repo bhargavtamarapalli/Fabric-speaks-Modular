@@ -13,12 +13,20 @@ export class SmsService {
   private fromNumber: string;
 
   constructor() {
-    this.accountSid = env.TWILIO_ACCOUNT_SID;
-    this.authToken = env.TWILIO_AUTH_TOKEN;
-    this.fromNumber = env.TWILIO_PHONE_NUMBER;
+    this.accountSid = env.TWILIO_ACCOUNT_SID || '';
+    this.authToken = env.TWILIO_AUTH_TOKEN || '';
+    this.fromNumber = env.TWILIO_PHONE_NUMBER || '';
   }
 
   async sendSms(payload: SmsPayload): Promise<any> {
+    if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_PHONE_NUMBER) {
+      logger.warn(`SMS configuration missing. Returning mock success for ${payload.to}`);
+      return {
+        provider: 'mock-sms',
+        sid: `mock-sms-${Date.now()}`
+      };
+    }
+
     const url = `https://api.twilio.com/2010-04-01/Accounts/${this.accountSid}/Messages.json`;
     const authHeader = 'Basic ' + Buffer.from(`${this.accountSid}:${this.authToken}`).toString('base64');
 

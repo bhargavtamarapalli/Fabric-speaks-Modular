@@ -59,8 +59,15 @@ export class InventoryService {
 
     logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
     
-    if (updated.stockQty < updated.thresholdQty) {
-      await this.eventQueue.add('stock.low', {
+    if (updated.stockQty <= 0) {
+      this.enqueueEvent('stock.critical', {
+        variantId: updated.variantId,
+        productName: updated.productName,
+        stockCount: updated.stockQty,
+        threshold: updated.thresholdQty
+      });
+    } else if (updated.stockQty < updated.thresholdQty) {
+      this.enqueueEvent('stock.low', {
         variantId: updated.variantId,
         productName: updated.productName,
         stockCount: updated.stockQty,
@@ -105,8 +112,15 @@ export class InventoryService {
                 afterJson: { stockQty: updated.stockQty, reason: validated.reason }
               });
 
-              if (updated.stockQty < updated.thresholdQty) {
-                await this.eventQueue.add('stock.low', {
+              if (updated.stockQty <= 0) {
+                this.enqueueEvent('stock.critical', {
+                  variantId: updated.variantId,
+                  productName: updated.productName,
+                  stockCount: updated.stockQty,
+                  threshold: updated.thresholdQty
+                });
+              } else if (updated.stockQty < updated.thresholdQty) {
+                this.enqueueEvent('stock.low', {
                   variantId: updated.variantId,
                   productName: updated.productName,
                   stockCount: updated.stockQty,
@@ -176,7 +190,7 @@ export class InventoryService {
     // Check if replenished stock triggers events
     const updatedVariant = await this.invRepo.getVariant(arrival.variant_id);
     if (updatedVariant && updatedVariant.stockQty > 0) {
-       await this.eventQueue.add('stock.replenished', {
+       this.enqueueEvent('stock.replenished', {
           variantId: updatedVariant.variantId,
           productName: updatedVariant.productName,
           stockCount: updatedVariant.stockQty
@@ -218,5 +232,11 @@ export class InventoryService {
 
   async getRestockSuggestions(): Promise<VariantStock[]> {
     return this.invRepo.getRestockSuggestions();
+  }
+
+  private enqueueEvent(name: string, payload: Record<string, unknown>): void {
+    void this.eventQueue.add(name, payload).catch((error) => {
+      logger.warn(`[InventoryService] Failed to enqueue ${name}`, error);
+    });
   }
 }

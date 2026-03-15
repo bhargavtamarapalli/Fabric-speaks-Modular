@@ -10,6 +10,11 @@ vi.mock('../repositories/admin-user.repository');
 vi.mock('../repositories/customer.repository');
 vi.mock('../repositories/audit-log.repository');
 vi.mock('../repositories/dashboard.repository');
+vi.mock('bullmq', () => ({
+  Queue: vi.fn().mockImplementation(() => ({
+    add: vi.fn()
+  }))
+}));
 
 describe('AdminService', () => {
   let adminService: AdminService;
@@ -24,7 +29,7 @@ describe('AdminService', () => {
     customerRepo = new CustomerRepository({} as any);
     auditLogRepo = new AuditLogRepository({} as any);
     dashboardRepo = new DashboardRepository({} as any);
-    adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo, dashboardRepo);
+    adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo, dashboardRepo, { add: vi.fn() } as any);
   });
 
   describe('createAdminUser (ADM-02)', () => {

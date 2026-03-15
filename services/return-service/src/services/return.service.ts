@@ -11,6 +11,8 @@ import {
 import { ShiprocketService } from './shiprocket.service';
 import { InternalService } from './internal.service';
 import { AppError, ErrorCode, logger } from '@fs/shared';
+import { Queue } from 'bullmq';
+import { getRedisClient } from '@fs/shared';
 
 interface ReturnDetail extends ReturnRequest {
   originalOrder: ReturnOrderSummary | null;
@@ -18,11 +20,15 @@ interface ReturnDetail extends ReturnRequest {
 }
 
 export class ReturnService {
+  private eventQueue: Queue;
+
   constructor(
     private repo: ReturnRepository,
     private shiprocket: ShiprocketService,
     private internal: InternalService
-  ) {}
+  ) {
+    this.eventQueue = new Queue('platform_events', { connection: getRedisClient() });
+  }
 
   async initiateReturn(
     orderId: string, 
@@ -80,8 +86,11 @@ export class ReturnService {
     );
 
     logger.info(`[ReturnService] Return ${newReturn.id} requested for order ${orderId} by user ${userId}`);
-    // Emit event (simulated)
-    logger.info(`[Event] return.requested: ${JSON.stringify(newReturn)}`);
+    this.enqueueEvent('return.requested', {
+      userId,
+      orderId,
+      pickupDate: null,
+    });
     
     return newReturn;
   }
@@ -156,20 +165,30 @@ export class ReturnService {
       }))
     };
 
-    const { pickupDate, awbCode } = await this.shiprocket.createReversePickup(returnId, ret.orderId, customer);
-    const updated = await this.repo.setShiprocketId(returnId, awbCode);
-    await this.repo.insertStatusHistory(
-      returnId,
-      updated.status,
-      ret.status,
-      'courier',
-      adminId,
-      `Reverse pickup scheduled for ${pickupDate}`,
-      { awb: awbCode }
-    );
-    
-    logger.info(`[Audit] Admin scheduled pickup for return ${returnId}. AWB: ${awbCode}, Date: ${pickupDate}`);
-    return updated;
+    try {
+      const { pickupDate, awbCode } = await this.shiprocket.createReversePickup(returnId, ret.orderId, customer);
+      const updated = await this.repo.setShiprocketId(returnId, awbCode);
+      await this.repo.insertStatusHistory(
+        returnId,
+        updated.status,
+        ret.status,
+        'courier',
+        adminId,
+        `Reverse pickup scheduled for ${pickupDate}`,
+        { awb: awbCode }
+      );
+      
+      logger.info(`[Audit] Admin scheduled pickup for return ${returnId}. AWB: ${awbCode}, Date: ${pickupDate}`);
+      return updated;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Shiprocket pickup failed';
+      this.enqueueEvent('return.pickup_failed', {
+        orderId: ret.orderId,
+        returnId,
+        reason: message
+      });
+      throw error;
+    }
   }
 
   async resolveReturn(returnId: string, resolution: 'REFUND' | 'REPLACEMENT', adminId: string, agentNotes?: string): Promise<ReturnRequest> {
@@ -202,7 +221,11 @@ export class ReturnService {
         );
 
         logger.info(`[Audit] Admin resolved return ${returnId} with REFUND of ${totalRefund}`);
-        logger.info(`[Event] return.refund_initiated: ${JSON.stringify(updated)}`);
+        this.enqueueEvent('return.refund_initiated', {
+          userId: ret.userId,
+          orderId: ret.orderId,
+          days: 5,
+        });
         return updated;
       } else {
         // External call
@@ -231,6 +254,12 @@ export class ReturnService {
         logger.info(`[Audit] Admin resolved return ${returnId} with REPLACEMENT order ${replacementOrder.id}`);
         return updated;
       }
+    });
+  }
+
+  private enqueueEvent(name: string, payload: Record<string, unknown>): void {
+    void this.eventQueue.add(name, payload).catch((error) => {
+      logger.warn(`[ReturnService] Failed to enqueue ${name}`, error);
     });
   }
 }
