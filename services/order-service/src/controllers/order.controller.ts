@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema } from '../schemas/order.schemas';
+import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema } from '../schemas/order.schemas';
 import { OrderService } from '../services/order.service';
 import { catchAsync } from '@fs/shared';
 
@@ -38,7 +38,7 @@ export class OrderController {
     const payload = AdminUpdateOrderStatusSchema.parse(req.body);
     const { orderId } = req.params;
     
-    const order = await this.orderService.updateOrderStatus(orderId as string, payload.status);
+    const order = await this.orderService.updateOrderStatus(orderId as string, payload.status, req.user!.userId);
     res.status(200).json({ success: true, data: order });
   });
 
@@ -47,12 +47,14 @@ export class OrderController {
     const { orderId } = req.params;
     
     // Push order to Shiprocket for fulfillment
-    const result = await this.orderService.pushOrderToShiprocket(orderId as string);
+    const result = await this.orderService.pushOrderToShiprocket(orderId as string, req.user!.userId);
     res.status(200).json({ success: true, data: result });
   });
 
   adminListOrders = catchAsync(async (req: Request, res: Response) => {
-    res.status(200).json({ success: true, data: [] });
+    const filters = AdminListOrdersSchema.parse(req.query);
+    const result = await this.orderService.listOrdersForAdmin(filters);
+    res.status(200).json({ success: true, data: { items: result.items }, meta: { total: result.total } });
   });
 
   shiprocketWebhook = catchAsync(async (req: Request, res: Response) => {
