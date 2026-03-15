@@ -45,10 +45,18 @@ catalogRouter.get('/categories', catalogController.listCategories);
 catalogRouter.get('/collections/:slug', catalogController.getCollection);
 
 // Admin routes
+catalogRouter.get('/admin/products', requireAuth, requireRole('superAdmin', 'inventoryManager', 'supportAgent'), catalogController.adminListProducts);
 catalogRouter.post('/admin/products', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createProduct);
 catalogRouter.patch('/admin/products/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateProduct);
-catalogRouter.delete('/admin/products/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.deleteProduct);
+catalogRouter.post('/admin/products/:id/deactivate', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.deactivateProduct);
 catalogRouter.post('/admin/products/bulk-upload', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.bulkUpload);
 catalogRouter.get('/admin/products/bulk-upload/template', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.getBulkTemplate);
-catalogRouter.post('/admin/brands', requireAuth, requireRole('superAdmin'), catalogController.createBrand);
-catalogRouter.post('/admin/collections', requireAuth, requireRole('superAdmin'), catalogController.createCollection);
+catalogRouter.post('/admin/brands', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createBrand);
+
+catalogRouter.post('/admin/categories', requireAuth, requireRole('superAdmin'), catalogController.createCategory);
+catalogRouter.patch('/admin/categories/:id', requireAuth, requireRole('superAdmin'), catalogController.updateCategory);
+
+catalogRouter.post('/admin/collections', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createCollection);
+catalogRouter.patch('/admin/collections/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateCollection);
+catalogRouter.post('/admin/collections/:id/products', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.addCollectionProducts);
+catalogRouter.delete('/admin/collections/:id/products/:productId', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.removeCollectionProduct);

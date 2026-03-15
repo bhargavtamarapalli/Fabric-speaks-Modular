@@ -30,17 +30,19 @@ router.post(
 );
 router.get('/returns/:returnId', requireAuth, returnController.getReturnStatus);
 
-// Admin endpoints
-router.get('/admin/returns', requireAdmin, returnController.listReturns);
+// Admin endpoints — requireAuth MUST come before requireAdmin so the JWT is verified first
+router.get('/admin/returns', requireAuth, requireAdmin, returnController.listReturns);
 router.patch(
     '/admin/returns/:returnId/status', 
+    requireAuth,
     requireAdmin, 
     validateRequest(updateStatusSchema), 
     returnController.updateStatus
 );
-router.post('/admin/returns/:returnId/shiprocket', requireAdmin, returnController.scheduleShiprocketPickup);
+router.post('/admin/returns/:returnId/shiprocket', requireAuth, requireAdmin, returnController.scheduleShiprocketPickup);
 router.post(
     '/admin/returns/:returnId/resolve', 
+    requireAuth,
     requireAdmin, 
     validateRequest(resolveReturnSchema), 
     returnController.resolveReturn

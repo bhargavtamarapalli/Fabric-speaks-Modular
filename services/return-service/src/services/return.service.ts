@@ -76,15 +76,15 @@ export class ReturnService {
     return this.repo.getReturns({ status, userId });
   }
 
-  async updateStatus(returnId: string, status: ReturnStatus): Promise<ReturnRequest> {
+  async updateStatus(returnId: string, status: ReturnStatus, agentNotes?: string): Promise<ReturnRequest> {
     const ret = await this.getReturnStatus(returnId);
     
     if (ret.status === 'COMPLETED' || ret.status === 'REJECTED') {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot update status of a completed or rejected return');
     }
 
-    const updated = await this.repo.updateStatus(returnId, status);
-    logger.info(`[Audit] Admin updated return ${returnId} status to ${status}`);
+    const updated = await this.repo.updateStatus(returnId, status, agentNotes);
+    logger.info(`[Audit] Admin updated return ${returnId} status to ${status}. Notes: ${agentNotes || 'None'}`);
     return updated;
   }
 

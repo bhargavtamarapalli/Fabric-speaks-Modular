@@ -39,3 +39,25 @@ export const CreateAdminUserSchema = z.object({
 });
 
 export type CreateAdminUserDto = z.infer<typeof CreateAdminUserSchema>;
+
+export const UpdateSettingSchema = z.object({
+  key: z.enum([
+    'store_name',
+    'store_email',
+    'store_phone',
+    'gst_number',
+    'free_shipping_above',
+    'cod_enabled',
+    'stock_alert_threshold',
+    'razorpay_live_mode'
+  ]),
+  value: z.string().min(1).max(500),
+});
+
+export type UpdateSettingDto = z.infer<typeof UpdateSettingSchema>;
+
+export const CustomerLookupSchema = z.object({
+  q: z.string().min(2).max(100),
+});
+
+export type CustomerLookupDto = z.infer<typeof CustomerLookupSchema>;

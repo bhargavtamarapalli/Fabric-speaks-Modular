@@ -3,14 +3,16 @@ import { requireAuth, requireRole, getDbPool } from '@fs/shared';
 import { SupportController } from '../controllers/support.controller';
 import { SupportService } from '../services/support.service';
 import { SupportRepository } from '../repositories/support.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { CustomerViewService } from '../services/customer-view.service';
 
 const router = Router();
 
 const db = getDbPool();
 const supportRepo = new SupportRepository(db);
+const auditLogRepo = new AuditLogRepository(db);
 const customerViewService = new CustomerViewService(db);
-const supportService = new SupportService(supportRepo, customerViewService);
+const supportService = new SupportService(supportRepo, auditLogRepo, customerViewService);
 const supportController = new SupportController(supportService, customerViewService);
 
 router.use(requireAuth);

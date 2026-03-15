@@ -25,3 +25,16 @@ export const PushToShiprocketSchema = z.object({
   height: z.number().optional(),
   weight: z.number().optional(),
 });
+
+export const AdminListOrdersSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+  'filter[status]': z.enum([
+    'PLACED', 'PAYMENT_PENDING', 'PAYMENT_FAILED', 'CONFIRMED',
+    'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED',
+    'RETURN_REQUESTED', 'RETURNED'
+  ]).optional(),
+  'filter[payment_method]': z.enum(['UPI', 'CARD', 'NETBANKING', 'COD']).optional(),
+  'filter[created_at_from]': z.string().datetime().optional(),
+  'filter[created_at_to]': z.string().datetime().optional(),
+});

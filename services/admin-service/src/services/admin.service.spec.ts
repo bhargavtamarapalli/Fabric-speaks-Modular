@@ -1,22 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdminService } from './admin.service';
 import { AdminUserRepository } from '../repositories/admin-user.repository';
+import { CustomerRepository } from '../repositories/customer.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
-import { AppError } from '@fs/shared/errors';
+import { AppError } from '@fs/shared';
 
 vi.mock('../repositories/admin-user.repository');
+vi.mock('../repositories/customer.repository');
 vi.mock('../repositories/audit-log.repository');
 
 describe('AdminService', () => {
   let adminService: AdminService;
   let adminUserRepo: AdminUserRepository;
+  let customerRepo: CustomerRepository;
   let auditLogRepo: AuditLogRepository;
 
   beforeEach(() => {
     vi.clearAllMocks();
     adminUserRepo = new AdminUserRepository({} as any);
+    customerRepo = new CustomerRepository({} as any);
     auditLogRepo = new AuditLogRepository({} as any);
-    adminService = new AdminService(adminUserRepo, auditLogRepo);
+    adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo);
   });
 
   describe('createAdminUser (ADM-02)', () => {

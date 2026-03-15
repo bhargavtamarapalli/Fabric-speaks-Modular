@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, getDbPool } from '@fs/shared';
+import { requireAuth, requireRole, getDbPool } from '@fs/shared';
 import { InventoryController } from '../controllers/inventory.controller';
 import { InventoryService } from '../services/inventory.service';
 import { InventoryRepository } from '../repositories/inventory.repository';
@@ -19,13 +19,26 @@ const auditLogRepo = new AuditLogRepository(db);
 const inventoryService = new InventoryService(invRepo, expectedRepo, auditLogRepo);
 const inventoryController = new InventoryController(inventoryService);
 
+// Role groups: write operations are SA + IM only; reads also allow support agents
+const requireWriteAccess = requireRole('superAdmin', 'inventoryManager');
+const requireReadAccess = requireRole('superAdmin', 'inventoryManager', 'supportAgent');
+
 router.use(requireAuth);
 
-router.get('/', inventoryController.listInventory);
-router.patch('/:variantId', validateBody(ManualAdjustmentSchema), inventoryController.manualAdjustment);
-router.post('/adjustment/bulk', upload.single('file'), inventoryController.bulkAdjustment);
-router.get('/expected', inventoryController.getExpectedArrivals);
-router.post('/expected', validateBody(ExpectedArrivalSchema), inventoryController.addExpectedArrival);
-router.get('/health', inventoryController.getHealth);
+// INV-01: List inventory — all admin roles can view stock
+router.get('/', requireReadAccess, inventoryController.listInventory);
+
+// INV-02: Manual stock adjustment — write access only (SA + IM)
+router.patch('/:variantId', requireWriteAccess, validateBody(ManualAdjustmentSchema), inventoryController.manualAdjustment);
+
+// Bulk CSV adjustment — write access only
+router.post('/adjustment/bulk', requireWriteAccess, upload.single('file'), inventoryController.bulkAdjustment);
+
+// INV-04/05: Expected arrivals — write access only
+router.get('/expected', requireWriteAccess, inventoryController.getExpectedArrivals);
+router.post('/expected', requireWriteAccess, validateBody(ExpectedArrivalSchema), inventoryController.addExpectedArrival);
+
+// INV-05: Stock health dashboard — read access (SA + IM can see full data)
+router.get('/health', requireWriteAccess, inventoryController.getHealth);
 
 export default router;

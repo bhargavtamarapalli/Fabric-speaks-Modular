@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ReturnService } from '../services/return.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 import { ReturnStatus } from '../repositories/return.repository';
+import { updateStatusSchema, resolveReturnSchema } from '../schemas/return.schemas';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 
 export class ReturnController {
@@ -54,17 +55,20 @@ export class ReturnController {
 
   updateStatus = catchAsync(async (req: Request, res: Response) => {
     const { returnId } = req.params;
-    const { status } = req.body;
+    const { status, agentNotes } = updateStatusSchema.parse(req.body);
     
-    const updated = await this.returnService.updateStatus(returnId as string, status as ReturnStatus);
+    if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+    const adminId = req.user.userId;
+
+    const updated = await this.returnService.updateStatus(returnId as string, status as ReturnStatus, agentNotes);
     
     // Rule 6: Audit log for admin write
     await this.auditLogRepo.insert({
-        adminId: req.user?.userId || '00000000-0000-0000-0000-000000000000',
+        adminId,
         action: 'UPDATE_RETURN_STATUS',
         entityType: 'RETURN',
         entityId: returnId as string,
-        afterJson: { status }
+        afterJson: { status, agentNotes }
     });
 
     res.status(200).json({ success: true, data: updated });
@@ -73,11 +77,14 @@ export class ReturnController {
   scheduleShiprocketPickup = catchAsync(async (req: Request, res: Response) => {
     const { returnId } = req.params;
     
+    if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+    const adminId = req.user.userId;
+
     const updated = await this.returnService.scheduleShiprocketPickup(returnId as string);
     
     // Rule 6: Audit log
     await this.auditLogRepo.insert({
-        adminId: req.user?.userId || '00000000-0000-0000-0000-000000000000',
+        adminId,
         action: 'SCHEDULE_PICKUP',
         entityType: 'RETURN',
         entityId: returnId as string
@@ -88,13 +95,16 @@ export class ReturnController {
 
   resolveReturn = catchAsync(async (req: Request, res: Response) => {
     const { returnId } = req.params;
-    const { resolution, agentNotes } = req.body;
+    const { resolution, agentNotes } = resolveReturnSchema.parse(req.body);
     
+    if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+    const adminId = req.user.userId;
+
     const updated = await this.returnService.resolveReturn(returnId as string, resolution, agentNotes);
     
     // Rule 6: Audit log
     await this.auditLogRepo.insert({
-        adminId: req.user?.userId || '00000000-0000-0000-0000-000000000000',
+        adminId,
         action: 'RESOLVE_RETURN',
         entityType: 'RETURN',
         entityId: returnId as string,

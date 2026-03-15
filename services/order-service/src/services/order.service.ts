@@ -159,7 +159,11 @@ export class OrderService {
     return order;
   }
 
-  async updateOrderStatus(orderId: string, status: string) {
+  async listOrdersForAdmin(filters: any) {
+    return this.orderRepo.findAllForAdmin(filters);
+  }
+
+  async updateOrderStatus(orderId: string, status: string, adminId?: string) {
     // Fetch current order state before update (for audit trail and validation)
     const currentOrder = await this.orderRepo.getOrderById(orderId, null);
     if (!currentOrder) {
@@ -197,6 +201,7 @@ export class OrderService {
     
     // RULE 6: Log all status changes to audit trail
     await this.auditLogRepo.insert({
+      adminId: adminId, // Added adminId for Rule 6
       action: 'ORDER_STATUS_CHANGED',
       entityType: 'ORDER',
       entityId: orderId,
@@ -294,7 +299,7 @@ export class OrderService {
    * Called by admin when order is CONFIRMED and ready to ship
    * Creates Shiprocket order and stores shipment ID for tracking
    */
-  async pushOrderToShiprocket(orderId: string): Promise<any> {
+  async pushOrderToShiprocket(orderId: string, adminId?: string): Promise<any> {
     if (!this.shiprocketClient) {
       throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket client not initialized');
     }
@@ -413,6 +418,17 @@ export class OrderService {
         shiprocket_order_id: response.token || String(shipmentId),
         tracking_url: trackingUrl
       });
+
+      // RULE 6: Log push to shiprocket
+      if (adminId) {
+        await this.auditLogRepo.insert({
+          adminId,
+          action: 'PUSHED_TO_SHIPROCKET',
+          entityType: 'ORDER',
+          entityId: orderId,
+          afterJson: { shiprocket_order_id: response.token, shipment_id: shipmentId }
+        });
+      }
 
       logger.info('Order successfully pushed to Shiprocket', {
         orderId,

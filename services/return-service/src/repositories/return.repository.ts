@@ -95,9 +95,14 @@ export class ReturnRepository extends BaseRepository {
         return rows.map(r => this.mapToCamelCase<ReturnRequest>(r));
     }
 
-    async updateStatus(id: string, status: ReturnStatus): Promise<ReturnRequest> {
-        const query = 'UPDATE return_requests SET status = $2, updated_at = now() WHERE id = $1 RETURNING *';
-        const { rows } = await this.query(query, [id, status]);
+    async updateStatus(id: string, status: ReturnStatus, agentNotes?: string): Promise<ReturnRequest> {
+        const query = `
+            UPDATE return_requests 
+            SET status = $2, agent_notes = COALESCE($3, agent_notes), updated_at = now() 
+            WHERE id = $1 
+            RETURNING *
+        `;
+        const { rows } = await this.query(query, [id, status, agentNotes || null]);
         if (!rows.length) throw new Error('Return not found');
         return this.mapToCamelCase<ReturnRequest>(rows[0]);
     }

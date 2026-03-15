@@ -1,4 +1,5 @@
 import { AdminUserRepository } from '../repositories/admin-user.repository';
+import { CustomerRepository } from '../repositories/customer.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { AppError, ErrorCode } from '@fs/shared';
 import { AdminListQueryDto, AuditLogQueryDto, CreateAdminUserDto } from '../schemas/admin.schemas';
@@ -6,11 +7,16 @@ import { AdminListQueryDto, AuditLogQueryDto, CreateAdminUserDto } from '../sche
 export class AdminService {
   constructor(
     private adminUserRepo: AdminUserRepository,
+    private customerRepo: CustomerRepository,
     private auditLogRepo: AuditLogRepository
   ) {}
 
   async listAdminUsers(filters: AdminListQueryDto) {
     return this.adminUserRepo.list(filters);
+  }
+
+  async lookupCustomers(query: string) {
+    return this.customerRepo.lookup(query);
   }
 
   async getAuditLogs(filters: AuditLogQueryDto) {

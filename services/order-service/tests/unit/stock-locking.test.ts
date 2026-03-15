@@ -4,7 +4,6 @@ import { OrderRepository } from '../../src/repositories/order.repository';
 import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
 import { AppError, ErrorCode } from '@fs/shared/src/errors';
 import { getDbPool } from '@fs/shared/src/db';
-import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
 
 vi.mock('bullmq', () => ({
   Queue: vi.fn(() => ({
@@ -27,7 +26,6 @@ describe('OrderService - Stock Locking (OCC)', () => {
   let mockOrderRepo: any;
   let mockAuditLogRepo: any;
   let mockClient: any;
-  let mockAuditLogRepo: any;
 
   beforeEach(() => {
     mockClient = {

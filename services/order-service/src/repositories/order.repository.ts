@@ -258,4 +258,69 @@ export class OrderRepository extends BaseRepository {
     `, [details.shiprocket_order_id, details.tracking_url, orderId]);
     return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
   }
+
+  async findAllForAdmin(filters: {
+    page: number;
+    limit: number;
+    'filter[status]'?: string;
+    'filter[payment_method]'?: string;
+    'filter[created_at_from]'?: string;
+    'filter[created_at_to]'?: string;
+  }) {
+    const { page, limit } = filters;
+    const offset = (page - 1) * limit;
+    
+    let whereQuery = '1=1';
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (filters['filter[status]']) {
+      whereQuery += ` AND status = $${paramIndex++}`;
+      params.push(filters['filter[status]']);
+    }
+
+    if (filters['filter[payment_method]']) {
+      whereQuery += ` AND payment_method = $${paramIndex++}`;
+      params.push(filters['filter[payment_method]']);
+    }
+
+    if (filters['filter[created_at_from]']) {
+      whereQuery += ` AND created_at >= $${paramIndex++}`;
+      params.push(filters['filter[created_at_from]']);
+    }
+
+    if (filters['filter[created_at_to]']) {
+      whereQuery += ` AND created_at <= $${paramIndex++}`;
+      params.push(filters['filter[created_at_to]']);
+    }
+
+    // Main query
+    const query = `
+      SELECT o.*, u.name as customer_name, u.email as customer_email
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      WHERE ${whereQuery}
+      ORDER BY o.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    // Count query
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM orders
+      WHERE ${whereQuery}
+    `;
+
+    const recordsParams = [...params, limit, offset];
+    
+    const [records, countRes] = await Promise.all([
+      this.query(query, recordsParams),
+      this.query(countQuery, params)
+    ]);
+
+    return {
+      items: records.rows.map(row => this.mapToCamelCase<any>(row)),
+      total: parseInt(countRes.rows[0].total, 10)
+    };
+  }
 }

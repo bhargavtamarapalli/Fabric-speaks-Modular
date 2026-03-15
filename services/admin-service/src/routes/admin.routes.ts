@@ -7,18 +7,22 @@ import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { CouponRepository } from '../repositories/coupon.repository';
 import { PageRepository } from '../repositories/page.repository';
 import { ConfigRepository } from '../repositories/config.repository';
+import { SettingsRepository } from '../repositories/settings.repository';
+import { CustomerRepository } from '../repositories/customer.repository';
 
 // Services
 import { AdminService } from '../services/admin.service';
 import { CouponService } from '../services/coupon.service';
 import { PageService } from '../services/page.service';
 import { ConfigService } from '../services/config.service';
+import { SettingsService } from '../services/settings.service';
 
 // Controllers
 import { AdminController } from '../controllers/admin.controller';
 import { CouponController } from '../controllers/coupon.controller';
 import { PageController } from '../controllers/page.controller';
 import { ConfigController } from '../controllers/config.controller';
+import { SettingsController } from '../controllers/settings.controller';
 
 const router = Router();
 const db = getDbPool();
@@ -26,8 +30,9 @@ const redis = getRedisClient();
 
 // Wiring
 const adminUserRepo = new AdminUserRepository(db);
+const customerRepo = new CustomerRepository(db);
 const auditLogRepo = new AuditLogRepository(db);
-const adminService = new AdminService(adminUserRepo, auditLogRepo);
+const adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo);
 const adminController = new AdminController(adminService);
 
 const couponRepo = new CouponRepository(db);
@@ -42,6 +47,13 @@ const configRepo = new ConfigRepository(db);
 const configService = new ConfigService(configRepo, auditLogRepo, redis);
 const configController = new ConfigController(configService);
 
+const settingsRepo = new SettingsRepository(db);
+const settingsService = new SettingsService(settingsRepo, auditLogRepo);
+const settingsController = new SettingsController(settingsService);
+
+// Public settings (Storefront) - must be before requireAuth
+router.get('/settings/public', settingsController.getPublicSettings);
+
 // Global middleware for whole admin suite ingress
 router.use(requireAuth);
 
@@ -52,6 +64,7 @@ router.patch('/users/:id/role', requireRole('superAdmin'), adminController.updat
 router.delete('/users/:id', requireRole('superAdmin'), adminController.deleteAdminUser);
 router.get('/audit-log', requireRole('superAdmin'), adminController.getAuditLogs);
 router.get('/dashboard/ops', requireRole('superAdmin', 'supportAgent'), adminController.getDashboardOps);
+router.get('/customers/lookup', requireRole('superAdmin', 'supportAgent'), adminController.lookupCustomers);
 
 // ADM-07 - ADM-09 (Coupons)
 router.get('/coupons', requireRole('superAdmin'), couponController.listCoupons);
@@ -64,7 +77,11 @@ router.post('/content/pages', requireRole('superAdmin'), pageController.createPa
 router.patch('/content/pages/:id', requireRole('superAdmin'), pageController.updatePage);
 
 // ADM-11 - ADM-12 (Site Configuration)
-router.post('/homepage/config', requireRole('superAdmin'), configController.updateHomepageConfig);
-router.post('/navigation/config', requireRole('superAdmin'), configController.updateNavigationConfig);
+router.patch('/homepage', requireRole('superAdmin'), configController.updateHomepageConfig);
+router.put('/navigation', requireRole('superAdmin'), configController.updateNavigationConfig);
+
+// SET-01 - SET-02 (Store Settings)
+router.get('/settings', requireRole('superAdmin'), settingsController.getAllSettings);
+router.patch('/settings', requireRole('superAdmin'), settingsController.updateSetting);
 
 export default router;
