@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { PincodeService } from '../services/pincode.service';
 import { PincodeParamSchema, BulkPincodeUploadSchema } from '../schemas/pincode.schemas';
-import { catchAsync } from '@fs/shared';
+import { catchAsync, AppError, ErrorCode } from '@fs/shared';
 
 export class PincodeController {
     constructor(private readonly pincodeService: PincodeService) {}
@@ -14,7 +14,11 @@ export class PincodeController {
 
     bulkUpload = catchAsync(async (req: Request, res: Response) => {
         const dto = BulkPincodeUploadSchema.parse(req.body);
-        const result = await this.pincodeService.processBulkUpload(dto.csvData);
+        const adminId = req.user?.userId;
+        if (!adminId) {
+            throw new AppError(ErrorCode.JWT_INVALID, 'Unauthorized');
+        }
+        const result = await this.pincodeService.processBulkUpload(dto.csvData, adminId);
         res.json({ success: true, data: result });
     });
 }
