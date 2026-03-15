@@ -72,13 +72,19 @@ export class ProductRepository extends BaseRepository implements IProductReposit
     }
 
     async findAllAdmin(filters: any): Promise<{ items: Product[]; total: number }> {
-        const { page, limit, 'filter[is_active]': isActive, 'filter[brand_id]': brandId, 'filter[has_sale]': hasSale } = filters;
+        const { page, limit, 'filter[is_active]': isActive, 'filter[brand_id]': brandId, 'filter[has_sale]': hasSale, search } = filters;
         const offset = (page - 1) * limit;
         
         let queryStr = 'SELECT p.*, COUNT(*) OVER() as total_count FROM products p ';
         const whereClauses: string[] = ['is_deleted = false'];
         const params: unknown[] = [];
         let paramIdx = 1;
+
+        if (search) {
+            whereClauses.push(`(p.name ILIKE $${paramIdx} OR p.slug ILIKE $${paramIdx})`);
+            params.push(`%${search}%`);
+            paramIdx++;
+        }
 
         if (isActive !== undefined) {
             whereClauses.push(`p.is_active = $${paramIdx}`);
@@ -93,16 +99,6 @@ export class ProductRepository extends BaseRepository implements IProductReposit
         }
 
         if (hasSale !== undefined) {
-             queryStr += 'LEFT JOIN variants v ON p.id = v.product_id ';
-             whereClauses.push(`v.sale_active = $${paramIdx}`);
-             params.push(hasSale === 'true');
-             paramIdx++;
-             queryStr += ' GROUP BY p.id '; // Important if joining variants to avoid duplicate rows, but count(*) over() might get tricky.
-             // Simpler approach without group by if we use EXISTS
-        }
-
-        // Refined hasSale logic using EXISTS to avoid duplicate row explosion
-        if (hasSale !== undefined && !queryStr.includes('JOIN')) {
             if (hasSale === 'true') {
                  whereClauses.push(`EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sale_active = true)`);
             } else {

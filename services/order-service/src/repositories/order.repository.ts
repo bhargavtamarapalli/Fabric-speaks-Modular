@@ -123,11 +123,18 @@ export class OrderRepository extends BaseRepository {
     return res.rows[0];
   }
 
-  async insertOrderStatusHistory(client: PoolClient, orderId: string, status: string, notes?: string, createdBy?: string | null) {
-    await client.query(`
+  async insertOrderStatusHistory(client: PoolClient | null, orderId: string, status: string, notes?: string, createdBy?: string | null) {
+    const queryStr = `
       INSERT INTO order_status_history (order_id, status, notes, created_by)
       VALUES ($1, $2, $3, $4)
-    `, [orderId, status, notes, createdBy]);
+    `;
+    const params = [orderId, status, notes, createdBy];
+
+    if (client) {
+        await client.query(queryStr, params);
+    } else {
+        await this.query(queryStr, params);
+    }
   }
 
   async getOrderById(orderId: string, userId: string | null) {
@@ -154,6 +161,17 @@ export class OrderRepository extends BaseRepository {
     
     const res = await this.query(query, params);
     return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
+  }
+
+  async getOrderHistory(orderId: string) {
+    const res = await this.query(`
+      SELECT h.*, u.name as created_by_name
+      FROM order_status_history h
+      LEFT JOIN users u ON h.created_by = u.id
+      WHERE h.order_id = $1
+      ORDER BY h.created_at ASC
+    `, [orderId]);
+    return res.rows.map(row => this.mapToCamelCase<any>(row));
   }
   
   async getOrderByTrackingToken(token: string): Promise<Order | null> {

@@ -1,9 +1,12 @@
 import { createBaseApp, globalErrorHandler, logger } from '@fs/shared';
 import { env } from './config/env';
 import { EventConsumer } from './workers/EventConsumer';
+import notificationRoutes from './routes/notification.routes';
 
 const app = createBaseApp({ serviceName: 'notification-service' });
 const eventConsumer = new EventConsumer();
+
+app.use(notificationRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

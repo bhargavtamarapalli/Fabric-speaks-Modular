@@ -17,6 +17,18 @@ export const AdminUpdateOrderStatusSchema = z.object({
     'RETURN_REQUESTED', 'RETURNED'
   ]),
   notes: z.string().optional()
+}).refine(data => {
+    if (data.status === 'CANCELLED' && (!data.notes || data.notes.trim().length === 0)) {
+        return false;
+    }
+    return true;
+}, {
+    message: "Reason (notes) is required when cancelling an order",
+    path: ["notes"]
+});
+
+export const BulkPushToShiprocketSchema = z.object({
+  orderIds: z.array(z.string().uuid()).min(1).max(50),
 });
 
 export const PushToShiprocketSchema = z.object({

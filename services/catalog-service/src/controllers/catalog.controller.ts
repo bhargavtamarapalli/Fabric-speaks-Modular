@@ -59,6 +59,11 @@ export class CatalogController {
         res.json({ success: true });
     });
 
+    duplicateProduct = catchAsync(async (req: Request, res: Response) => {
+        const result = await this.catalogService.duplicateProduct(req.params.id!, req.user!.userId);
+        res.status(201).json({ success: true, data: result });
+    });
+
     deactivateProduct = catchAsync(async (req: Request, res: Response) => {
         const dto = DeactivateProductSchema.parse(req.body);
         const result = await this.catalogService.deactivateProduct(req.params.id!, dto, req.user!.userId);

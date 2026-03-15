@@ -81,4 +81,27 @@ export class NotificationCoordinator {
       logger.error(`Critical failure in NotificationCoordinator for ${request.recipientPhone}`, error);
     }
   }
+
+  async broadcast(request: { recipientPhones: string[]; waTemplateName: string; waComponents?: any[]; fallbackSmsBody: string }): Promise<{ successCount: number; failedCount: number }> {
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const phone of request.recipientPhones) {
+      try {
+        await this.processNotification({
+          eventType: 'ADMIN_BROADCAST',
+          recipientPhone: phone,
+          waTemplateName: request.waTemplateName,
+          waComponents: request.waComponents,
+          fallbackSmsBody: request.fallbackSmsBody
+        });
+        successCount++;
+      } catch (error) {
+        failedCount++;
+        logger.error(`Broadcast failed for ${phone}`, error);
+      }
+    }
+
+    return { successCount, failedCount };
+  }
 }
