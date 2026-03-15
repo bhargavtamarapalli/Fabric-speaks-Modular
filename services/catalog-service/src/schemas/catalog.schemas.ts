@@ -44,14 +44,19 @@ export const BulkUploadRequestSchema = z.object({
 export const UpdateProductSchema = CreateProductSchema.partial();
 
 export const BulkUploadSchema = z.array(z.object({
-    name: z.string(),
-    sku: z.string(),
+    name: z.string().min(1, 'Product name required'),
+    sku: z.string().min(1, 'SKU required'),
     size: z.string().optional(),
     colour: z.string().optional(),
-    base_price: z.number().positive(),
-    qty: z.number().int().nonnegative(),
-    // Fabric USP fields can be at variant level if they vary, but usually product level.
-    // LLD says variants belong to products.
+    base_price: z.number().positive('Price must be positive'),
+    qty: z.number().int().nonnegative('Quantity cannot be negative'),
+    // CRITICAL: All 6 fabric fields REQUIRED (USP fields per RULE)
+    fabric_type: z.string().min(1, 'Fabric type required'),
+    gsm_weight: z.number().positive('GSM weight must be positive'),
+    weave_type: z.string().min(1, 'Weave type required'),
+    breathability_rating: z.string().min(1, 'Breathability rating required'),
+    care_instructions: z.string().min(1, 'Care instructions required'),
+    fabric_origin: z.string().min(1, 'Fabric origin required'),
 }));
 
 export const ProductQuerySchema = z.object({

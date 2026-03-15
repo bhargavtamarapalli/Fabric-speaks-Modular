@@ -22,18 +22,47 @@ describe('BulkUploadService', () => {
 
     it('should successfully queue a valid CSV upload', async () => {
         // 1 header + 2 data rows = 3 rows total
-        const validCsv = `name,sku,base_price,qty
-Shirt 1,SKU-001,499,10
-Shirt 2,SKU-002,599,20`;
+        const validCsv = `name,sku,base_price,qty,fabric_type,gsm_weight,weave_type,breathability_rating,care_instructions,fabric_origin
+Shirt 1,SKU-001,499,10,Cotton,180,Plain,High,Wash cold,India
+Shirt 2,SKU-002,599,20,Linen,200,Twill,Medium,Dry clean,India`;
         
         const result = await service.queueUpload(validCsv, 'admin-uuid-123');
         
         expect(result.jobId).toBe('job-123');
         expect(mockQueue.add).toHaveBeenCalledWith('bulk-product-upload', {
-            csvData: validCsv,
+            products: expect.any(Array),
             adminId: 'admin-uuid-123'
         });
         expect(mockAuditLogRepo.insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle quoted commas correctly', async () => {
+        const quotedCsv = `name,sku,base_price,qty,fabric_type,gsm_weight,weave_type,breathability_rating,care_instructions,fabric_origin
+"Shirt, Premium",SKU-003,999,5,Silk,120,Satin,High,"Dry Clean, Only",India`;
+        
+        const result = await service.queueUpload(quotedCsv, 'admin-uuid-123');
+        
+        expect(result.errors).toBeUndefined();
+        expect(mockQueue.add).toHaveBeenCalledWith('bulk-product-upload', expect.objectContaining({
+            products: expect.arrayContaining([
+                expect.objectContaining({
+                    name: 'Shirt, Premium',
+                    care_instructions: 'Dry Clean, Only'
+                })
+            ])
+        }));
+    });
+
+    it('should return errors for invalid CSV data', async () => {
+        const invalidCsv = `name,sku,base_price,qty,fabric_type,gsm_weight,weave_type,breathability_rating,care_instructions,fabric_origin
+Shirt 1,SKU-001,-100,10,Cotton,180,Plain,High,Wash cold,India`;
+        
+        const result = await service.queueUpload(invalidCsv, 'admin-uuid-123');
+        
+        expect(result.errors).toBeDefined();
+        expect(result.errors?.length).toBeGreaterThan(0);
+        expect(result.errors?.[0].field).toBe('base_price');
+        expect(mockQueue.add).not.toHaveBeenCalled();
     });
 
     it('should throw an error if CSV exceeds 500 rows limit', async () => {

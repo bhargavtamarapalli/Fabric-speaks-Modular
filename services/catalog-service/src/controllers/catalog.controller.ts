@@ -56,6 +56,17 @@ export class CatalogController {
     bulkUpload = catchAsync(async (req: Request, res: Response) => {
         const { csvData } = BulkUploadRequestSchema.parse(req.body);
         const result = await this.bulkUploadService.queueUpload(csvData, req.user!.userId);
+        
+        if (result.errors) {
+            res.status(400).json({ 
+                success: false, 
+                errorCode: ErrorCode.VALIDATION_ERROR, 
+                message: 'Bulk upload validation failed', 
+                data: result.errors 
+            });
+            return;
+        }
+        
         res.json({ success: true, data: result });
     });
 

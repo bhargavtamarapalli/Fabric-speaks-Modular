@@ -37,11 +37,12 @@ export class CatalogService {
 
         const { items: products, total } = await this.productRepo.findAll(filters);
         
-        // Enhance products with variants data (basic for PLP)
+        // Enhance products with variants data and flatten fabric fields
         const enhancedItems: EnhancedProduct[] = await Promise.all(products.map(async (p) => {
             const variants = await this.variantRepo.findByProductId(p.id);
+            const flatProduct = this.flattenFabricFields(p);
             return {
-                ...p,
+                ...flatProduct,
                 variants: variants.map(v => ({
                     ...v,
                     effectivePrice: getEffectivePrice({
@@ -51,7 +52,7 @@ export class CatalogService {
                         sale_active: v.saleActive
                     })
                 }))
-            };
+            } as EnhancedProduct;
         }));
 
         const result = { items: enhancedItems, total };
@@ -68,8 +69,9 @@ export class CatalogService {
         if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
 
         const variants = await this.variantRepo.findByProductId(product.id);
+        const flatProduct = this.flattenFabricFields(product);
         const result: EnhancedProduct = {
-            ...product,
+            ...flatProduct,
             variants: variants.map(v => ({
                 ...v,
                 effectivePrice: getEffectivePrice({
@@ -79,7 +81,7 @@ export class CatalogService {
                     sale_active: v.saleActive
                 })
             }))
-        };
+        } as EnhancedProduct;
 
         await this.redis.setex(cacheKey, 300, JSON.stringify(result)); // 5 min TTL
         return result;
@@ -186,5 +188,18 @@ export class CatalogService {
         if (keys.length > 0) {
             await this.redis.del(...keys);
         }
+    }
+
+    private flattenFabricFields(product: Product): any {
+        const attrs = (product as any).attributes || {};
+        return {
+            ...product,
+            fabricType: attrs.fabric_type,
+            gsmWeight: attrs.gsm_weight,
+            weaveType: attrs.weave_type,
+            breathabilityRating: attrs.breathability_rating,
+            careInstructions: attrs.care_instructions,
+            fabricOrigin: attrs.fabric_origin
+        };
     }
 }

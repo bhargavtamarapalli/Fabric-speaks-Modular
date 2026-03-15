@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrderService } from '../../src/services/order.service';
 import { OrderRepository } from '../../src/repositories/order.repository';
+import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
 import { AppError, ErrorCode } from '@fs/shared/src/errors';
 import { getDbPool } from '@fs/shared/src/db';
 import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
@@ -24,6 +25,7 @@ vi.mock('@fs/shared/src/db', () => ({
 describe('OrderService - Stock Locking (OCC)', () => {
   let orderService: OrderService;
   let mockOrderRepo: any;
+  let mockAuditLogRepo: any;
   let mockClient: any;
   let mockAuditLogRepo: any;
 

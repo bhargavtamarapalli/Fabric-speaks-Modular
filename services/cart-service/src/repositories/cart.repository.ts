@@ -19,31 +19,48 @@ export class CartRepository extends BaseRepository {
 
   // --- DB Operations ---
 
-  // Cart CRUD
-  async findByUserId(userId: string) {
-    const result = await this.query(
-      `SELECT * FROM ${this.tableName} WHERE user_id = $1`,
-      [userId]
-    );
-    return result.rows[0] ? this.mapToCamelCase(result.rows[0]) : null;
-  }
+    async getUserCart(userId: string): Promise<CartItem[]> {
+        const query = `
+            SELECT 
+                c.variant_id as "variantId", 
+                c.quantity,
+                c.price_at_add as "priceAtAdd",
+                v.product_id as "productId",
+                v.sku,
+                v.stock_qty,
+                p.name
+        FROM cart_items c
+        JOIN variants v ON c.variant_id = v.id
+        JOIN products p ON v.product_id = p.id
+        WHERE c.user_id = $1
+        ORDER BY c.added_at DESC
+    `;
+    const result = await this.query(query, [userId]);
+    
+    return result.rows.map(row => ({
+        variantId: row.variantId,
+        quantity: row.quantity,
+        productId: row.productId,
+        name: row.name,
+        sku: row.sku,
+        price: Number(row.priceAtAdd), // RULE 1: Use locked price, never re-fetch from variant
+        stock_qty: row.stock_qty
+    }));
+}
 
-  // Existing DB items
-  async getUserCart(userId: string): Promise<CartItem[]> {
-    const result = await this.query(
-      'SELECT ci.* FROM cart_items ci JOIN carts c ON ci.cart_id = c.id WHERE c.user_id = $1',
-      [userId]
-    );
-    return result.rows.map(item => this.mapToCamelCase(item));
-  }
-
-  // Add user item
-  async addUserItem(userId: string, variantId: string, quantity: number, price: number): Promise<void> {
-    await this.query(
-      'SELECT add_to_cart($1, $2, $3, $4)',
-      [userId, variantId, quantity, price]
-    );
-  }
+    async addUserItem(userId: string, variantId: string, quantity: number, priceAtAdd: number): Promise<void> {
+        const query = `
+            INSERT INTO cart_items (user_id, variant_id, quantity, price_at_add)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id, variant_id)
+            DO UPDATE SET 
+                quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 10),
+                price_at_add = COALESCE(cart_items.price_at_add, EXCLUDED.price_at_add),
+                updated_at = now()
+                -- NOTE: Do NOT update price_at_add on quantity change (lock price)
+        `;
+        await this.query(query, [userId, variantId, quantity, priceAtAdd]);
+    }
 
   // Update user item qty
   async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {
