@@ -66,6 +66,7 @@ export class SupportRepository extends BaseRepository {
     if (!rows[0]) return null;
 
     const caseData = rows[0];
+    const userId = caseData.user_id;
     caseData.customerMobile = maskMobile(caseData.customerMobile); // RULE 5
 
     // Fetch notes separately
@@ -77,6 +78,15 @@ export class SupportRepository extends BaseRepository {
       ORDER BY n.created_at ASC
     `, [caseId]);
 
+    // Fetch WhatsApp log (SUP-08)
+    const waLogRes = await this.query(`
+      SELECT channel, template_id as "templateId", status, sent_at as "sentAt"
+      FROM notification_log
+      WHERE user_id = $1 AND channel = 'whatsapp'
+      ORDER BY sent_at DESC
+      LIMIT 10
+    `, [userId]);
+
     return {
       id: caseData.id,
       type: caseData.type,
@@ -84,13 +94,14 @@ export class SupportRepository extends BaseRepository {
       status: caseData.status,
       waWindowStatus: caseData.wa_window_status,
       customer: {
-        id: caseData.user_id,
+        id: userId,
         name: caseData.customerName,
         mobile: caseData.customerMobile,
         isWaOptedIn: caseData.isWaOptedIn
       },
-      orderId: caseData.order_id, // Expose for hydrating later
-      notes: noteRes.rows
+      orderId: caseData.order_id,
+      notes: noteRes.rows,
+      whatsappLog: waLogRes.rows
     };
   }
 

@@ -43,6 +43,7 @@ export const BulkUploadRequestSchema = z.object({
 
 export const UpdateProductSchema = CreateProductSchema.partial();
 export const DeactivateProductSchema = z.object({ confirm: z.boolean() });
+export const IdParamSchema = z.object({ id: z.string().uuid() });
 
 export const AdminProductQuerySchema = z.object({
     page: z.coerce.number().int().positive().default(1),

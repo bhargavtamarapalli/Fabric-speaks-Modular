@@ -11,13 +11,20 @@ export class ConfigService {
   ) {}
 
   async updateHomepageConfig(data: UpdateHomepageConfigDto, adminId: string) {
-    await this.repo.updateConfig('homepage', data);
+    for (const section of data.sections) {
+      let dbSection = section.type;
+      // Map schema types to DB enum sections
+      if (section.type === 'hero') dbSection = 'hero_banner' as any;
+      if (section.type === 'banner') dbSection = 'hero_banner' as any; // Map to appropriate DB enum
+
+      await this.repo.updateHomepageSection(dbSection, section.isVisible, section.data as any, adminId);
+    }
 
     await this.auditLogRepo.insert({
       adminId,
       action: 'homepage_update',
       entityType: 'config',
-      entityId: '00000000-0000-0000-0000-000000000000', // Mock UUID for global config
+      entityId: '00000000-0000-0000-0000-000000000000',
       afterJson: data as unknown as Record<string, unknown>
     });
 
@@ -25,18 +32,30 @@ export class ConfigService {
     return { success: true };
   }
 
+  async getHomepageConfig() {
+    return this.repo.getHomepageConfig();
+  }
+
   async updateNavigationConfig(data: UpdateNavigationConfigDto, adminId: string) {
-    await this.repo.updateConfig('navigation', data);
+    // Current admin uses UpdateNavDto (items[]), matching nav_items table
+    // We'll support both for compatibility during transition
+    const items = (data as any).items || (data as any).links;
+    
+    await this.repo.updateNavItems(items);
 
     await this.auditLogRepo.insert({
       adminId,
       action: 'navigation_update',
       entityType: 'config',
-      entityId: '00000000-0000-0000-0000-000000000001', // Mock UUID for nav config
+      entityId: '00000000-0000-0000-0000-000000000001',
       afterJson: data as unknown as Record<string, unknown>
     });
 
     await this.redis.del('config:navigation');
     return { success: true };
+  }
+
+  async getNavigationConfig() {
+    return this.repo.getNavItems();
   }
 }

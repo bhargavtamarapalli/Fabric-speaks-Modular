@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { InventoryService } from '../services/inventory.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
-import { ManualAdjustmentSchema, ExpectedArrivalSchema, UpdateThresholdSchema } from '../schemas/inventory.schemas';
+import { ManualAdjustmentSchema, ExpectedArrivalSchema, UpdateThresholdSchema, IdParamSchema, VariantIdParamSchema } from '../schemas/inventory.schemas';
 
 export class InventoryController {
   constructor(private inventoryService: InventoryService) { }
@@ -18,7 +19,7 @@ export class InventoryController {
   });
 
   manualAdjustment = catchAsync(async (req: Request, res: Response) => {
-    const { variantId } = req.params;
+    const { variantId } = VariantIdParamSchema.parse(req.params);
     const adminUserId = req.user?.userId;
 
     if (!adminUserId) {
@@ -28,7 +29,7 @@ export class InventoryController {
     const validated = ManualAdjustmentSchema.parse(req.body);
 
     const updated = await this.inventoryService.manualAdjustment(
-      variantId!,
+      variantId,
       validated.newQty,
       validated.reason,
       adminUserId
@@ -87,11 +88,7 @@ export class InventoryController {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
-    const { id } = req.params;
-    if (!id) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Arrival ID is required');
-    }
-
+    const { id } = IdParamSchema.parse(req.params);
     await this.inventoryService.markArrivalReceived(id, adminUserId);
 
     res.status(200).json({
@@ -106,10 +103,10 @@ export class InventoryController {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
-    const { variantId } = req.params;
+    const { variantId } = VariantIdParamSchema.parse(req.params);
     const validated = UpdateThresholdSchema.parse(req.body);
 
-    await this.inventoryService.updateThreshold(variantId!, validated.threshold_qty, adminUserId);
+    await this.inventoryService.updateThreshold(variantId, validated.threshold_qty, adminUserId);
 
     res.status(200).json({
       success: true,
@@ -127,11 +124,29 @@ export class InventoryController {
   });
 
   getHealth = catchAsync(async (req: Request, res: Response) => {
-    const health = await this.inventoryService.getStockHealth();
+    const health = await this.inventoryService.getHealth();
 
     res.status(200).json({
       success: true,
       data: health
+    });
+  });
+
+  getVelocity = catchAsync(async (req: Request, res: Response) => {
+    const data = await this.inventoryService.getInventoryWithVelocity();
+
+    res.status(200).json({
+      success: true,
+      data
+    });
+  });
+
+  getRestockSuggestions = catchAsync(async (req: Request, res: Response) => {
+    const data = await this.inventoryService.getRestockSuggestions();
+
+    res.status(200).json({
+      success: true,
+      data
     });
   });
 }

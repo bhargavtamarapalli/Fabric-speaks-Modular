@@ -8,6 +8,8 @@ export interface VariantStock {
     reservedQty: number;
     thresholdQty: number;
     healthStatus: string;
+    avgDailySales?: number;
+    daysRemaining?: number;
 }
 
 export class InventoryRepository extends BaseRepository {
@@ -131,5 +133,55 @@ export class InventoryRepository extends BaseRepository {
         if (stockQty <= 0) return 'CRITICAL';
         if (stockQty < threshold) return 'WARNING';
         return 'HEALTHY';
+    }
+
+    async getInventoryWithSalesData(): Promise<VariantStock[]> {
+        const query = `
+            WITH sales_30d AS (
+                SELECT 
+                    variant_id, 
+                    COALESCE(SUM(quantity), 0) / 30.0 as avg_sales
+                FROM order_items
+                WHERE created_at >= now() - interval '30 days'
+                GROUP BY variant_id
+            )
+            SELECT 
+                v.id as "variantId", 
+                v.sku, 
+                p.name as "productName", 
+                v.qty as "stockQty",
+                v.threshold_qty as "thresholdQty",
+                COALESCE(s.avg_sales, 0) as "avgDailySales"
+            FROM variants v
+            JOIN products p ON v.product_id = p.id
+            LEFT JOIN sales_30d s ON v.id = s.variant_id
+            WHERE v.is_deleted = false
+            ORDER BY v.qty ASC
+        `;
+        const { rows } = await this.query(query);
+        return rows.map(row => {
+            const stockQty = Number(row.stockQty);
+            const avgDailySales = Number(row.avgDailySales);
+            // If avgDailySales is 0, daysRemaining is practically Infinity (but we use 999 for UI)
+            const daysRemaining = avgDailySales > 0 ? Math.floor(stockQty / avgDailySales) : 999;
+            
+            return {
+                variantId: row.variantId,
+                sku: row.sku,
+                productName: row.productName,
+                stockQty,
+                reservedQty: 0,
+                thresholdQty: Number(row.thresholdQty),
+                healthStatus: this.calculateHealth(stockQty, Number(row.thresholdQty)),
+                avgDailySales,
+                daysRemaining
+            };
+        });
+    }
+
+    async getRestockSuggestions(): Promise<VariantStock[]> {
+        const all = await this.getInventoryWithSalesData();
+        // RULE INV-10: Variants with < 7 days remaining
+        return all.filter(v => (v.daysRemaining !== undefined && v.daysRemaining < 7) || v.healthStatus === 'CRITICAL');
     }
 }

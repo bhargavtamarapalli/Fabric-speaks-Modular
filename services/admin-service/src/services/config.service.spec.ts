@@ -22,24 +22,26 @@ describe('ConfigService', () => {
     service = new ConfigService(repo, auditLogRepo, redis);
   });
 
-  it('should update homepage config, log audit, and clear cache', async () => {
-    const dto = { sections: [] };
+  it('should update homepage config sections, log audit, and clear cache', async () => {
+    const dto = { 
+      sections: [{ type: 'announcement_bar' as const, isVisible: true, order: 1, data: { text: 'Hello' }, id: '1' }] 
+    };
     
     await service.updateHomepageConfig(dto, 'admin-1');
 
-    expect(repo.updateConfig).toHaveBeenCalledWith('homepage', dto);
+    expect(repo.updateHomepageSection).toHaveBeenCalledWith('announcement_bar', true, { text: 'Hello' }, 'admin-1');
     expect(auditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
       action: 'homepage_update'
     }));
     expect(redis.del).toHaveBeenCalledWith('config:homepage');
   });
 
-  it('should update navigation config, log audit, and clear cache', async () => {
-    const dto = { links: [] };
+  it('should update navigation items, log audit, and clear cache', async () => {
+    const dto = { links: [{ label: 'Home', href: '/' }] };
     
     await service.updateNavigationConfig(dto, 'admin-1');
 
-    expect(repo.updateConfig).toHaveBeenCalledWith('navigation', dto);
+    expect(repo.updateNavItems).toHaveBeenCalled();
     expect(auditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
       action: 'navigation_update'
     }));

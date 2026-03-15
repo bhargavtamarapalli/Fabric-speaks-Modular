@@ -208,7 +208,15 @@ export class InventoryService {
     return this.expectedRepo.getPendingArrivals();
   }
 
-  async getStockHealth(): Promise<{ status: string; count: number }[]> {
+  async getHealth(): Promise<{ status: string; count: number }[]> {
     return this.invRepo.getHealthSummary();
+  }
+
+  async getInventoryWithVelocity(): Promise<VariantStock[]> {
+    return this.invRepo.getInventoryWithSalesData();
+  }
+
+  async getRestockSuggestions(): Promise<VariantStock[]> {
+    return this.invRepo.getRestockSuggestions();
   }
 }

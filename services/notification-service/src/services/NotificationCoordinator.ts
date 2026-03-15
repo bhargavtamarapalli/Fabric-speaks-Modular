@@ -1,6 +1,7 @@
 import { WhatsAppService } from './WhatsAppService';
 import { SmsService } from './SmsService';
 import { NotificationLogRepository } from '../repositories/NotificationLogRepository';
+import { AuditLogRepository } from '../repositories/AuditLogRepository';
 import { logger, getDbPool } from '@fs/shared';
 
 export interface NotificationRequest {
@@ -17,11 +18,14 @@ export class NotificationCoordinator {
   private waService: WhatsAppService;
   private smsService: SmsService;
   private logRepo: NotificationLogRepository;
+  private auditLogRepo: AuditLogRepository;
 
   constructor() {
     this.waService = new WhatsAppService();
     this.smsService = new SmsService();
-    this.logRepo = new NotificationLogRepository(getDbPool());
+    const db = getDbPool();
+    this.logRepo = new NotificationLogRepository(db);
+    this.auditLogRepo = new AuditLogRepository(db);
   }
 
   async processNotification(request: NotificationRequest): Promise<void> {
@@ -82,7 +86,7 @@ export class NotificationCoordinator {
     }
   }
 
-  async broadcast(request: { recipientPhones: string[]; waTemplateName: string; waComponents?: any[]; fallbackSmsBody: string }): Promise<{ successCount: number; failedCount: number }> {
+  async broadcast(request: { recipientPhones: string[]; waTemplateName: string; waComponents?: any[]; fallbackSmsBody: string }, adminId: string): Promise<{ successCount: number; failedCount: number }> {
     let successCount = 0;
     let failedCount = 0;
 
@@ -101,6 +105,20 @@ export class NotificationCoordinator {
         logger.error(`Broadcast failed for ${phone}`, error);
       }
     }
+
+    // RULE 6: Log broadcast action
+    await this.auditLogRepo.insert({
+        adminId,
+        action: 'ADMIN_BROADCAST',
+        entityType: 'NOTIFICATION',
+        entityId: 'BATCH',
+        afterJson: {
+            recipientCount: request.recipientPhones.length,
+            successCount,
+            failedCount,
+            template: request.waTemplateName
+        }
+    });
 
     return { successCount, failedCount };
   }

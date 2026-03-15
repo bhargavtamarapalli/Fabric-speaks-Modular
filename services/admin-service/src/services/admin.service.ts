@@ -1,6 +1,7 @@
 import { AdminUserRepository } from '../repositories/admin-user.repository';
 import { CustomerRepository } from '../repositories/customer.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { DashboardRepository } from '../repositories/dashboard.repository';
 import { AppError, ErrorCode } from '@fs/shared';
 import { AdminListQueryDto, AuditLogQueryDto, CreateAdminUserDto } from '../schemas/admin.schemas';
 
@@ -8,7 +9,8 @@ export class AdminService {
   constructor(
     private adminUserRepo: AdminUserRepository,
     private customerRepo: CustomerRepository,
-    private auditLogRepo: AuditLogRepository
+    private auditLogRepo: AuditLogRepository,
+    private dashboardRepo: DashboardRepository
   ) {}
 
   async listAdminUsers(filters: AdminListQueryDto) {
@@ -105,19 +107,28 @@ export class AdminService {
   }
 
   async getDashboardMetrics() {
-    // In a real implementation, these would call dedicated repository methods
-    // For now, we perform basic aggregations via the user and audit repos or direct queries if needed.
-    // Dashboard fields: failedPayments, codInWindow, shiprocketIssues, fraudFlags, ordersByStatus
+    const [revenue, trends, topProducts, codStats, failedPayments, funnel, health, abandonedRate] = await Promise.all([
+      this.dashboardRepo.getRevenueMetrics(30),
+      this.dashboardRepo.getOrderTrends(30),
+      this.dashboardRepo.getTopProducts(5),
+      this.dashboardRepo.getCODStats(),
+      this.dashboardRepo.getFailedPaymentsCount(),
+      this.dashboardRepo.getConversionFunnel(30),
+      this.dashboardRepo.getSystemHealth(),
+      this.dashboardRepo.getAbandonedCartRate()
+    ]);
     
-    // Simulating repository calls for the purpose of this remediation
-    const metrics = {
-      failedPayments: await this.adminUserRepo.getFailedPaymentsCount(),
-      codInWindow: await this.adminUserRepo.getCODOrderStats(),
-      shiprocketIssues: await this.adminUserRepo.getLogisticsIssues(),
-      fraudFlags: await this.adminUserRepo.getFraudFlags(),
-      ordersByStatus: await this.adminUserRepo.getOrdersSummary()
+    return {
+      revenue,
+      trends,
+      topProducts,
+      cod: codStats,
+      failedPayments,
+      funnel,
+      health,
+      abandonedRate,
+      shiprocketIssues: 0,
+      fraudFlags: codStats.fraud_flagged
     };
-    
-    return metrics;
   }
 }

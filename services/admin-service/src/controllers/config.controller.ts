@@ -27,4 +27,14 @@ export class ConfigController {
     const result = await this.configService.updateNavigationConfig(dto, adminId);
     res.json({ success: true, data: result });
   });
+
+  getHomepageConfig = catchAsync(async (req: Request, res: Response) => {
+    const result = await this.configService.getHomepageConfig();
+    res.json({ success: true, data: result });
+  });
+
+  getNavigationConfig = catchAsync(async (req: Request, res: Response) => {
+    const result = await this.configService.getNavigationConfig();
+    res.json({ success: true, data: result });
+  });
 }

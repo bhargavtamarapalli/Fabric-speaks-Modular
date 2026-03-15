@@ -36,3 +36,6 @@ export const UpdateThresholdSchema = z.object({
 export type ManualAdjustmentInput = z.infer<typeof ManualAdjustmentSchema>;
 export type ExpectedArrivalInput = z.infer<typeof ExpectedArrivalSchema>;
 export type UpdateThresholdInput = z.infer<typeof UpdateThresholdSchema>;
+
+export const IdParamSchema = z.object({ id: z.string().uuid() });
+export const VariantIdParamSchema = z.object({ variantId: z.string().uuid() });
