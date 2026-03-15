@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
-import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema } from '../schemas/catalog.schemas';
+import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, IdParamSchema } from '../schemas/catalog.schemas';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class CatalogController {
@@ -49,24 +50,28 @@ export class CatalogController {
     });
 
     updateProduct = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
         const dto = UpdateProductSchema.parse(req.body);
-        const result = await this.catalogService.updateProduct(req.params.id!, dto, req.user!.userId);
+        const result = await this.catalogService.updateProduct(id, dto, req.user!.userId);
         res.json({ success: true, data: result });
     });
 
     deleteProduct = catchAsync(async (req: Request, res: Response) => {
-        await this.catalogService.deleteProduct(req.params.id!, req.user!.userId);
+        const { id } = IdParamSchema.parse(req.params);
+        await this.catalogService.deleteProduct(id, req.user!.userId);
         res.json({ success: true });
     });
 
     duplicateProduct = catchAsync(async (req: Request, res: Response) => {
-        const result = await this.catalogService.duplicateProduct(req.params.id!, req.user!.userId);
+        const { id } = IdParamSchema.parse(req.params);
+        const result = await this.catalogService.duplicateProduct(id, req.user!.userId);
         res.status(201).json({ success: true, data: result });
     });
 
     deactivateProduct = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
         const dto = DeactivateProductSchema.parse(req.body);
-        const result = await this.catalogService.deactivateProduct(req.params.id!, dto, req.user!.userId);
+        const result = await this.catalogService.deactivateProduct(id, dto, req.user!.userId);
         res.json({ success: true, data: result });
     });
 
@@ -74,17 +79,7 @@ export class CatalogController {
         const { csvData } = BulkUploadRequestSchema.parse(req.body);
         const result = await this.bulkUploadService.queueUpload(csvData, req.user!.userId);
         
-        if (result.errors) {
-            res.status(400).json({ 
-                success: false, 
-                errorCode: ErrorCode.VALIDATION_ERROR, 
-                message: 'Bulk upload validation failed', 
-                data: result.errors 
-            });
-            return;
-        }
-        
-        res.json({ success: true, data: result });
+        res.status(200).json({ success: true, data: result });
     });
 
     getBulkTemplate = catchAsync(async (req: Request, res: Response) => {
@@ -113,26 +108,30 @@ export class CatalogController {
     });
 
     updateCategory = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
         const dto = UpdateCategorySchema.parse(req.body);
-        const result = await this.catalogService.updateCategory(req.params.id!, dto, req.user!.userId);
+        const result = await this.catalogService.updateCategory(id, dto, req.user!.userId);
         res.json({ success: true, data: result });
     });
 
     updateCollection = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
         const dto = UpdateCollectionSchema.parse(req.body);
-        const result = await this.catalogService.updateCollection(req.params.id!, dto, req.user!.userId);
+        const result = await this.catalogService.updateCollection(id, dto, req.user!.userId);
         res.json({ success: true, data: result });
     });
 
     addCollectionProducts = catchAsync(async (req: Request, res: Response) => {
-        // Need an array of productIds
+        const { id } = IdParamSchema.parse(req.params);
         const { productIds } = req.body;
-        const result = await this.catalogService.addCollectionProducts(req.params.id!, productIds, req.user!.userId);
+        const result = await this.catalogService.addCollectionProducts(id, productIds, req.user!.userId);
         res.json({ success: true, data: result });
     });
 
     removeCollectionProduct = catchAsync(async (req: Request, res: Response) => {
-        const result = await this.catalogService.removeCollectionProduct(req.params.id!, req.params.productId!, req.user!.userId);
+        const { id } = IdParamSchema.parse(req.params);
+        const productId = z.string().uuid().parse(req.params.productId);
+        const result = await this.catalogService.removeCollectionProduct(id, productId, req.user!.userId);
         res.json({ success: true, data: result });
     });
 }

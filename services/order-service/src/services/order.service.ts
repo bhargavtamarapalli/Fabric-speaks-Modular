@@ -349,6 +349,23 @@ export class OrderService {
     return results;
   }
 
+  async bulkUpdateOrderStatus(orderIds: string[], status: string, adminId: string, notes?: string): Promise<any> {
+    const results = [];
+    for (const orderId of orderIds) {
+      try {
+        const order = await this.updateOrderStatus(orderId, status, adminId, notes);
+        results.push({ orderId, success: true, data: order });
+      } catch (error) {
+        results.push({ 
+          orderId, 
+          success: false, 
+          error: error instanceof Error ? error.message : String(error) 
+        });
+      }
+    }
+    return results;
+  }
+
   private async _pushOrderToShiprocketInternal(orderId: string, adminId?: string): Promise<any> {
     if (!this.shiprocketClient) {
       throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket client not initialized');

@@ -61,3 +61,5 @@ export const CustomerLookupSchema = z.object({
 });
 
 export type CustomerLookupDto = z.infer<typeof CustomerLookupSchema>;
+
+export const IdParamSchema = z.object({ id: z.string().uuid() });

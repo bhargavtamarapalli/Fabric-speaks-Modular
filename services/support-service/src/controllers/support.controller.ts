@@ -4,7 +4,8 @@ import { CustomerViewService } from '../services/customer-view.service';
 import { 
   CustomerLookupQuerySchema, 
   SupportQueueQuerySchema, 
-  UpdateQuerySchema 
+  UpdateQuerySchema,
+  CaseIdParamSchema
 } from '../schemas/support.schemas';
 import { catchAsync, AppError, ErrorCode } from '@fs/shared';
 
@@ -21,15 +22,15 @@ export class SupportController {
   });
 
   getCaseDetail = catchAsync(async (req: Request, res: Response) => {
-    const { caseId } = req.params;
-    const result = await this.supportService.getCaseDetail(caseId!);
+    const { caseId } = CaseIdParamSchema.parse(req.params);
+    const result = await this.supportService.getCaseDetail(caseId);
     res.json({ success: true, data: result });
   });
 
   updateCaseStatus = catchAsync(async (req: Request, res: Response) => {
-    const { caseId } = req.params;
+    const { caseId } = CaseIdParamSchema.parse(req.params);
     const dto = UpdateQuerySchema.parse(req.body);
-    const result = await this.supportService.updateCase(caseId!, dto, req.user!.userId);
+    const result = await this.supportService.updateCase(caseId, dto, req.user!.userId);
     res.json({ success: true, data: result });
   });
 
@@ -40,11 +41,11 @@ export class SupportController {
   });
 
   postInternalNote = catchAsync(async (req: Request, res: Response) => {
-    const { caseId } = req.params;
+    const { caseId } = CaseIdParamSchema.parse(req.params);
     const dto = UpdateQuerySchema.parse(req.body);
     if (!dto.note) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Note text is required');
 
-    const result = await this.supportService.addNote(caseId!, dto.note, req.user!.userId);
+    const result = await this.supportService.addNote(caseId, dto.note, req.user!.userId);
     res.status(201).json({ success: true, data: result });
   });
 }

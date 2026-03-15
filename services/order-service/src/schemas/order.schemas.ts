@@ -31,6 +31,24 @@ export const BulkPushToShiprocketSchema = z.object({
   orderIds: z.array(z.string().uuid()).min(1).max(50),
 });
 
+export const BulkUpdateOrderStatusSchema = z.object({
+  orderIds: z.array(z.string().uuid()).min(1).max(50),
+  status: z.enum([
+    'PLACED', 'PAYMENT_PENDING', 'PAYMENT_FAILED', 'CONFIRMED',
+    'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED',
+    'RETURN_REQUESTED', 'RETURNED'
+  ]),
+  notes: z.string().optional()
+}).refine(data => {
+    if (data.status === 'CANCELLED' && (!data.notes || data.notes.trim().length === 0)) {
+        return false;
+    }
+    return true;
+}, {
+    message: "Reason (notes) is required when cancelling an order",
+    path: ["notes"]
+});
+
 export const PushToShiprocketSchema = z.object({
   length: z.number().optional(),
   breadth: z.number().optional(),
@@ -50,3 +68,5 @@ export const AdminListOrdersSchema = z.object({
   'filter[created_at_from]': z.string().datetime().optional(),
   'filter[created_at_to]': z.string().datetime().optional(),
 });
+
+export const OrderIdParamSchema = z.object({ orderId: z.string().uuid() });

@@ -19,3 +19,5 @@ export const CustomerLookupQuerySchema = PaginationSchema.extend({
   mobile: z.string().min(4).max(10), // Last 4 digits or full mobile
 });
 export type CustomerLookupQueryDto = z.infer<typeof CustomerLookupQuerySchema>;
+
+export const CaseIdParamSchema = z.object({ caseId: z.string().uuid() });

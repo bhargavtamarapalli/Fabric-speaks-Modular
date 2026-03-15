@@ -12,7 +12,7 @@ export class NotificationController {
 
   broadcast = catchAsync(async (req: Request, res: Response) => {
     const data = BroadcastNotificationSchema.parse(req.body);
-    const result = await this.coordinator.broadcast(data);
+    const result = await this.coordinator.broadcast(data, req.user!.userId);
     res.status(200).json({ success: true, data: result });
   });
 }

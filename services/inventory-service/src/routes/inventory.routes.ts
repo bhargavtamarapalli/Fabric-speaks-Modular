@@ -45,4 +45,10 @@ router.patch('/expected/:id/receive', requireWriteAccess, inventoryController.ma
 // INV-05: Stock health dashboard — read access (SA + IM can see full data)
 router.get('/health', requireWriteAccess, inventoryController.getHealth);
 
+// INV-09: Stock velocity details
+router.get('/velocity', requireWriteAccess, inventoryController.getVelocity);
+
+// INV-10: Restock suggestions
+router.get('/suggestions', requireWriteAccess, inventoryController.getRestockSuggestions);
+
 export default router;

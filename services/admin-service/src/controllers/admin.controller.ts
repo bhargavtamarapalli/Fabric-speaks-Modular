@@ -5,8 +5,10 @@ import {
   AuditLogQuerySchema, 
   ChangeRoleSchema,
   CreateAdminUserSchema,
-  CustomerLookupSchema
+  CustomerLookupSchema,
+  IdParamSchema
 } from '../schemas/admin.schemas';
+import { z } from 'zod';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class AdminController {
@@ -30,25 +32,25 @@ export class AdminController {
   });
 
   updateAdminRole = catchAsync(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = IdParamSchema.parse(req.params);
     const { role } = ChangeRoleSchema.parse(req.body);
     const adminId = req.user?.userId;
     const adminRole = req.user?.role;
     
     if (!adminId || !adminRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
 
-    const result = await this.adminService.updateAdminRole(id!, role, adminId, adminRole);
+    const result = await this.adminService.updateAdminRole(id, role, adminId, adminRole);
     res.json({ success: true, data: result });
   });
 
   deleteAdminUser = catchAsync(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = IdParamSchema.parse(req.params);
     const adminId = req.user?.userId;
     const adminRole = req.user?.role;
     
     if (!adminId || !adminRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
 
-    const result = await this.adminService.deleteAdminUser(id!, adminId, adminRole);
+    const result = await this.adminService.deleteAdminUser(id, adminId, adminRole);
     res.json({ success: true, data: result });
   });
 

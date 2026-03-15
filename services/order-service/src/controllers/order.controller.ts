@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema, BulkPushToShiprocketSchema } from '../schemas/order.schemas';
+import { z } from 'zod';
+import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema, BulkPushToShiprocketSchema, OrderIdParamSchema, BulkUpdateOrderStatusSchema } from '../schemas/order.schemas';
 import { OrderService } from '../services/order.service';
 import { catchAsync } from '@fs/shared';
 
@@ -23,8 +24,8 @@ export class OrderController {
 
   getOrderById = catchAsync(async (req: Request, res: Response) => {
     const userId = req.user!.userId;
-    const { orderId } = req.params;
-    const order = await this.orderService.getOrderDetails(orderId as string, userId);
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const order = await this.orderService.getOrderDetails(orderId, userId);
     res.status(200).json({ success: true, data: order });
   });
 
@@ -35,10 +36,10 @@ export class OrderController {
   });
 
   adminUpdateStatus = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
     const payload = AdminUpdateOrderStatusSchema.parse(req.body);
-    const { orderId } = req.params;
     
-    const order = await this.orderService.updateOrderStatus(orderId as string, payload.status, req.user!.userId, payload.notes);
+    const order = await this.orderService.updateOrderStatus(orderId, payload.status, req.user!.userId, payload.notes);
     res.status(200).json({ success: true, data: order });
   });
 
@@ -48,12 +49,18 @@ export class OrderController {
     res.status(200).json({ success: true, data: results });
   });
 
+  adminBulkUpdateStatus = catchAsync(async (req: Request, res: Response) => {
+    const { orderIds, status, notes } = BulkUpdateOrderStatusSchema.parse(req.body);
+    const results = await this.orderService.bulkUpdateOrderStatus(orderIds, status, req.user!.userId, notes);
+    res.status(200).json({ success: true, data: results });
+  });
+
   adminPushToShiprocket = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
     PushToShiprocketSchema.parse(req.body);
-    const { orderId } = req.params;
     
     // Push order to Shiprocket for fulfillment
-    const result = await this.orderService.pushOrderToShiprocket(orderId as string, req.user!.userId);
+    const result = await this.orderService.pushOrderToShiprocket(orderId, req.user!.userId);
     res.status(200).json({ success: true, data: result });
   });
 

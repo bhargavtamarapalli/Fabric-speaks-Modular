@@ -9,7 +9,7 @@ export class BulkUploadService {
         private readonly auditLogRepo: AuditLogRepository
     ) {}
 
-    async queueUpload(csvData: string, adminId: string): Promise<{ jobId?: string; errors?: any[] }> {
+    async queueUpload(csvData: string, adminId: string): Promise<{ success: number; failed: number; errors: any[]; jobId: string | null }> {
         const lines = csvData.split('\n').map(l => l.trim()).filter(l => l !== '');
         if (lines.length === 0) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Empty CSV file');
 
@@ -53,7 +53,12 @@ export class BulkUploadService {
         });
 
         if (validationErrors.length > 0) {
-            return { errors: validationErrors };
+            return { 
+                success: parsedRows.length, 
+                failed: validationErrors.length, 
+                errors: validationErrors, 
+                jobId: null 
+            };
         }
 
         // Audit log BEFORE queueing to ensure consistency
@@ -72,7 +77,12 @@ export class BulkUploadService {
             adminId
         });
 
-        return { jobId: job.id };
+        return { 
+            success: parsedRows.length, 
+            failed: 0, 
+            errors: [], 
+            jobId: job.id as string
+        };
     }
 
     private parseCSVLine(line: string): string[] {
