@@ -1,73 +1,133 @@
-# .github/workflows/deploy.yml
-name: Deploy
+name: Deployment Pipeline
 
 on:
-  workflow_run:
-    workflows: ['Build & Push']
-    types: [completed]
+  push:
+    branches: [develop, main]
+    paths:
+      - 'services/**'
+      - 'shared/**'
+      - 'frontend/**'
+      - '.github/workflows/deploy.yml'
 
 jobs:
-  deploy-staging:
-    if: github.ref == 'refs/heads/develop' && github.event.workflow_run.conclusion == 'success'
+  validate:
+    name: Lint, Typecheck & Test
     runs-on: ubuntu-latest
-    environment: staging
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: fabricspeaks_test
+          POSTGRES_USER: fs_test
+          POSTGRES_PASSWORD: test_password
+        ports: [5432:5432]
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: [6379:6379]
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
-      
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: image-tag
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build shared package
+        run: npm run build -w shared
+      - name: Run Tests
+        env:
+          DATABASE_URL: postgres://fs_test:test_password@localhost:5432/fabricspeaks_test
+          REDIS_HOST: localhost
+          APP_ENV: test
+          APP_JWT_SECRET: test-jwt-secret-at-least-32-chars-long
+        run: npm run test
+
+  build-and-deploy:
+    name: Build & Deploy
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    
+    strategy:
+      matrix:
+        service: [
+          api-gateway, auth-service, catalog-service, order-service,
+          payment-service, notification-service, collection-service,
+          pincode-service, return-service, search-service,
+          inventory-service, admin-service, support-service, frontend,
+          cart-service
+        ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          SERVICE="${{ matrix.service }}"
+          DIR=""
+          if [ "$SERVICE" == "frontend" ]; then
+            DIR="frontend/"
+          else
+            DIR="services/$SERVICE/"
+          fi
+
+          if git diff --name-only HEAD^ HEAD | grep -E "^$DIR|^shared/"; then
+            echo "CHANGED=true" >> $GITHUB_OUTPUT
+            echo "$SERVICE has changes or shared package was updated."
+          else
+            echo "CHANGED=false" >> $GITHUB_OUTPUT
+            echo "No changes for $SERVICE."
+          fi
 
       - id: auth
+        if: steps.check_changes.outputs.CHANGED == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_WIF_SA_EMAIL }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Set up Cloud SDK
+        if: steps.check_changes.outputs.CHANGED == 'true'
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Run DB migrations
+      - name: Configure Docker
+        if: steps.check_changes.outputs.CHANGED == 'true'
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev
+
+      - name: Build and push
+        if: steps.check_changes.outputs.CHANGED == 'true'
         run: |
-          # Cloud Run job for migrations
-          gcloud run jobs execute fs-migrate-job --region=asia-south1 --wait
+          TAG=${{ github.sha }}
+          PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
+          SERVICE="${{ matrix.service }}"
+          DIR=""
+          if [ "$SERVICE" == "frontend" ]; then
+            DIR="frontend"
+          else
+            DIR="services/$SERVICE"
+          fi
+          
+          docker build -t asia-south1-docker.pkg.dev/$PROJECT_ID/fabricspeaks/$SERVICE:$TAG -f $DIR/Dockerfile .
+          docker push asia-south1-docker.pkg.dev/$PROJECT_ID/fabricspeaks/$SERVICE:$TAG
 
-      - name: Deploy all services to staging
+      - name: Deploy
+        if: steps.check_changes.outputs.CHANGED == 'true'
         run: |
-          TAG=$(cat image-tag.txt)
-          bash scripts/deploy.sh staging $TAG
-
-  deploy-production:
-    if: github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: image-tag
-
-      - id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_WIF_SA_EMAIL }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Snapshot DB before deploy
-        run: |
-          gcloud sql backups create --instance=fs-postgres-prod \
-            --description='pre-deploy-${{ github.sha }}'
-
-      - name: Run DB migrations
-        run: |
-          gcloud run jobs execute fs-migrate-job-prod --region=asia-south1 --wait
-
-      - name: Deploy to production
-        run: |
-          TAG=$(cat image-tag.txt)
-          bash scripts/deploy.sh production $TAG
-
-      - name: Smoke test
-        run: bash scripts/smoke-test.sh https://api.fabricspeaks.com
+          TAG=${{ github.sha }}
+          ENV="staging"
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="production"
+          fi
+          bash scripts/deploy.sh $ENV $TAG

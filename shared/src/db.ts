@@ -4,19 +4,34 @@ let pool: Pool | null = null;
 
 export const getDbPool = (): Pool => {
   if (!pool) {
-    const config: PoolConfig = {
-      host: process.env.DB_HOST,
-      port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432,
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-    };
+    const isProd = process.env.APP_ENV === 'production';
+    const isSupabase = process.env.DATABASE_URL?.includes('supabase.co');
+
+    const config: PoolConfig = process.env.DATABASE_URL 
+      ? { connectionString: process.env.DATABASE_URL }
+      : {
+          host: process.env.DB_HOST,
+          port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432,
+          database: process.env.DB_NAME,
+          user: process.env.DB_USER,
+          password: process.env.DB_PASSWORD,
+        };
     
-    // In production, we might want to configure SSL, max connections, etc.
-    if (process.env.APP_ENV === 'production') {
-      config.max = 20;
+    // --- PRODUCTION / SUPABASE SETTINGS ---
+    if (isProd || isSupabase) {
+      config.max = 10; // Connect to pooling port 6543
+      config.idleTimeoutMillis = 30000;
+      config.connectionTimeoutMillis = 5000;
+      config.ssl = (isProd || isSupabase)
+        ? { rejectUnauthorized: false } 
+        : false;
+    } 
+    // --- DEVELOPMENT / LOCAL PG SETTINGS ---
+    else {
+      config.max = 20; // Default local dev limit
       config.idleTimeoutMillis = 30000;
       config.connectionTimeoutMillis = 2000;
+      // SSL disabled for local dev by default
     }
 
     pool = new Pool(config);

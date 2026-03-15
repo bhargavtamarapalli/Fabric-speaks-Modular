@@ -1,8 +1,11 @@
 import { InventoryRepository, VariantStock } from '../repositories/inventory.repository';
 import { ExpectedStockRepository, ExpectedStock } from '../repositories/expected-stock.repository';
-import { AppError, ErrorCode, logger } from '@fs/shared';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { BulkAdjustmentRowSchema } from '../schemas/inventory.schemas';
+import { AppError, ErrorCode, logger, getRedisClient } from '@fs/shared';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
+import { Queue } from 'bullmq';
 
 export interface BulkAdjustmentError {
   row: Record<string, any>;
@@ -16,10 +19,16 @@ export interface BulkAdjustmentResponse {
 }
 
 export class InventoryService {
+  private eventQueue: Queue;
+
   constructor(
     private invRepo: InventoryRepository,
-    private expectedRepo: ExpectedStockRepository
-  ) {}
+    private expectedRepo: ExpectedStockRepository,
+    private auditLogRepo: AuditLogRepository
+  ) {
+    const redis = getRedisClient();
+    this.eventQueue = new Queue('platform_events', { connection: redis });
+  }
 
   public static calculateHealthStatus(qty: number): 'CRITICAL' | 'WARNING' | 'HEALTHY' {
     if (qty <= 0) return 'CRITICAL';
@@ -32,24 +41,33 @@ export class InventoryService {
   }
 
   async manualAdjustment(variantId: string, newQty: number, reason: string, adminUserId: string): Promise<VariantStock> {
-    if (newQty < 0) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Stock quantity cannot be negative');
+    const currentVariant = await this.invRepo.getVariant(variantId);
+    if (!currentVariant) {
+      throw new AppError(ErrorCode.NOT_FOUND, `Variant ${variantId} not found`);
     }
-    if (!reason || reason.trim() === '') {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Reason is required for manual adjustment');
-    }
+
+    const updated = await this.invRepo.adjustStock(variantId, newQty, reason, adminUserId);
     
-    try {
-      const updated = await this.invRepo.adjustStock(variantId, newQty, reason, adminUserId);
-      logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
-      return updated;
-    } catch (error) {
-      const err = error as Error;
-      if (err.message.includes('not found')) {
-        throw new AppError(ErrorCode.NOT_FOUND, `Variant ${variantId} not found`);
-      }
-      throw error;
+    await this.auditLogRepo.insert({
+      adminId: adminUserId,
+      action: 'MANUAL_STOCK_ADJUSTMENT',
+      entityType: 'INVENTORY',
+      entityId: variantId,
+      beforeJson: { stockQty: currentVariant.stockQty },
+      afterJson: { stockQty: updated.stockQty, reason }
+    });
+
+    logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
+    
+    if (updated.stockQty < 5) {
+      await this.eventQueue.add('stock.low', {
+        variantId: updated.variantId,
+        productName: updated.productName,
+        stockCount: updated.stockQty
+      });
     }
+
+    return updated;
   }
 
   async bulkAdjustment(csvBuffer: Buffer, adminUserId: string): Promise<BulkAdjustmentResponse> {
@@ -67,16 +85,33 @@ export class InventoryService {
         .on('end', async () => {
           for (const row of results) {
             try {
-              if (!row.variant_id || !row.new_qty || !row.reason) {
-                throw new Error('Missing required fields (variant_id, new_qty, reason)');
+              // Validate row with Zod
+              const validated = BulkAdjustmentRowSchema.parse(row);
+
+              const currentVariant = await this.invRepo.getVariant(validated.variant_id);
+              if (!currentVariant) {
+                throw new Error(`Variant ${validated.variant_id} not found`);
               }
 
-              const qty = parseInt(row.new_qty, 10);
-              if (isNaN(qty) || qty < 0) {
-                throw new Error('Invalid quantity');
+              const updated = await this.invRepo.adjustStock(validated.variant_id, validated.new_qty, validated.reason, adminUserId);
+              
+              await this.auditLogRepo.insert({
+                adminId: adminUserId,
+                action: 'BULK_STOCK_ADJUSTMENT',
+                entityType: 'INVENTORY',
+                entityId: validated.variant_id,
+                beforeJson: { stockQty: currentVariant.stockQty },
+                afterJson: { stockQty: updated.stockQty, reason: validated.reason }
+              });
+
+              if (updated.stockQty < 5) {
+                await this.eventQueue.add('stock.low', {
+                  variantId: updated.variantId,
+                  productName: updated.productName,
+                  stockCount: updated.stockQty
+                });
               }
 
-              await this.invRepo.adjustStock(row.variant_id, qty, row.reason, adminUserId);
               successCount++;
             } catch (err) {
               failedCount++;
@@ -93,17 +128,24 @@ export class InventoryService {
     });
   }
 
-  async addExpectedArrival(data: Omit<ExpectedStock, 'id' | 'status'>): Promise<ExpectedStock> {
-    if (data.expected_qty <= 0) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Expected quantity must be greater than zero');
-    }
-    // Also validate the variant exists before allowing this
+  async addExpectedArrival(data: Omit<ExpectedStock, 'id' | 'status'>, adminUserId: string): Promise<ExpectedStock> {
     const variant = await this.invRepo.getVariant(data.variant_id);
     if (!variant) {
       throw new AppError(ErrorCode.NOT_FOUND, `Variant ${data.variant_id} not found`);
     }
 
-    return this.expectedRepo.addExpectedStock(data);
+    const arrival = await this.expectedRepo.addExpectedStock(data);
+
+    await this.auditLogRepo.insert({
+      adminId: adminUserId,
+      action: 'ADD_EXPECTED_ARRIVAL',
+      entityType: 'EXPECTED_STOCK',
+      entityId: arrival.id,
+      beforeJson: null,
+      afterJson: arrival
+    });
+
+    return arrival;
   }
 
   async getExpectedArrivals(): Promise<ExpectedStock[]> {

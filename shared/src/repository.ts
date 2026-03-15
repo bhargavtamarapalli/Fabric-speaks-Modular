@@ -32,7 +32,7 @@ export abstract class BaseRepository {
     return result;
   }
 
-  protected async withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  public async withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
     if ('connect' in this.db) {
       const client = await (this.db as Pool).connect();
       try {

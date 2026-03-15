@@ -2,6 +2,8 @@
 node_modules
 .pnp
 .pnp.js
+service-account.json
+*.json.key
 
 # testing
 coverage
@@ -34,3 +36,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# compiled js files in shared
+shared/src/**/*.js
+shared/src/**/*.js.map

@@ -1,5 +1,6 @@
 import { env } from '../config/env';
 import { logger } from '@fs/shared';
+import pRetry from 'p-retry';
 
 export interface SmsPayload {
   to: string;
@@ -26,7 +27,7 @@ export class SmsService {
     params.append('From', this.fromNumber);
     params.append('Body', payload.body);
 
-    try {
+    const run = async () => {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -39,14 +40,24 @@ export class SmsService {
       const data = await response.json();
 
       if (!response.ok) {
-        logger.error(`❌ SMS API Error:`, data);
+        logger.error(`❌ SMS API Error (Attempt):`, data);
         throw new Error(`SMS API Error: ${JSON.stringify(data)}`);
       }
 
+      return data;
+    };
+
+    try {
+      const data = await pRetry(run, {
+        retries: 3,
+        onFailedAttempt: error => {
+          logger.warn(`SMS attempt ${error.attemptNumber} failed. ${error.retriesLeft} retries left.`);
+        }
+      });
       logger.info(`✅ SMS message sent to ${payload.to}`);
       return data;
     } catch (error) {
-      logger.error(`Failed to send SMS to ${payload.to}`, error);
+      logger.error(`Failed to send SMS to ${payload.to} after retries`, error);
       throw error;
     }
   }

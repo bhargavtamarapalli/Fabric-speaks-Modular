@@ -4,7 +4,6 @@ import { CartController } from '../controllers/cart.controller';
 import { CartService } from '../services/cart.service';
 import { CartRepository } from '../repositories/cart.repository';
 import { CouponRepository } from '../repositories/coupon.repository';
-
 import { CatalogIntegrationService } from '../services/catalog-integration.service';
 
 const router = Router();

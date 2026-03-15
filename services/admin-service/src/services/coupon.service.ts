@@ -27,7 +27,7 @@ export class CouponService {
       action: 'coupon_create',
       entityType: 'coupon',
       entityId: coupon.id,
-      afterJson: coupon
+      afterJson: coupon as unknown as Record<string, unknown>
     });
 
     return coupon;
@@ -44,8 +44,8 @@ export class CouponService {
       action: 'coupon_update',
       entityType: 'coupon',
       entityId: id,
-      beforeJson: coupon,
-      afterJson: updated
+      beforeJson: coupon as unknown as Record<string, unknown>,
+      afterJson: updated as unknown as Record<string, unknown>
     });
 
     return updated;

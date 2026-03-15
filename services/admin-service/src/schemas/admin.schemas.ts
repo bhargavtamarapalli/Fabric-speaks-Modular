@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MobileSchema, PaginationSchema, UuidSchema } from '@fs/shared/schemas'; // Assuming shared base schemas exist
+import { paginationSchema, uuidSchema } from '@fs/shared';
 
 export const ChangeRoleSchema = z.object({
   role: z.enum(['customer', 'inventoryManager', 'supportAgent', 'superAdmin']),
@@ -7,19 +7,35 @@ export const ChangeRoleSchema = z.object({
 
 export type ChangeRoleDto = z.infer<typeof ChangeRoleSchema>;
 
-export const AdminListQuerySchema = PaginationSchema.extend({
-  'filter[role]': z.enum(['superAdmin', 'inventoryManager', 'supportAgent']).optional()
+export const AdminListQuerySchema = paginationSchema.extend({
+  'filter[role]': z.enum(['superAdmin', 'inventoryManager', 'supportAgent']).optional(),
+  'filter[search]': z.string().optional()
 });
 
 export type AdminListQueryDto = z.infer<typeof AdminListQuerySchema>;
 
 // Audit Log Filters
 export const AuditLogQuerySchema = z.object({
-  cursor: UuidSchema.optional(),
+  cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  'filter[admin_id]': UuidSchema.optional(),
+  'filter[admin_id]': uuidSchema.optional(),
   'filter[action]': z.string().optional(),
+  'filter[entity_type]': z.string().optional(),
+  'filter[entity_id]': uuidSchema.optional(),
   'filter[created_at_from]': z.string().datetime().optional()
 });
 
 export type AuditLogQueryDto = z.infer<typeof AuditLogQuerySchema>;
+
+/**
+ * CreateAdminUserSchema excludes 'customer' role intentionally.
+ * Admin users can only create other staff/staff-like accounts (inventoryManager, supportAgent, superAdmin).
+ * Customer accounts are created via the public-facing auth flow.
+ */
+export const CreateAdminUserSchema = z.object({
+  name: z.string().min(2).max(100),
+  mobile: z.string().regex(/^[6-9]\d{9}$/),
+  role: z.enum(['inventoryManager', 'supportAgent', 'superAdmin'])
+});
+
+export type CreateAdminUserDto = z.infer<typeof CreateAdminUserSchema>;

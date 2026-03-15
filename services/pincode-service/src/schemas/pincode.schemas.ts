@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const PincodeParamSchema = z.object({
-  pincode: z.string().min(6).max(10).regex(/^\d+$/, 'Pincode must be numeric'),
+  pincode: z.string().length(6, 'Pincode must be exactly 6 digits').regex(/^\d{6}$/, 'Pincode must be numeric'),
 });
 
 export const BulkPincodeUploadSchema = z.object({

@@ -62,6 +62,11 @@ export class InventoryRepository extends BaseRepository {
 
     async adjustStock(variantId: string, newQty: number, reason: string, adminUserId: string): Promise<VariantStock> {
         return this.withTransaction(async (client) => {
+            // Fetch old quantity first
+            const oldRes = await client.query('SELECT stock_qty FROM inventory WHERE variant_id = $1', [variantId]);
+            if (!oldRes.rows.length) throw new Error(`Variant ${variantId} not found`);
+            const oldQty = oldRes.rows[0].stock_qty;
+
             const updateQuery = `
                 UPDATE inventory 
                 SET stock_qty = $2, updated_at = now() 
@@ -69,13 +74,13 @@ export class InventoryRepository extends BaseRepository {
                 RETURNING *
             `;
             const { rows } = await client.query(updateQuery, [variantId, newQty]);
-            if (!rows.length) throw new Error(`Variant ${variantId} not found`);
+            if (!rows.length) throw new Error(`Variant ${variantId} not found after update`);
 
             const logQuery = `
-                INSERT INTO inventory_logs (variant_id, old_qty, new_qty, reason, admin_id)
+                INSERT INTO inventory_adjustment_log (variant_id, old_qty, new_qty, reason, user_id)
                 VALUES ($1, $2, $3, $4, $5)
             `;
-            // For older qty, we might need a SELECT before update. Simplified here.
+            await client.query(logQuery, [variantId, oldQty, newQty, reason, adminUserId]);
             
             const variant = await this.getVariant(variantId);
             if (!variant) throw new Error('Variant not found after update');

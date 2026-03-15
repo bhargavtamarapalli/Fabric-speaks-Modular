@@ -10,29 +10,53 @@ export interface AdminUser {
     updatedAt: Date;
 }
 
+export interface AdminListFilters {
+    page?: number;
+    limit?: number;
+    role?: string;
+    search?: string;
+}
+
 export class AdminUserRepository extends BaseRepository {
-    async list(filters: Record<string, unknown>): Promise<{ items: AdminUser[]; meta: Record<string, unknown> }> {
-        const { page = 1, limit = 20, role } = filters;
-        const offset = ((page as number) - 1) * (limit as number);
+    async list(filters: AdminListFilters): Promise<{ items: AdminUser[]; meta: { total: number; page: number; limit: number } }> {
+        const page = filters.page || 1;
+        const limit = filters.limit || 20;
+        const offset = (page - 1) * limit;
         
         let query = 'SELECT * FROM admin_users WHERE is_active = true';
         const params: unknown[] = [];
-        if (role) {
-            params.push(role);
+        
+        if (filters.role) {
+            params.push(filters.role);
             query += ` AND role = $${params.length}`;
         }
 
-        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-        params.push(limit as number, offset);
+        if (filters.search) {
+            params.push(`%${filters.search}%`);
+            query += ` AND (name ILIKE $${params.length} OR mobile ILIKE $${params.length})`;
+        }
+
+        query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        params.push(limit, offset);
 
         const { rows } = await this.query(query, params);
+        
+        // Count for meta
+        let countQuery = 'SELECT COUNT(*) FROM admin_users WHERE is_active = true';
+        const countParams: unknown[] = [];
+        if (filters.role) {
+            countParams.push(filters.role);
+            countQuery += ' AND role = $1';
+        }
+        const countRes = await this.query(countQuery, countParams);
 
-        // For meta, we'd typically run a separate COUNT query for total,
-        // but for now, we'll stick to the original behavior of returning rows.length
-        // as the snippet didn't provide a total count query.
         return {
             items: rows.map(r => this.mapToCamelCase<AdminUser>(r)),
-            meta: { total: rows.length }
+            meta: { 
+                total: parseInt(countRes.rows[0].count),
+                page,
+                limit
+            }
         };
     }
 
@@ -42,7 +66,7 @@ export class AdminUserRepository extends BaseRepository {
         return this.mapToCamelCase<AdminUser>(rows[0]);
     }
 
-    async create(data: Record<string, unknown>): Promise<AdminUser> {
+    async create(data: { name: string; mobile: string; role: string }): Promise<AdminUser> {
         const query = `
             INSERT INTO admin_users (name, mobile, role)
             VALUES ($1, $2, $3)
@@ -63,5 +87,35 @@ export class AdminUserRepository extends BaseRepository {
         const query = 'UPDATE admin_users SET is_active = false, updated_at = now() WHERE id = $1';
         const result = await this.query(query, [id]);
         return (result.rowCount ?? 0) > 0;
+    }
+
+    // Dashboard Methods
+    async getFailedPaymentsCount() {
+        const { rows } = await this.query("SELECT COUNT(*) FROM payments WHERE status = 'FAILED'");
+        return { count: parseInt(rows[0].count), trend: 'up' }; // trend mock for now
+    }
+
+    async getCODOrderStats() {
+        const { rows } = await this.query("SELECT COUNT(*) FROM orders WHERE payment_method = 'COD' AND created_at > (now() - interval '24 hours')");
+        return { count: parseInt(rows[0].count), window_hours: 24 };
+    }
+
+    async getLogisticsIssues() {
+        const { rows } = await this.query("SELECT COUNT(*) FROM orders WHERE status = 'SHIPPED' AND updated_at < (now() - interval '3 days')");
+        return { count: parseInt(rows[0].count), provider: 'Shiprocket' };
+    }
+
+    async getFraudFlags() {
+        const { rows } = await this.query("SELECT COUNT(*) FROM orders WHERE cod_fraud_flag = true");
+        return { count: parseInt(rows[0].count), level: 'critical' };
+    }
+
+    async getOrdersSummary() {
+        const { rows } = await this.query("SELECT status, COUNT(*) as count FROM orders GROUP BY status");
+        const summary: Record<string, number> = {};
+        rows.forEach(r => {
+            summary[r.status] = parseInt(r.count);
+        });
+        return summary;
     }
 }

@@ -30,7 +30,7 @@ describe('NotificationCoordinator - SMS Fallback', () => {
 
     mockWaService = new WhatsAppService() as any;
     mockSmsService = new SmsService() as any;
-    mockLogRepo = new NotificationLogRepository() as any;
+    mockLogRepo = new NotificationLogRepository({} as any) as any;
     
     // We mock the constructor in Coordinator since we can't easily inject them
     // Alternatively, we just mock the module and access instances.
