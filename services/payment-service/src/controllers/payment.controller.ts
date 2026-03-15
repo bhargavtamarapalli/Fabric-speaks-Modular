@@ -1,61 +1,66 @@
 import { Request, Response } from 'express';
-import { PaymentService } from '../services/payment.service';
-import { 
-  InitiatePaymentSchema, 
-  VerifyPaymentSchema, 
-  RefundPaymentSchema 
-} from '../schemas/payment.schemas';
 import { catchAsync } from '@fs/shared';
+import { PaymentService } from '../services/payment.service';
+import {
+  ConfirmCodSchema,
+  InitiatePaymentSchema,
+  PaymentStatusParamsSchema,
+  RazorpayWebhookSchema,
+  RefundPaymentParamsSchema,
+  RefundPaymentSchema,
+  VerifyPaymentSchema,
+} from '../schemas/payment.schemas';
 
 export class PaymentController {
-    constructor(private paymentService: PaymentService) {}
+  constructor(private readonly paymentService: PaymentService) {}
 
-    initiatePayment = catchAsync(async (req: Request, res: Response) => {
-        const payload = InitiatePaymentSchema.parse(req.body);
-        const userId = req.user!.userId;
-        
-        const session = await this.paymentService.initiatePayment(
-            userId, 
-            payload.orderId, 
-            payload.amount, 
-            payload.currency
-        );
-      
-      res.status(200).json({ success: true, data: session });
-    });
+  initiatePayment = catchAsync(async (req: Request, res: Response) => {
+    const payload = InitiatePaymentSchema.parse(req.body);
+    const userId = req.user!.userId;
+    const session = await this.paymentService.initiatePayment(userId, payload);
+
+    res.status(200).json({ success: true, data: session });
+  });
 
   verifyPayment = catchAsync(async (req: Request, res: Response) => {
     const payload = VerifyPaymentSchema.parse(req.body);
     const payment = await this.paymentService.verifyPayment(payload);
+
     res.status(200).json({ success: true, data: payment });
   });
 
   confirmCod = catchAsync(async (req: Request, res: Response) => {
-    const { orderId } = req.body;
+    const payload = ConfirmCodSchema.parse(req.body);
     const userId = req.user!.userId;
-    const result = await this.paymentService.confirmCod(userId, orderId);
+    const result = await this.paymentService.confirmCod(userId, payload);
+
     res.status(200).json({ success: true, data: result });
   });
 
   getPaymentStatus = catchAsync(async (req: Request, res: Response) => {
-    const orderId = req.params.orderId as string;
-    const payment = await this.paymentService.getPaymentStatus(orderId!);
+    const params = PaymentStatusParamsSchema.parse(req.params);
+    const userId = req.user!.userId;
+    const payment = await this.paymentService.getPaymentStatus(userId, params.orderId);
+
     res.status(200).json({ success: true, data: payment });
   });
 
   handleWebhook = catchAsync(async (req: Request, res: Response) => {
-    const signature = req.headers['x-razorpay-signature'] as string;
-    const rawBody = JSON.stringify(req.body);
-    
-    const result = await this.paymentService.handleWebhook(signature, rawBody);
-    res.status(200).json(result);
+    const payload = RazorpayWebhookSchema.parse({
+      signature: req.headers['x-razorpay-signature'],
+      rawBody: req.rawBody,
+    });
+    const result = await this.paymentService.handleWebhook(payload);
+
+    res.status(200).json({ success: true, data: result });
   });
 
   refundPayment = catchAsync(async (req: Request, res: Response) => {
-    const orderId = req.params.orderId as string;
-    const adminId = req.user!.userId;
+    const params = RefundPaymentParamsSchema.parse(req.params);
     const payload = RefundPaymentSchema.parse(req.body);
-    const payment = await this.paymentService.refundPayment(adminId, orderId!, payload.amount);
+    const adminId = req.user!.userId;
+    const payment = await this.paymentService.refundPayment(adminId, params.orderId, payload);
+
     res.status(200).json({ success: true, data: payment });
   });
 }

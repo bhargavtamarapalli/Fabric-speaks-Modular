@@ -41,10 +41,45 @@ export const requireRole = (...roles: Role[]) => {
   };
 };
 
-export const catchAsync = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    fn(req, _res, next).catch(next);
+export const catchAsync = (
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    fn(req, res, next).catch(next);
   };
+};
+
+interface ErrorPayload {
+  success: false;
+  errorCode: ErrorCode;
+  message: string;
+  details?: unknown;
+  stack?: string;
+}
+
+const isDevelopment = process.env.APP_ENV === 'development';
+
+const buildErrorPayload = (
+  errorCode: ErrorCode,
+  message: string,
+  details?: unknown,
+  stack?: string
+): ErrorPayload => {
+  const payload: ErrorPayload = {
+    success: false,
+    errorCode,
+    message,
+  };
+
+  if (isDevelopment && details !== undefined) {
+    payload.details = details;
+  }
+
+  if (isDevelopment && stack) {
+    payload.stack = stack;
+  }
+
+  return payload;
 };
 
 export const globalErrorHandler = (
@@ -55,36 +90,29 @@ export const globalErrorHandler = (
 ) => {
   if (err instanceof AppError) {
     logger.error({ code: err.code, msg: err.message, meta: err.meta });
-    return res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-        meta: err.meta
-      }
-    });
+    return res
+      .status(err.statusCode)
+      .json(buildErrorPayload(err.code, err.message, err.meta, err.stack));
   }
 
   if (err instanceof z.ZodError) {
     logger.warn({ err: err.errors, msg: 'Validation error' });
-    return res.status(400).json({
-      success: false,
-      error: {
-        code: ErrorCode.VALIDATION_ERROR,
-        message: 'Validation failed',
-        meta: err.errors
-      }
-    });
+    return res
+      .status(400)
+      .json(
+        buildErrorPayload(
+          ErrorCode.VALIDATION_ERROR,
+          'Validation failed',
+          err.errors,
+          err.stack
+        )
+      );
   }
 
   logger.error({ err, msg: 'Unhandled exception' });
-  return res.status(500).json({
-    success: false,
-    error: {
-      code: ErrorCode.INTERNAL_ERROR,
-      message: 'An unexpected error occurred'
-    }
-  });
+  return res
+    .status(500)
+    .json(buildErrorPayload(ErrorCode.INTERNAL_ERROR, 'An unexpected error occurred', undefined, err.stack));
 };
 
 /**

@@ -1,224 +1,590 @@
-import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import { Queue } from 'bullmq';
-import { PaymentRepository } from '../repositories/payment.repository';
+import { AppError, ErrorCode } from '@fs/shared';
+import {
+  PAYMENT_EVENT,
+  PAYMENT_METHOD_HINT,
+  PAYMENT_STATUS,
+  SUPPORTED_PAYMENT_CURRENCY,
+} from '../constants/payment.constants';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
-import { env } from '../config/env';
-import { AppError, ErrorCode, logger, getDbPool } from '@fs/shared';
-import { Redis } from 'ioredis';
+import {
+  PaymentRecord,
+  PaymentRepository,
+  UpdatePaymentInput,
+} from '../repositories/payment.repository';
+import {
+  ConfirmCodInput,
+  InitiatePaymentInput,
+  RazorpayWebhookInput,
+  RefundPaymentInput,
+  VerifyPaymentInput,
+} from '../schemas/payment.schemas';
 
-export class PaymentService {
-    private razorpay: Razorpay;
-    private eventQueue: Queue;
+interface PaymentLogger {
+  info(payload: unknown, message?: string): void;
+  warn(payload: unknown, message?: string): void;
+  error(payload: unknown, message?: string): void;
+}
 
-    constructor(
-        private paymentRepo: PaymentRepository,
-        private auditLogRepo: AuditLogRepository
-    ) {
-    this.razorpay = new Razorpay({
-      key_id: env.RAZORPAY_KEY_ID!,
-      key_secret: env.RAZORPAY_KEY_SECRET!
-    });
-    
-    // Redis connection for BullMQ
-    const redisConnection = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: Number(process.env.REDIS_PORT) || 6379
+interface PaymentEventQueue {
+  add(name: string, payload: Record<string, unknown>): Promise<unknown>;
+}
+
+interface RazorpayOrderCreateOptions {
+  amount: number;
+  currency: string;
+  receipt: string;
+  notes: {
+    userId: string;
+    orderId: string;
+  };
+}
+
+interface RazorpayOrderResponse {
+  id: string;
+  amount: string | number;
+  currency: string;
+  status?: string;
+}
+
+interface RazorpayRefundResponse {
+  id: string;
+}
+
+interface RazorpayPaymentDetails {
+  method?: string;
+  card?: {
+    last4?: string | null;
+  } | null;
+}
+
+interface RazorpayClient {
+  orders: {
+    create(options: RazorpayOrderCreateOptions): Promise<RazorpayOrderResponse>;
+  };
+  payments: {
+    fetch?(paymentId: string): Promise<RazorpayPaymentDetails>;
+    refund(paymentId: string, options: { amount?: number; speed: 'normal' }): Promise<RazorpayRefundResponse>;
+  };
+}
+
+interface PaymentConfig {
+  razorpayKeyId: string;
+  razorpayKeySecret: string;
+  razorpayWebhookSecret: string;
+}
+
+export interface PaymentServiceDependencies {
+  paymentRepo: PaymentRepository;
+  auditLogRepo: AuditLogRepository;
+  razorpayClient: RazorpayClient;
+  eventQueue: PaymentEventQueue;
+  logger: PaymentLogger;
+  config: PaymentConfig;
+}
+
+interface RazorpayWebhookEvent {
+  event: string;
+  payload: {
+    payment?: {
+      entity: {
+        id?: string;
+        order_id?: string;
+        method?: string;
+        error_description?: string | null;
+        card?: {
+          last4?: string | null;
+        } | null;
+      };
     };
-    this.eventQueue = new Queue('payment-events', { connection: redisConnection });
+    refund?: {
+      entity: {
+        id?: string;
+        payment_id?: string;
+        amount?: number;
+      };
+    };
+  };
+}
+
+const isSignatureValid = (expectedSignature: string, actualSignature: string): boolean => {
+  const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+  const actualBuffer = Buffer.from(actualSignature, 'utf8');
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
   }
 
-  async initiatePayment(userId: string, orderId: string, amount: number, currency: string = 'INR') {
-    // Rule 1: Never trust client prices. Fetch from DB.
-    const dbAmount = await this.paymentRepo.getOrderTotal(orderId);
-    if (!dbAmount) throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
-    
-    // Safety check: if client sent amount, it must match DB (optional, but good for debugging)
-    if (Math.abs(dbAmount - amount) > 0.01) {
-      console.warn(`Amount mismatch for order ${orderId}: Client=${amount}, DB=${dbAmount}`);
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Unknown error';
+};
+
+const sanitizeProviderMessage = (message: string, config: PaymentConfig): string => {
+  const secretsToRedact = [
+    config.razorpayKeySecret,
+    config.razorpayWebhookSecret,
+  ].filter((value) => value.length > 0);
+
+  return secretsToRedact.reduce(
+    (safeMessage, secret) => safeMessage.split(secret).join('[REDACTED]'),
+    message
+  );
+};
+
+const serializePayment = (payment: PaymentRecord): Record<string, unknown> => ({
+  orderId: payment.orderId,
+  userId: payment.userId,
+  razorpayOrderId: payment.razorpayOrderId,
+  razorpayPaymentId: payment.razorpayPaymentId,
+  status: payment.status,
+  amount: payment.amount,
+  currency: payment.currency,
+  methodHint: payment.methodHint,
+  failureReason: payment.failureReason,
+  refundId: payment.refundId,
+  refundAmount: payment.refundAmount,
+  cardLast4: payment.cardLast4,
+});
+
+const parseWebhookEvent = (rawBody: string): RazorpayWebhookEvent => {
+  try {
+    return JSON.parse(rawBody) as RazorpayWebhookEvent;
+  } catch {
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid webhook payload');
+  }
+};
+
+const buildCapturedUpdate = (
+  paymentId: string | null,
+  methodHint?: string,
+  cardLast4?: string | null
+): UpdatePaymentInput => ({
+  razorpayPaymentId: paymentId,
+  status: PAYMENT_STATUS.captured,
+  methodHint: methodHint ?? null,
+  cardLast4: cardLast4 ?? null,
+});
+
+const resolveRefundStatus = (paymentAmount: number, refundAmount: number) =>
+  refundAmount < paymentAmount ? PAYMENT_STATUS.partiallyRefunded : PAYMENT_STATUS.refunded;
+
+export class PaymentService {
+  constructor(private readonly dependencies: PaymentServiceDependencies) {}
+
+  async initiatePayment(userId: string, payload: InitiatePaymentInput): Promise<Record<string, unknown>> {
+    const order = await this.dependencies.paymentRepo.getOrderPaymentContextForUser(payload.orderId, userId);
+
+    if (!order) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
     }
 
-    // 1. Create Razorpay order
-    const options = {
-      amount: Math.round(dbAmount * 100), // Razorpay expects paise
-      currency,
-      receipt: orderId,
-      notes: { userId, orderId }
-    };
+    if (order.paymentMethod === 'COD') {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'COD orders do not require Razorpay initiation');
+    }
+
+    if (Math.abs(order.totalAmount - payload.amount) > 0.01) {
+      this.dependencies.logger.warn(
+        {
+          orderId: payload.orderId,
+          userId,
+          clientAmount: payload.amount,
+          dbAmount: order.totalAmount,
+        },
+        'Client payment amount did not match the order total'
+      );
+    }
 
     try {
-      const rzpOrder = await this.razorpay.orders.create(options);
+      const razorpayOrder = await this.dependencies.razorpayClient.orders.create({
+        amount: Math.round(order.totalAmount * 100),
+        currency: payload.currency,
+        receipt: payload.orderId,
+        notes: {
+          userId,
+          orderId: payload.orderId,
+        },
+      });
 
-      // 2. Store in DB
-      const payment = await this.paymentRepo.createPayment({
-        orderId: orderId,
-        userId: userId,
-        razorpayOrderId: rzpOrder.id,
-        amount: dbAmount,
-        currency,
-        status: 'PENDING'
+      await this.dependencies.paymentRepo.createPayment({
+        orderId: payload.orderId,
+        userId,
+        razorpayOrderId: razorpayOrder.id,
+        amount: order.totalAmount,
+        currency: payload.currency,
+        status: PAYMENT_STATUS.pending,
       });
 
       return {
-        razorpayOrderId: rzpOrder.id,
-        amount: rzpOrder.amount,
-        currency: rzpOrder.currency,
-        key: process.env.RAZORPAY_KEY_ID
+        razorpayOrderId: razorpayOrder.id,
+        amount: Number(razorpayOrder.amount),
+        currency: razorpayOrder.currency,
+        key: this.dependencies.config.razorpayKeyId,
       };
-    } catch (error: any) {
-      throw new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, `Razorpay error: ${error.message}`);
+    } catch (error) {
+      this.dependencies.logger.error(
+        {
+          orderId: payload.orderId,
+          userId,
+          provider: 'razorpay',
+          message: sanitizeProviderMessage(getErrorMessage(error), this.dependencies.config),
+        },
+        'Failed to initiate payment'
+      );
+      throw new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Unable to initiate payment at the moment');
     }
   }
 
-  async verifyPayment(payload: {
-    razorpayOrderId: string;
-    razorpayPaymentId: string;
-    razorpaySignature: string;
-  }) {
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = payload;
+  async verifyPayment(payload: VerifyPaymentInput): Promise<PaymentRecord> {
+    const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(payload.razorpayOrderId);
 
-    // 1. Idempotency Check
-    const existingPayment = await this.paymentRepo.getPaymentByRazorpayOrderId(razorpayOrderId);
-    if (!existingPayment) throw new AppError(ErrorCode.NOT_FOUND, 'Payment record not found');
-    if (existingPayment.status === 'CAPTURED') return existingPayment;
+    if (!existingPayment) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Payment record not found');
+    }
 
-    // 2. Signature Verification
-    const body = razorpayOrderId + '|' + razorpayPaymentId;
+    if (existingPayment.status === PAYMENT_STATUS.captured) {
+      return existingPayment;
+    }
+
+    const signaturePayload = `${payload.razorpayOrderId}|${payload.razorpayPaymentId}`;
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
-      .update(body.toString())
+      .createHmac('sha256', this.dependencies.config.razorpayKeySecret)
+      .update(signaturePayload)
       .digest('hex');
 
-    if (expectedSignature !== razorpaySignature) {
+    if (!isSignatureValid(expectedSignature, payload.razorpaySignature)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid payment signature');
     }
 
-    // 3. Update Status
-    const updatedPayment = await this.paymentRepo.updatePayment(razorpayOrderId, {
-      razorpayPaymentId,
-      status: 'CAPTURED'
-      // methodHint can be fetched from Razorpay API if needed
+    const paymentDetails = await this.fetchPaymentDetails(payload.razorpayPaymentId);
+    const updatedPayment = await this.dependencies.paymentRepo.capturePaymentIfPending(
+      payload.razorpayOrderId,
+      buildCapturedUpdate(
+        payload.razorpayPaymentId,
+        paymentDetails?.method,
+        paymentDetails?.card?.last4 ?? null
+      )
+    );
+
+    if (!updatedPayment) {
+      const latestPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(payload.razorpayOrderId);
+      if (latestPayment?.status === PAYMENT_STATUS.captured) {
+        return latestPayment;
+      }
+      throw new AppError(ErrorCode.NOT_FOUND, 'Payment record not found');
+    }
+
+    await this.dependencies.eventQueue.add(PAYMENT_EVENT.captured, {
+      orderId: existingPayment.orderId,
+      razorpayOrderId: payload.razorpayOrderId,
+      razorpayPaymentId: payload.razorpayPaymentId,
     });
 
-    // 4. Emit event (BullMQ)
-    await this.eventQueue.add('payment.captured', { 
-      orderId: existingPayment.orderId,
-      razorpayOrderId,
-      razorpayPaymentId
-    });
-    
     return updatedPayment;
   }
 
-  async confirmCod(userId: string, orderId: string) {
-    // Directly emit payment.cod_confirmed per request
-    await this.eventQueue.add('payment.cod_confirmed', { userId, orderId });
-    return { success: true, message: 'COD Confirmed' };
+  async confirmCod(userId: string, payload: ConfirmCodInput): Promise<Record<string, unknown>> {
+    const order = await this.dependencies.paymentRepo.getOrderPaymentContextForUser(payload.orderId, userId);
+
+    if (!order) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
+    }
+
+    if (order.paymentMethod !== 'COD') {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Only COD orders can be confirmed');
+    }
+
+    if (order.isCodConfirmed) {
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByOrderIdForUser(payload.orderId, userId);
+      return {
+        orderId: payload.orderId,
+        isCodConfirmed: true,
+        paymentStatus: existingPayment?.status ?? PAYMENT_STATUS.pending,
+      };
+    }
+
+    const confirmedOrder = await this.dependencies.paymentRepo.markCodConfirmed(payload.orderId, userId);
+    const orderForPayment = confirmedOrder ?? order;
+    const existingPayment = await this.dependencies.paymentRepo.getPaymentByOrderIdForUser(payload.orderId, userId);
+
+    if (existingPayment) {
+      await this.dependencies.paymentRepo.updatePaymentByOrderId(payload.orderId, {
+        status: existingPayment.status,
+        methodHint: existingPayment.methodHint ?? PAYMENT_METHOD_HINT.cod,
+      });
+    } else {
+      await this.dependencies.paymentRepo.createPayment({
+        orderId: payload.orderId,
+        userId,
+        amount: orderForPayment.totalAmount,
+        currency: SUPPORTED_PAYMENT_CURRENCY,
+        status: PAYMENT_STATUS.pending,
+        methodHint: PAYMENT_METHOD_HINT.cod,
+      });
+    }
+
+    await this.dependencies.eventQueue.add(PAYMENT_EVENT.codConfirmed, {
+      userId,
+      orderId: payload.orderId,
+    });
+
+    return {
+      orderId: payload.orderId,
+      isCodConfirmed: true,
+      paymentStatus: PAYMENT_STATUS.pending,
+    };
   }
 
-  async getPaymentStatus(orderId: string) {
-    const payment = await this.paymentRepo.getPaymentByOrderId(orderId);
-    if (!payment) throw new AppError(ErrorCode.NOT_FOUND, 'Payment not found');
+  async getPaymentStatus(userId: string, orderId: string): Promise<PaymentRecord> {
+    const payment = await this.dependencies.paymentRepo.getPaymentByOrderIdForUser(orderId, userId);
+
+    if (!payment) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Payment not found');
+    }
+
     return payment;
   }
 
-  async handleWebhook(signature: string, rawBody: string) {
+  async handleWebhook(payload: RazorpayWebhookInput): Promise<Record<string, unknown>> {
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET!)
-      .update(rawBody)
+      .createHmac('sha256', this.dependencies.config.razorpayWebhookSecret)
+      .update(payload.rawBody)
       .digest('hex');
 
-    if (expectedSignature !== signature) {
+    if (!isSignatureValid(expectedSignature, payload.signature)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid webhook signature');
     }
 
-    const event = JSON.parse(rawBody);
-    const rzpOrderId = event.payload.payment.entity.order_id;
+    const event = parseWebhookEvent(payload.rawBody);
+    const paymentEntity = event.payload.payment?.entity;
+    const refundEntity = event.payload.refund?.entity;
 
-    if (event.event === 'payment.failed') {
-      await this.paymentRepo.updatePayment(rzpOrderId, {
-        status: 'FAILED',
-        failureReason: event.payload.payment.entity.error_description
+    if (event.event === PAYMENT_EVENT.failed) {
+      if (!paymentEntity?.order_id) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing the Razorpay order id');
+      }
+
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(paymentEntity.order_id);
+
+      if (!existingPayment) {
+        this.dependencies.logger.warn(
+          {
+            razorpayOrderId: paymentEntity.order_id,
+            event: event.event,
+          },
+          'Ignoring webhook for an unknown payment'
+        );
+        return { acknowledged: true, processed: false };
+      }
+
+      if (existingPayment.status === PAYMENT_STATUS.failed || existingPayment.status === PAYMENT_STATUS.captured) {
+        return { acknowledged: true, processed: false };
+      }
+
+      const failedPayment = await this.dependencies.paymentRepo.failPaymentIfPending(paymentEntity.order_id, {
+        razorpayPaymentId: paymentEntity.id ?? existingPayment.razorpayPaymentId,
+        status: PAYMENT_STATUS.failed,
+        methodHint: paymentEntity.method ?? existingPayment.methodHint,
+        failureReason: paymentEntity.error_description ?? 'Payment failed',
+        cardLast4: paymentEntity.card?.last4 ?? existingPayment.cardLast4,
       });
-      
-      const payment = await this.paymentRepo.getPaymentByRazorpayOrderId(rzpOrderId);
-      await this.eventQueue.add('payment.failed', { 
-        orderId: payment?.orderId,
-        razorpayOrderId: rzpOrderId,
-        reason: event.payload.payment.entity.error_description
+
+      if (!failedPayment) {
+        return { acknowledged: true, processed: false };
+      }
+
+      await this.dependencies.eventQueue.add(PAYMENT_EVENT.failed, {
+        orderId: existingPayment.orderId,
+        razorpayOrderId: paymentEntity.order_id,
+        razorpayPaymentId: paymentEntity.id ?? null,
+        reason: paymentEntity.error_description ?? 'Payment failed',
       });
-    } else if (event.event === 'payment.captured') {
-        // Handle captured if not already handled by verify
-        await this.paymentRepo.updatePayment(rzpOrderId, {
-            razorpayPaymentId: event.payload.payment.entity.id,
-            status: 'CAPTURED',
-            methodHint: event.payload.payment.entity.method
-        });
-        
-        const payment = await this.paymentRepo.getPaymentByRazorpayOrderId(rzpOrderId);
-        await this.eventQueue.add('payment.captured', { 
-            orderId: payment?.orderId,
-            razorpayOrderId: rzpOrderId,
-            razorpayPaymentId: event.payload.payment.entity.id
-        });
+
+      return { acknowledged: true, processed: true, event: PAYMENT_EVENT.failed };
     }
 
-    return { success: true };
+    if (event.event === PAYMENT_EVENT.captured) {
+      if (!paymentEntity?.order_id) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing the Razorpay order id');
+      }
+
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayOrderId(paymentEntity.order_id);
+
+      if (!existingPayment) {
+        this.dependencies.logger.warn(
+          {
+            razorpayOrderId: paymentEntity.order_id,
+            event: event.event,
+          },
+          'Ignoring webhook for an unknown payment'
+        );
+        return { acknowledged: true, processed: false };
+      }
+
+      if (existingPayment.status === PAYMENT_STATUS.captured) {
+        return { acknowledged: true, processed: false };
+      }
+
+      const capturedPayment = await this.dependencies.paymentRepo.capturePaymentIfPending(
+        paymentEntity.order_id,
+        buildCapturedUpdate(paymentEntity.id ?? existingPayment.razorpayPaymentId, paymentEntity.method, paymentEntity.card?.last4)
+      );
+
+      if (!capturedPayment) {
+        return { acknowledged: true, processed: false };
+      }
+
+      await this.dependencies.eventQueue.add(PAYMENT_EVENT.captured, {
+        orderId: existingPayment.orderId,
+        razorpayOrderId: paymentEntity.order_id,
+        razorpayPaymentId: paymentEntity.id ?? existingPayment.razorpayPaymentId,
+      });
+
+      return { acknowledged: true, processed: true, event: PAYMENT_EVENT.captured };
+    }
+
+    if (event.event === PAYMENT_EVENT.refundProcessed) {
+      if (!refundEntity?.payment_id || refundEntity.amount === undefined || !refundEntity.id) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Webhook payload is missing refund details');
+      }
+
+      const existingPayment = await this.dependencies.paymentRepo.getPaymentByRazorpayPaymentId(refundEntity.payment_id);
+
+      if (!existingPayment) {
+        this.dependencies.logger.warn(
+          {
+            razorpayPaymentId: refundEntity.payment_id,
+            event: event.event,
+          },
+          'Ignoring refund webhook for an unknown payment'
+        );
+        return { acknowledged: true, processed: false };
+      }
+
+      const refundAmount = Number(refundEntity.amount) / 100;
+      const nextStatus = resolveRefundStatus(existingPayment.amount, refundAmount);
+
+      if (existingPayment.refundId === refundEntity.id && existingPayment.refundAmount === refundAmount) {
+        return { acknowledged: true, processed: false };
+      }
+
+      const updatedPayment = existingPayment.razorpayOrderId
+        ? await this.dependencies.paymentRepo.updatePayment(existingPayment.razorpayOrderId, {
+            status: nextStatus,
+            refundId: refundEntity.id,
+            refundAmount,
+          })
+        : await this.dependencies.paymentRepo.updatePaymentByOrderId(existingPayment.orderId, {
+            status: nextStatus,
+            refundId: refundEntity.id,
+            refundAmount,
+          });
+
+      return {
+        acknowledged: true,
+        processed: Boolean(updatedPayment),
+        event: PAYMENT_EVENT.refundProcessed,
+      };
+    }
+
+    return { acknowledged: true, processed: false };
   }
 
-  async refundPayment(adminId: string, orderId: string, amount?: number) {
-    const payment = await this.paymentRepo.getPaymentByOrderId(orderId);
-    if (!payment || payment.status !== 'CAPTURED') {
+  async refundPayment(
+    adminId: string,
+    orderId: string,
+    payload: RefundPaymentInput
+  ): Promise<PaymentRecord> {
+    const payment = await this.dependencies.paymentRepo.getPaymentByOrderId(orderId);
+
+    if (!payment || payment.status !== PAYMENT_STATUS.captured || !payment.razorpayPaymentId) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Payment not refundable');
     }
 
-    const refund = await this.razorpay.payments.refund(payment.razorpayPaymentId!, {
-      amount: amount ? Math.round(amount * 100) : undefined,
-      speed: 'normal'
-    });
+    const refundAmount = payload.amount ?? payment.amount;
 
-    const updatedPayment = await this.paymentRepo.updatePayment(payment.razorpayOrderId!, {
-      status: 'REFUNDED',
-      refundId: refund.id,
-      refundAmount: amount || payment.amount
-    });
+    if (refundAmount > payment.amount) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Refund amount cannot exceed the captured payment amount');
+    }
 
-    // Rule 6: Admin mutations must write audit log
-    await this.auditLogRepo.insert({
-      admin_id: adminId,
-      action: 'PAYMENT_REFUND',
-      resource_type: 'PAYMENT',
-      resource_id: payment.id,
-      payload: { amount: amount || payment.amount, refundId: refund.id }
-    });
-
-    return updatedPayment;
-  }
-
-  async reconcilePayment(razorpayOrderId: string) {
-    const payment = await this.paymentRepo.getPaymentByRazorpayOrderId(razorpayOrderId);
-    if (!payment || payment.status !== 'PENDING') return payment;
+    const nextStatus = resolveRefundStatus(payment.amount, refundAmount);
 
     try {
-      const rzpOrder = await this.razorpay.orders.fetch(razorpayOrderId);
-      // Razorpay order status: 'created', 'attempted', 'paid'
-      
-      if (rzpOrder.status === 'paid') {
-        const updatedPayment = await this.paymentRepo.updatePayment(razorpayOrderId, {
-          status: 'CAPTURED'
-        });
-        
-        await this.eventQueue.add('payment.captured', { 
-          orderId: payment.orderId,
-          razorpayOrderId: razorpayOrderId
-        });
-        
-        return updatedPayment;
+      const refund = await this.dependencies.razorpayClient.payments.refund(payment.razorpayPaymentId, {
+        amount: payload.amount ? Math.round(payload.amount * 100) : undefined,
+        speed: 'normal',
+      });
+
+      const updatedPayment = payment.razorpayOrderId
+        ? await this.dependencies.paymentRepo.updatePayment(payment.razorpayOrderId, {
+            status: nextStatus,
+            refundId: refund.id,
+            refundAmount,
+          })
+        : await this.dependencies.paymentRepo.updatePaymentByOrderId(orderId, {
+            status: nextStatus,
+            refundId: refund.id,
+            refundAmount,
+          });
+
+      if (!updatedPayment) {
+        throw new AppError(ErrorCode.NOT_FOUND, 'Payment record not found');
       }
-    } catch (error: any) {
-      console.error(`Reconciliation failed for ${razorpayOrderId}:`, error.message);
+
+      await this.dependencies.auditLogRepo.insert({
+        adminId,
+        action: 'PAYMENT_REFUND',
+        entityType: 'PAYMENT',
+        entityId: payment.id,
+        beforeJson: serializePayment(payment),
+        afterJson: {
+          ...serializePayment(updatedPayment),
+          reason: payload.reason ?? null,
+        },
+      });
+
+      return updatedPayment;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      this.dependencies.logger.error(
+        {
+          orderId,
+          paymentId: payment.id,
+          provider: 'razorpay',
+          message: sanitizeProviderMessage(getErrorMessage(error), this.dependencies.config),
+        },
+        'Failed to refund payment'
+      );
+      throw new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Unable to process the refund at the moment');
     }
-    
-    return payment;
+  }
+
+  private async fetchPaymentDetails(paymentId: string): Promise<RazorpayPaymentDetails | null> {
+    if (!this.dependencies.razorpayClient.payments.fetch) {
+      return null;
+    }
+
+    try {
+      return await this.dependencies.razorpayClient.payments.fetch(paymentId);
+    } catch (error) {
+      this.dependencies.logger.warn(
+        {
+          paymentId,
+          provider: 'razorpay',
+          message: sanitizeProviderMessage(getErrorMessage(error), this.dependencies.config),
+        },
+        'Unable to fetch payment metadata from Razorpay'
+      );
+      return null;
+    }
   }
 }

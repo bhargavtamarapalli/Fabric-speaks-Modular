@@ -2,9 +2,9 @@ import { createBaseApp, globalErrorHandler, logger } from '@fs/shared';
 import { env } from './config/env';
 import paymentRoutes from './routes/payment.routes';
 
-const app = createBaseApp({ serviceName: 'payment-service' });
+const app = createBaseApp({ serviceName: 'payment-service', captureRawBody: true });
 
-app.use('/api/payments', paymentRoutes);
+app.use('/api', paymentRoutes);
 
 app.use(globalErrorHandler);
 
