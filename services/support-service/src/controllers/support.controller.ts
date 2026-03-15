@@ -6,7 +6,7 @@ import {
   SupportQueueQuerySchema, 
   UpdateQuerySchema 
 } from '../schemas/support.schemas';
-import { catchAsync } from '@fs/shared';
+import { catchAsync, AppError, ErrorCode } from '@fs/shared';
 
 export class SupportController {
   constructor(
@@ -42,7 +42,7 @@ export class SupportController {
   postInternalNote = catchAsync(async (req: Request, res: Response) => {
     const { caseId } = req.params;
     const dto = UpdateQuerySchema.parse(req.body);
-    if (!dto.note) throw new Error('Note text is required');
+    if (!dto.note) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Note text is required');
 
     const result = await this.supportService.addNote(caseId!, dto.note, req.user!.userId);
     res.status(201).json({ success: true, data: result });

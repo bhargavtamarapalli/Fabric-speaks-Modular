@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdminService } from './admin.service';
 import { AdminUserRepository } from '../repositories/admin-user.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
-import { AppError } from '@fs/shared/errors';
+import { AppError } from '@fs/shared';
 
 vi.mock('../repositories/admin-user.repository');
 vi.mock('../repositories/audit-log.repository');
