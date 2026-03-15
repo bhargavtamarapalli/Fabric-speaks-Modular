@@ -82,6 +82,22 @@ const buildErrorPayload = (
   return payload;
 };
 
+/**
+ * Validation Middleware
+ * Validates request body, query, or params using a Zod schema.
+ */
+export const validateRequest = (schema: z.ZodSchema) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+      const validated = await schema.parseAsync(req.body);
+      req.body = validated;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
 export const globalErrorHandler = (
   err: Error,
   _req: Request,
