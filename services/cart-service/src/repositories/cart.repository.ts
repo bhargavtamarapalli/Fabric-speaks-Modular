@@ -31,14 +31,11 @@ export class CartRepository extends BaseRepository {
             SELECT 
                 c.variant_id as "variantId", 
                 c.quantity,
+                c.price_at_add as "priceAtAdd",
                 v.product_id as "productId",
                 v.sku,
-            v.base_price,
-            v.sale_price,
-            v.price_override,
-            v.sale_active,
-            v.stock_qty,
-            p.name
+                v.stock_qty,
+                p.name
         FROM cart_items c
         JOIN variants v ON c.variant_id = v.id
         JOIN products p ON v.product_id = p.id
@@ -53,17 +50,12 @@ export class CartRepository extends BaseRepository {
         productId: row.productId,
         name: row.name,
         sku: row.sku,
-        price: getEffectivePrice({
-            base_price: Number(row.base_price),
-            sale_price: row.sale_price ? Number(row.sale_price) : null,
-            price_override: row.price_override ? Number(row.price_override) : null,
-            sale_active: row.sale_active || false
-        }),
+        price: Number(row.priceAtAdd), // RULE 1: Use locked price, never re-fetch from variant
         stock_qty: row.stock_qty
     }));
 }
 
-    async addUserItem(userId: string, variantId: string, quantity: number, price?: number): Promise<void> {
+    async addUserItem(userId: string, variantId: string, quantity: number, priceAtAdd: number): Promise<void> {
         const query = `
             INSERT INTO cart_items (user_id, variant_id, quantity, price_at_add)
             VALUES ($1, $2, $3, $4)
@@ -72,8 +64,9 @@ export class CartRepository extends BaseRepository {
                 quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 10),
                 price_at_add = COALESCE(cart_items.price_at_add, EXCLUDED.price_at_add),
                 updated_at = now()
+                -- NOTE: Do NOT update price_at_add on quantity change (lock price)
         `;
-        await this.query(query, [userId, variantId, quantity, price]);
+        await this.query(query, [userId, variantId, quantity, priceAtAdd]);
     }
 
     async updateUserItemQty(userId: string, variantId: string, quantity: number): Promise<void> {

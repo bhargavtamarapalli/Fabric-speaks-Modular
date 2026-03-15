@@ -138,6 +138,7 @@ export class CartService {
         const cappedQty = Math.min(dto.quantity, this.MAX_CART_QUANTITY); // Check cap
         
         if (userId) {
+            // RULE 1: Capture effective price at add-time (immutable for this cart item)
             await this.cartRepo.addUserItem(userId, dto.variantId, dto.quantity, variantDetails.price);
         } else {
             const items = await this.cartRepo.getGuestCart(sessionId!);
