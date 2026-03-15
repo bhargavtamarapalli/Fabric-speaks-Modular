@@ -60,6 +60,15 @@ const HomepageSectionSchema = z.discriminatedUnion('type', [
       imageUrl: z.string().url(),
       link: z.string()
     })
+  }),
+  BaseSectionSchema.extend({
+    type: z.literal('announcement_bar'),
+    data: z.object({
+      text: z.string(),
+      link: z.string().optional(),
+      bgColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+      textColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()
+    })
   })
 ]);
 

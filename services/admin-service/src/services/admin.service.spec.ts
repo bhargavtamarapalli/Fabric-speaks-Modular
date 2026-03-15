@@ -3,24 +3,28 @@ import { AdminService } from './admin.service';
 import { AdminUserRepository } from '../repositories/admin-user.repository';
 import { CustomerRepository } from '../repositories/customer.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { DashboardRepository } from '../repositories/dashboard.repository';
 import { AppError } from '@fs/shared';
 
 vi.mock('../repositories/admin-user.repository');
 vi.mock('../repositories/customer.repository');
 vi.mock('../repositories/audit-log.repository');
+vi.mock('../repositories/dashboard.repository');
 
 describe('AdminService', () => {
   let adminService: AdminService;
   let adminUserRepo: AdminUserRepository;
   let customerRepo: CustomerRepository;
   let auditLogRepo: AuditLogRepository;
+  let dashboardRepo: DashboardRepository;
 
   beforeEach(() => {
     vi.clearAllMocks();
     adminUserRepo = new AdminUserRepository({} as any);
     customerRepo = new CustomerRepository({} as any);
     auditLogRepo = new AuditLogRepository({} as any);
-    adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo);
+    dashboardRepo = new DashboardRepository({} as any);
+    adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo, dashboardRepo);
   });
 
   describe('createAdminUser (ADM-02)', () => {
