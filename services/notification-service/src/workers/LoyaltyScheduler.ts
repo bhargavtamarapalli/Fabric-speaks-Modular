@@ -9,10 +9,10 @@ export class LoyaltyScheduler {
 
   constructor() {
     const redis = getRedisClient();
-    this.queue = new Queue(QUEUE_NAME, { connection: redis });
+    this.queue = new Queue(QUEUE_NAME, { connection: redis as any });
   }
 
-  async scheduleLoyaltySequence(orderData: any) {
+  async scheduleLoyaltySequence(orderData: { userId: string; orderId: string; customerPhone: string; fabricType?: string }) {
     const { userId, orderId, customerPhone, fabricType } = orderData;
     
     if (!userId || !orderId || !customerPhone || !fabricType) {
@@ -23,15 +23,17 @@ export class LoyaltyScheduler {
     const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
     // Use jobId to prevent duplicate processing of the same order.delivered event
+    // Added 10s delay to avoid immediate conflicts with order.delivered processing
     await this.queue.add(
       'user.update_profile',
       { userId, attributes: { fabric_type: fabricType } },
       { 
         jobId: `update-profile-${orderId}`,
+        delay: 10000, 
         removeOnComplete: true 
       }
     );
-    logger.info(`Scheduled user.update_profile for user ${userId}`);
+    logger.info(`Scheduled user.update_profile for user ${userId} with 10s delay`);
 
     await this.queue.add(
       'loyalty.day30',

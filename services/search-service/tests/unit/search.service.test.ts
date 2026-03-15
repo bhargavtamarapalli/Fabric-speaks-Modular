@@ -1,12 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, MockInstance } from 'vitest';
 import { SearchService } from '../../src/services/search.service';
 import { SearchRepository } from '../../src/repositories/search.repository';
 import { Redis } from 'ioredis';
 
 describe('SearchService - FTS Queries and Typeahead', () => {
     let service: SearchService;
-    let mockRepo: any;
-    let mockRedis: any;
+    let mockRepo: {
+        searchProducts: MockInstance;
+        getSuggestions: MockInstance;
+        logSearchQuery: MockInstance;
+    };
+    let mockRedis: {
+        get: MockInstance;
+        setex: MockInstance;
+    };
 
     beforeEach(() => {
         mockRepo = {

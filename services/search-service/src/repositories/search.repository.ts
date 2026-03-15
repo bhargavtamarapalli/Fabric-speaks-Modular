@@ -39,14 +39,14 @@ export class SearchRepository extends BaseRepository {
         }
 
         if (fabric) {
-            baseQuery += ` AND p.fabric_type ILIKE $${paramIndex}`;
-            params.push(`%${fabric}%`);
+            baseQuery += ` AND p.fabric_type ILIKE $${paramIndex} ESCAPE '\\'`;
+            params.push(`%${this.escapePattern(fabric)}%`);
             paramIndex++;
         }
 
         if (brand) {
-            baseQuery += ` AND b.name ILIKE $${paramIndex}`;
-            params.push(`%${brand}%`);
+            baseQuery += ` AND b.name ILIKE $${paramIndex} ESCAPE '\\'`;
+            params.push(`%${this.escapePattern(brand)}%`);
             paramIndex++;
         }
 
@@ -121,11 +121,11 @@ export class SearchRepository extends BaseRepository {
             SELECT id, slug, name, images[1] as thumbnail
             FROM products
             WHERE is_active = true 
-              AND name ILIKE $1
+              AND name ILIKE $1 ESCAPE '\\'
             ORDER BY created_at DESC
             LIMIT 5
         `;
-        const result = await this.query(query, [`%${q}%`]);
+        const result = await this.query(query, [`%${this.escapePattern(q)}%`]);
         return result.rows;
     }
 
@@ -141,5 +141,9 @@ export class SearchRepository extends BaseRepository {
             sessionId || null,
             resultCount
         ]);
+    }
+
+    private escapePattern(val: string): string {
+        return val.replace(/[%_]/g, '\\$&');
     }
 }

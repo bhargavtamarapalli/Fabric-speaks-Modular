@@ -61,7 +61,7 @@ export class NotificationLogRepository extends BaseRepository {
       id,
     ];
 
-    const result = await this.db.query(query, values);
+    const result = await this.query(query, values);
     return result.rows[0] ? this.mapToCamelCase<NotificationLog>(result.rows[0]) : null;
   }
 }

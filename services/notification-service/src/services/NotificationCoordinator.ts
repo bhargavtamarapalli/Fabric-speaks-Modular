@@ -1,7 +1,7 @@
-import { WhatsAppService, WhatsAppMessagePayload } from './WhatsAppService';
-import { SmsService, SmsPayload } from './SmsService';
+import { WhatsAppService } from './WhatsAppService';
+import { SmsService } from './SmsService';
 import { NotificationLogRepository } from '../repositories/NotificationLogRepository';
-import { logger } from '@fs/shared';
+import { logger, getDbPool } from '@fs/shared';
 
 export interface NotificationRequest {
   userId?: string;
@@ -21,7 +21,7 @@ export class NotificationCoordinator {
   constructor() {
     this.waService = new WhatsAppService();
     this.smsService = new SmsService();
-    this.logRepo = new NotificationLogRepository();
+    this.logRepo = new NotificationLogRepository(getDbPool());
   }
 
   async processNotification(request: NotificationRequest): Promise<void> {
@@ -29,13 +29,13 @@ export class NotificationCoordinator {
     try {
       // 1. Initial log as PENDING for WhatsApp
       const log = await this.logRepo.createLog({
-        user_id: request.userId,
-        order_id: request.orderId,
-        event_type: request.eventType,
+        userId: request.userId,
+        orderId: request.orderId,
+        eventType: request.eventType,
         recipient: request.recipientPhone,
         channel: 'WHATSAPP',
         status: 'PENDING',
-        template_id: request.waTemplateName
+        templateId: request.waTemplateName
       });
       logId = log.id;
 
@@ -49,16 +49,17 @@ export class NotificationCoordinator {
         
         await this.logRepo.updateStatus(logId, 'SENT', waResponse);
         return; // Success, exit
-      } catch (waError: any) {
+      } catch (waError: unknown) {
+        const errorMessage = waError instanceof Error ? waError.message : 'Unknown error';
         logger.warn(`WhatsApp failed for ${request.recipientPhone}, falling back to SMS...`);
-        await this.logRepo.updateStatus(logId, 'FAILED', { error: waError.message });
+        await this.logRepo.updateStatus(logId, 'FAILED', { error: errorMessage });
       }
 
       // 3. Fallback to SMS
       const smsLog = await this.logRepo.createLog({
-        user_id: request.userId,
-        order_id: request.orderId,
-        event_type: request.eventType,
+        userId: request.userId,
+        orderId: request.orderId,
+        eventType: request.eventType,
         recipient: request.recipientPhone,
         channel: 'SMS',
         status: 'PENDING'
@@ -71,9 +72,10 @@ export class NotificationCoordinator {
         });
         
         await this.logRepo.updateStatus(smsLog.id, 'SENT', smsResponse);
-      } catch (smsError: any) {
+      } catch (smsError: unknown) {
+        const errorMessage = smsError instanceof Error ? smsError.message : 'Unknown error';
         logger.error(`SMS fallback completely failed for ${request.recipientPhone}`);
-        await this.logRepo.updateStatus(smsLog.id, 'FAILED', { error: smsError.message });
+        await this.logRepo.updateStatus(smsLog.id, 'FAILED', { error: errorMessage });
       }
     } catch (error) {
       logger.error(`Critical failure in NotificationCoordinator for ${request.recipientPhone}`, error);
