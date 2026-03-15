@@ -14,6 +14,12 @@ export class PageService {
     return this.repo.list(filters);
   }
 
+  async getPage(id: string) {
+    const page = await this.repo.findById(id);
+    if (!page) throw new AppError(ErrorCode.NOT_FOUND, 'Page not found');
+    return page;
+  }
+
   async createPage(data: CreatePageDto, adminId: string) {
     const page = await this.repo.create(data);
 
@@ -29,8 +35,7 @@ export class PageService {
   }
 
   async updatePage(id: string, data: UpdatePageDto, adminId: string) {
-    const before = await this.repo.findById(id);
-    if (!before) throw new AppError(ErrorCode.NOT_FOUND, 'Page not found');
+    const before = await this.getPage(id);
 
     const updated = await this.repo.update(id, data);
     if (!updated) {

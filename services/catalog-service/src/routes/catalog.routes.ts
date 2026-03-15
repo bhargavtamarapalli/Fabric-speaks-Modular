@@ -46,14 +46,22 @@ catalogRouter.get('/collections/:slug', catalogController.getCollection);
 
 // Admin routes
 catalogRouter.get('/admin/products', requireAuth, requireRole('superAdmin', 'inventoryManager', 'supportAgent'), catalogController.adminListProducts);
+catalogRouter.get('/admin/brands', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.adminListBrands);
+catalogRouter.get('/admin/categories', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.adminListCategories);
+catalogRouter.get('/admin/collections', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.adminListCollections);
 catalogRouter.post('/admin/products', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createProduct);
 catalogRouter.patch('/admin/products/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateProduct);
+catalogRouter.post('/admin/products/:id/variants', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createVariant);
+catalogRouter.patch('/admin/products/:id/variants/bulk', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.bulkUpdateVariants);
+catalogRouter.patch('/admin/variants/:variantId', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateVariant);
+catalogRouter.delete('/admin/variants/:variantId', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.deactivateVariant);
 catalogRouter.delete('/admin/products/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.deleteProduct);
 catalogRouter.post('/admin/products/:id/deactivate', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.deactivateProduct);
 catalogRouter.post('/admin/products/:id/duplicate', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.duplicateProduct);
 catalogRouter.post('/admin/products/bulk-upload', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.bulkUpload);
 catalogRouter.get('/admin/products/bulk-upload/template', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.getBulkTemplate);
 catalogRouter.post('/admin/brands', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createBrand);
+catalogRouter.patch('/admin/brands/:id', requireAuth, requireRole('superAdmin'), catalogController.updateBrand);
 
 catalogRouter.post('/admin/categories', requireAuth, requireRole('superAdmin'), catalogController.createCategory);
 catalogRouter.patch('/admin/categories/:id', requireAuth, requireRole('superAdmin'), catalogController.updateCategory);
@@ -62,3 +70,4 @@ catalogRouter.post('/admin/collections', requireAuth, requireRole('superAdmin', 
 catalogRouter.patch('/admin/collections/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateCollection);
 catalogRouter.post('/admin/collections/:id/products', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.addCollectionProducts);
 catalogRouter.delete('/admin/collections/:id/products/:productId', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.removeCollectionProduct);
+catalogRouter.put('/admin/collections/:id/products/reorder', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.reorderCollectionProducts);

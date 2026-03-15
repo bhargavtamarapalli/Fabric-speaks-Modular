@@ -48,6 +48,10 @@ export const listReturnsQuerySchema = z.object({
   userId: uuidSchema.optional()
 });
 
+export const returnIdParamSchema = z.object({
+  returnId: uuidSchema,
+});
+
 export type InitiateReturnInput = z.infer<typeof initiateReturnSchema>;
 export type UpdateReturnStatusInput = z.infer<typeof updateStatusSchema>;
 export type ResolveReturnInput = z.infer<typeof resolveReturnSchema>;

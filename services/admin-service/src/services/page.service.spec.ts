@@ -20,7 +20,18 @@ describe('PageService', () => {
 
   it('should create a page and log audit', async () => {
     const dto = { title: 'About', content: '<p>Hi</p>' };
-    const mockPage = { id: 'p1', ...dto, slug: 'about', isActive: true, createdAt: new Date(), updatedAt: new Date() };
+    const mockPage = {
+      id: 'p1',
+      ...dto,
+      slug: 'about',
+      heroImageUrl: null,
+      relatedProductIds: [],
+      seoMeta: null,
+      status: 'draft' as const,
+      publishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
     
     vi.mocked(repo.create).mockResolvedValue(mockPage);
 
@@ -34,9 +45,21 @@ describe('PageService', () => {
   });
 
   it('should update a page and log audit', async () => {
-    const mockOld = { id: 'p1', title: 'Old' };
+    const mockOld = {
+      id: 'p1',
+      title: 'Old',
+      slug: 'old',
+      content: '<p>Old</p>',
+      heroImageUrl: null,
+      relatedProductIds: [],
+      seoMeta: null,
+      status: 'draft' as const,
+      publishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
     vi.mocked(repo.findById).mockResolvedValue(mockOld as any);
-    vi.mocked(repo.update).mockResolvedValue({ id: 'p1', title: 'New' } as any);
+    vi.mocked(repo.update).mockResolvedValue({ ...mockOld, title: 'New' } as any);
 
     await service.updatePage('p1', { title: 'New' }, 'admin-1');
 

@@ -1,7 +1,8 @@
-import { BaseRepository } from '@fs/shared';
+import { BaseRepository, DbClient } from '@fs/shared';
 
 export type ReturnStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'PICKUP_SCHEDULED' | 'PICKED_UP' | 'INSPECTED' | 'COMPLETED' | 'FAST_TRACKED';
 export type ReturnType = 'WRONG_ITEM' | 'DAMAGED' | 'SIZE_EXCHANGE' | 'CHANGED_MIND' | 'OTHER';
+export type ReturnActorType = 'customer' | 'admin' | 'courier' | 'system';
 
 export interface ReturnItem {
     id: string;
@@ -11,6 +12,32 @@ export interface ReturnItem {
     quantity: number;
     refundAmount: number | null;
     inspectionResult: string | null;
+    createdAt: Date;
+}
+
+export interface ReturnTimelineEvent {
+    id: string;
+    returnId: string;
+    status: ReturnStatus;
+    previousStatus: ReturnStatus | null;
+    actorType: ReturnActorType;
+    actorId: string | null;
+    note: string | null;
+    metadata: Record<string, unknown> | null;
+    createdAt: Date;
+}
+
+export interface ReplacementOrderSummary {
+    id: string;
+    orderNumber: string;
+    status: string;
+    createdAt: Date;
+}
+
+export interface ReturnOrderSummary {
+    id: string;
+    orderNumber: string;
+    status: string;
     createdAt: Date;
 }
 
@@ -79,6 +106,37 @@ export class ReturnRepository extends BaseRepository {
         });
     }
 
+    async insertStatusHistory(
+        returnId: string,
+        status: ReturnStatus,
+        previousStatus: ReturnStatus | null,
+        actorType: ReturnActorType,
+        actorId?: string | null,
+        note?: string | null,
+        metadata?: Record<string, unknown> | null,
+        client?: DbClient
+    ): Promise<void> {
+        const db = client || this.db;
+        await db.query(
+            `INSERT INTO return_status_history
+             (return_id, status, previous_status, actor_type, actor_id, note, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [returnId, status, previousStatus, actorType, actorId || null, note || null, metadata || null]
+        );
+    }
+
+    async getTimeline(returnId: string): Promise<ReturnTimelineEvent[]> {
+        const { rows } = await this.query(
+            `SELECT *
+             FROM return_status_history
+             WHERE return_id = $1
+             ORDER BY created_at ASC`,
+            [returnId]
+        );
+
+        return rows.map((row) => this.mapToCamelCase<ReturnTimelineEvent>(row));
+    }
+
     async getReturns(filter: { status?: string; userId?: string }): Promise<ReturnRequest[]> {
         let query = 'SELECT * FROM return_requests WHERE is_deleted = false';
         const params: any[] = [];
@@ -126,5 +184,37 @@ export class ReturnRepository extends BaseRepository {
         const { rows } = await db.query(query, [id, resolution.status, resolution.resolvedAt, resolution.replacementOrderId]);
         if (!rows.length) throw new Error('Return not found');
         return this.mapToCamelCase<ReturnRequest>(rows[0]);
+    }
+
+    async getReplacementOrderSummary(returnId: string): Promise<ReplacementOrderSummary | null> {
+        const { rows } = await this.query(
+            `SELECT
+                o.id,
+                o.id::text AS order_number,
+                o.status,
+                o.created_at
+             FROM return_requests rr
+             JOIN orders o ON o.id = rr.replacement_order_id
+             WHERE rr.id = $1`,
+            [returnId]
+        );
+
+        return rows[0] ? this.mapToCamelCase<ReplacementOrderSummary>(rows[0]) : null;
+    }
+
+    async getOriginalOrderSummary(returnId: string): Promise<ReturnOrderSummary | null> {
+        const { rows } = await this.query(
+            `SELECT
+                o.id,
+                o.id::text AS order_number,
+                o.status,
+                o.created_at
+             FROM return_requests rr
+             JOIN orders o ON o.id = rr.order_id
+             WHERE rr.id = $1`,
+            [returnId]
+        );
+
+        return rows[0] ? this.mapToCamelCase<ReturnOrderSummary>(rows[0]) : null;
     }
 }

@@ -19,9 +19,9 @@ router.use(requireAuth);
 router.use(requireRole('superAdmin', 'supportAgent'));
 
 router.get('/queue', supportController.getQueue);
+router.get('/customer/:mobile', supportController.getCustomerLookup);
 router.get('/:caseId', supportController.getCaseDetail);
 router.patch('/:caseId/status', supportController.updateCaseStatus);
 router.post('/:caseId/note', supportController.postInternalNote);
-router.get('/customer/:mobile', supportController.getCustomerLookup);
 
 export default router;

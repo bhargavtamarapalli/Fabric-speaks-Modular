@@ -1,7 +1,21 @@
-import { ReturnRepository, ReturnRequest, ReturnStatus, ReturnType, ReturnItem } from '../repositories/return.repository';
+import {
+  ReturnRepository,
+  ReturnRequest,
+  ReturnStatus,
+  ReturnType,
+  ReturnItem,
+  ReturnTimelineEvent,
+  ReplacementOrderSummary,
+  ReturnOrderSummary,
+} from '../repositories/return.repository';
 import { ShiprocketService } from './shiprocket.service';
 import { InternalService } from './internal.service';
 import { AppError, ErrorCode, logger } from '@fs/shared';
+
+interface ReturnDetail extends ReturnRequest {
+  originalOrder: ReturnOrderSummary | null;
+  replacementOrder: ReplacementOrderSummary | null;
+}
 
 export class ReturnService {
   constructor(
@@ -56,6 +70,14 @@ export class ReturnService {
       { orderId, userId, returnType, status: 'REQUESTED', isFastTrack },
       items
     );
+    await this.repo.insertStatusHistory(
+      newReturn.id,
+      'REQUESTED',
+      null,
+      'customer',
+      userId,
+      isFastTrack ? 'Fast-track return requested' : 'Return requested'
+    );
 
     logger.info(`[ReturnService] Return ${newReturn.id} requested for order ${orderId} by user ${userId}`);
     // Emit event (simulated)
@@ -64,19 +86,38 @@ export class ReturnService {
     return newReturn;
   }
 
-  async getReturnStatus(returnId: string): Promise<ReturnRequest> {
+  async getReturnStatus(returnId: string): Promise<ReturnDetail> {
     const ret = await this.repo.findById(returnId);
     if (!ret) {
       throw new AppError(ErrorCode.NOT_FOUND, `Return ${returnId} not found`);
     }
-    return ret;
+
+    const [originalOrder, replacementOrder] = await Promise.all([
+      this.repo.getOriginalOrderSummary(returnId),
+      this.repo.getReplacementOrderSummary(returnId),
+    ]);
+    return {
+      ...ret,
+      originalOrder,
+      replacementOrder,
+    };
   }
 
   async listReturns(status?: ReturnStatus, userId?: string): Promise<ReturnRequest[]> {
     return this.repo.getReturns({ status, userId });
   }
 
-  async updateStatus(returnId: string, status: ReturnStatus, agentNotes?: string): Promise<ReturnRequest> {
+  async getTimeline(returnId: string): Promise<ReturnTimelineEvent[]> {
+    await this.getReturnStatus(returnId);
+    return this.repo.getTimeline(returnId);
+  }
+
+  async getRefundStatus(returnId: string) {
+    const ret = await this.getReturnStatus(returnId);
+    return this.internal.getRefundStatus(returnId, ret.orderId);
+  }
+
+  async updateStatus(returnId: string, status: ReturnStatus, adminId: string, agentNotes?: string): Promise<ReturnRequest> {
     const ret = await this.getReturnStatus(returnId);
     
     if (ret.status === 'COMPLETED' || ret.status === 'REJECTED') {
@@ -84,11 +125,12 @@ export class ReturnService {
     }
 
     const updated = await this.repo.updateStatus(returnId, status, agentNotes);
+    await this.repo.insertStatusHistory(returnId, status, ret.status, 'admin', adminId, agentNotes);
     logger.info(`[Audit] Admin updated return ${returnId} status to ${status}. Notes: ${agentNotes || 'None'}`);
     return updated;
   }
 
-  async scheduleShiprocketPickup(returnId: string): Promise<ReturnRequest> {
+  async scheduleShiprocketPickup(returnId: string, adminId: string): Promise<ReturnRequest> {
     const ret = await this.getReturnStatus(returnId);
     
     if (ret.status !== 'APPROVED') {
@@ -116,12 +158,21 @@ export class ReturnService {
 
     const { pickupDate, awbCode } = await this.shiprocket.createReversePickup(returnId, ret.orderId, customer);
     const updated = await this.repo.setShiprocketId(returnId, awbCode);
+    await this.repo.insertStatusHistory(
+      returnId,
+      updated.status,
+      ret.status,
+      'courier',
+      adminId,
+      `Reverse pickup scheduled for ${pickupDate}`,
+      { awb: awbCode }
+    );
     
     logger.info(`[Audit] Admin scheduled pickup for return ${returnId}. AWB: ${awbCode}, Date: ${pickupDate}`);
     return updated;
   }
 
-  async resolveReturn(returnId: string, resolution: 'REFUND' | 'REPLACEMENT', agentNotes?: string): Promise<ReturnRequest> {
+  async resolveReturn(returnId: string, resolution: 'REFUND' | 'REPLACEMENT', adminId: string, agentNotes?: string): Promise<ReturnRequest> {
     const ret = await this.getReturnStatus(returnId);
     
     if (ret.status === 'COMPLETED' || ret.status === 'REJECTED') {
@@ -133,25 +184,49 @@ export class ReturnService {
         const totalRefund = ret.items?.reduce((sum, item) => sum + (Number(item.refundAmount) || 0), 0) || 0;
         
         // External call (outside of strict DB rollback, but we do it first)
-        await this.internal.initiateRefund(ret.orderId, totalRefund);
+        await this.internal.initiateRefund(ret.orderId, totalRefund, returnId);
         
         const updated = await this.repo.resolve(returnId, { 
           status: 'COMPLETED', 
           resolvedAt: new Date() 
         }, client);
+        await this.repo.insertStatusHistory(
+          returnId,
+          'COMPLETED',
+          ret.status,
+          'admin',
+          adminId,
+          agentNotes || `Refund initiated for ${totalRefund}`,
+          { resolution, amount: totalRefund },
+          client
+        );
 
         logger.info(`[Audit] Admin resolved return ${returnId} with REFUND of ${totalRefund}`);
         logger.info(`[Event] return.refund_initiated: ${JSON.stringify(updated)}`);
         return updated;
       } else {
         // External call
-        const replacementOrder = await this.internal.createReplacementOrder(ret.orderId, ret.items || []);
+        const replacementOrder = await this.internal.createReplacementOrder(
+          ret.orderId,
+          (ret.items || []).map((item) => ({ orderItemId: item.orderItemId, quantity: item.quantity })),
+          returnId
+        );
         
         const updated = await this.repo.resolve(returnId, { 
           status: 'COMPLETED', 
           resolvedAt: new Date(),
           replacementOrderId: replacementOrder.id
         }, client);
+        await this.repo.insertStatusHistory(
+          returnId,
+          'COMPLETED',
+          ret.status,
+          'admin',
+          adminId,
+          agentNotes || `Replacement order ${replacementOrder.id} created`,
+          { resolution, replacementOrderId: replacementOrder.id },
+          client
+        );
 
         logger.info(`[Audit] Admin resolved return ${returnId} with REPLACEMENT order ${replacementOrder.id}`);
         return updated;

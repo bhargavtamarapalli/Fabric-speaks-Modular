@@ -51,6 +51,36 @@ export interface OrderItemData {
   delivery_address_id: string;
 }
 
+export interface GuestAddressData {
+  full_name: string;
+  mobile: string;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  order_id: string;
+  user_id: string;
+  razorpay_payment_id: string | null;
+  status: string;
+  amount: number;
+  refund_id: string | null;
+  refund_amount: number | null;
+}
+
+export interface OrderHistoryInsert {
+  orderId: string;
+  status: string;
+  previousStatus?: string | null;
+  actorType?: 'customer' | 'admin' | 'courier' | 'system';
+  actorId?: string | null;
+  note?: string | null;
+}
+
 export class OrderRepository extends BaseRepository {
 
   async getVariantForLock(client: PoolClient, variantId: string) {
@@ -114,6 +144,25 @@ export class OrderRepository extends BaseRepository {
     return res.rows[0];
   }
 
+  async createGuestAddress(client: PoolClient, addressData: GuestAddressData): Promise<{ id: string }> {
+    const res = await client.query(
+      `INSERT INTO addresses (user_id, label, full_name, mobile, line1, line2, city, state, pincode)
+       VALUES (NULL, 'Guest Checkout', $1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        addressData.full_name,
+        addressData.mobile,
+        addressData.line1,
+        addressData.line2 || null,
+        addressData.city,
+        addressData.state,
+        addressData.pincode,
+      ]
+    );
+
+    return res.rows[0];
+  }
+
   async createGstInvoice(client: PoolClient, invoiceData: any) {
     const res = await client.query(`
       INSERT INTO gst_invoices (order_id, invoice_number, total_amount, gst_amount)
@@ -123,12 +172,28 @@ export class OrderRepository extends BaseRepository {
     return res.rows[0];
   }
 
-  async insertOrderStatusHistory(client: PoolClient | null, orderId: string, status: string, notes?: string, createdBy?: string | null) {
+  async insertOrderStatusHistory(client: PoolClient | null, entry: OrderHistoryInsert) {
     const queryStr = `
-      INSERT INTO order_status_history (order_id, status, notes, created_by)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO order_status_history (
+        order_id,
+        status,
+        previous_status,
+        actor_type,
+        actor_id,
+        note,
+        notes,
+        created_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $6, $5)
     `;
-    const params = [orderId, status, notes, createdBy];
+    const params = [
+      entry.orderId,
+      entry.status,
+      entry.previousStatus || null,
+      entry.actorType || 'system',
+      entry.actorId || null,
+      entry.note || null,
+    ];
 
     if (client) {
         await client.query(queryStr, params);
@@ -165,9 +230,18 @@ export class OrderRepository extends BaseRepository {
 
   async getOrderHistory(orderId: string) {
     const res = await this.query(`
-      SELECT h.*, u.name as created_by_name
+      SELECT
+        h.*,
+        COALESCE(h.note, h.notes) AS timeline_note,
+        COALESCE(h.actor_id, h.created_by) AS timeline_actor_id,
+        COALESCE(h.actor_type, CASE
+          WHEN COALESCE(h.note, h.notes, '') ILIKE 'Shiprocket webhook:%' THEN 'courier'
+          WHEN COALESCE(h.actor_id, h.created_by) IS NOT NULL THEN 'admin'
+          ELSE 'system'
+        END) AS timeline_actor_type,
+        u.name as created_by_name
       FROM order_status_history h
-      LEFT JOIN users u ON h.created_by = u.id
+      LEFT JOIN users u ON COALESCE(h.actor_id, h.created_by) = u.id
       WHERE h.order_id = $1
       ORDER BY h.created_at ASC
     `, [orderId]);
@@ -181,8 +255,9 @@ export class OrderRepository extends BaseRepository {
     return res.rows[0] ? this.mapToCamelCase<Order>(res.rows[0]) : null;
   }
   
-  async updateOrderStatus(orderId: string, status: string): Promise<Order | null> {
-    const res = await this.query(`
+  async updateOrderStatus(orderId: string, status: string, client?: PoolClient): Promise<Order | null> {
+    const db = client || this.db;
+    const res = await db.query(`
       UPDATE orders SET status = $1, updated_at = now() 
       WHERE id = $2 RETURNING *
     `, [status, orderId]);
@@ -250,6 +325,14 @@ export class OrderRepository extends BaseRepository {
 
   async getAddressById(addressId: string) {
     const res = await this.query('SELECT * FROM addresses WHERE id = $1', [addressId]);
+    return res.rows[0] || null;
+  }
+
+  async getAddressByIdForUser(addressId: string, userId: string) {
+    const res = await this.query(
+      'SELECT * FROM addresses WHERE id = $1 AND user_id = $2 AND is_deleted = false',
+      [addressId, userId]
+    );
     return res.rows[0] || null;
   }
 
@@ -339,6 +422,280 @@ export class OrderRepository extends BaseRepository {
     return {
       items: records.rows.map(row => this.mapToCamelCase<any>(row)),
       total: parseInt(countRes.rows[0].total, 10)
+    };
+  }
+
+  async getPaymentByOrderId(orderId: string): Promise<PaymentRecord | null> {
+    const res = await this.query(
+      `SELECT id, order_id, user_id, razorpay_payment_id, status, amount, refund_id, refund_amount
+       FROM payments
+       WHERE order_id = $1`,
+      [orderId]
+    );
+
+    return res.rows[0] || null;
+  }
+
+  async markPaymentRefunded(
+    orderId: string,
+    status: 'REFUNDED' | 'PARTIALLY_REFUNDED',
+    refundId: string,
+    refundAmount: number
+  ): Promise<void> {
+    await this.query(
+      `UPDATE payments
+       SET status = $2, refund_id = $3, refund_amount = $4, updated_at = now()
+       WHERE order_id = $1`,
+      [orderId, status, refundId, refundAmount]
+    );
+  }
+
+  async restockOrderItems(client: PoolClient, orderId: string): Promise<void> {
+    await client.query(
+      `UPDATE variants v
+       SET qty = v.qty + items.quantity_delta,
+           version = v.version + 1
+       FROM (
+         SELECT variant_id, SUM(quantity)::integer AS quantity_delta
+         FROM order_items
+         WHERE order_id = $1
+         GROUP BY variant_id
+       ) items
+       WHERE v.id = items.variant_id`,
+      [orderId]
+    );
+  }
+
+  async getPackingSlipData(orderId: string) {
+    const orderRes = await this.query(
+      `SELECT
+          o.id,
+          o.created_at AS "orderDate",
+          o.payment_method AS "paymentMethod",
+          o.total_amount AS "totalAmount",
+          o.notes AS "specialInstructions",
+          COALESCE(addr.full_name, u.name, 'Customer') AS "customerName",
+          COALESCE(addr.mobile, o.guest_mobile, u.mobile) AS "customerPhone",
+          COALESCE(
+            NULLIF(TRIM(CONCAT_WS(', ', addr.line1, addr.line2, addr.city, addr.state, addr.pincode)), ''),
+            o.guest_address
+          ) AS "customerAddress"
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN LATERAL (
+          SELECT a.*
+          FROM order_items oi
+          JOIN addresses a ON a.id = oi.delivery_address_id
+          WHERE oi.order_id = o.id
+          ORDER BY oi.created_at ASC
+          LIMIT 1
+       ) addr ON true
+       WHERE o.id = $1`,
+      [orderId]
+    );
+
+    if (!orderRes.rows[0]) {
+      return null;
+    }
+
+    const itemsRes = await this.query(
+      `SELECT
+          p.name AS "productName",
+          p.fabric_type AS "fabricType",
+          v.size,
+          v.colour,
+          oi.quantity AS qty,
+          v.sku
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       JOIN variants v ON v.id = oi.variant_id
+       WHERE oi.order_id = $1
+       ORDER BY oi.created_at ASC`,
+      [orderId]
+    );
+
+    return {
+      ...orderRes.rows[0],
+      items: itemsRes.rows.map((item) => ({ ...item, qty: Number(item.qty) })),
+    };
+  }
+
+  async getGstInvoiceData(orderId: string) {
+    const invoiceRes = await this.query(
+      `SELECT
+          gi.invoice_number AS "invoiceNumber",
+          gi.pdf_url AS "pdfUrl",
+          gi.total_amount AS "totalAmount",
+          gi.gst_amount AS "gstAmount",
+          gi.created_at AS "issuedAt",
+          o.id AS "orderNumber",
+          o.payment_method AS "paymentMethod",
+          COALESCE(addr.full_name, u.name, 'Customer') AS "customerName",
+          COALESCE(addr.mobile, o.guest_mobile, u.mobile) AS "customerPhone",
+          COALESCE(
+            NULLIF(TRIM(CONCAT_WS(', ', addr.line1, addr.line2, addr.city, addr.state, addr.pincode)), ''),
+            o.guest_address
+          ) AS "customerAddress"
+       FROM gst_invoices gi
+       JOIN orders o ON o.id = gi.order_id
+       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN LATERAL (
+          SELECT a.*
+          FROM order_items oi
+          JOIN addresses a ON a.id = oi.delivery_address_id
+          WHERE oi.order_id = o.id
+          ORDER BY oi.created_at ASC
+          LIMIT 1
+       ) addr ON true
+       WHERE gi.order_id = $1`,
+      [orderId]
+    );
+
+    if (!invoiceRes.rows[0]) {
+      return null;
+    }
+
+    const itemsRes = await this.query(
+      `SELECT
+          p.name AS "productName",
+          oi.quantity AS qty,
+          oi.unit_price AS "unitPrice",
+          oi.gst_rate AS "gstRate",
+          oi.gst_amount AS "gstAmount"
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = $1
+       ORDER BY oi.created_at ASC`,
+      [orderId]
+    );
+
+    return {
+      ...invoiceRes.rows[0],
+      totalAmount: Number(invoiceRes.rows[0].totalAmount),
+      gstAmount: Number(invoiceRes.rows[0].gstAmount),
+      items: itemsRes.rows.map((item) => ({
+        ...item,
+        qty: Number(item.qty),
+        unitPrice: Number(item.unitPrice),
+        gstRate: Number(item.gstRate),
+        gstAmount: Number(item.gstAmount),
+      })),
+    };
+  }
+
+  async getBulkGstInvoiceData(filters: {
+    dateFrom: string;
+    dateTo: string;
+  }) {
+    const res = await this.query(
+      `SELECT
+          gi.order_id AS "orderId",
+          gi.invoice_number AS "invoiceNumber",
+          gi.pdf_url AS "pdfUrl",
+          gi.total_amount AS "totalAmount",
+          gi.gst_amount AS "gstAmount",
+          gi.created_at AS "issuedAt",
+          o.created_at AS "orderDate",
+          o.id::text AS "orderNumber",
+          COALESCE(addr.full_name, u.name, 'Customer') AS customer
+       FROM gst_invoices gi
+       JOIN orders o ON o.id = gi.order_id
+       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN LATERAL (
+          SELECT a.full_name
+          FROM order_items oi
+          JOIN addresses a ON a.id = oi.delivery_address_id
+          WHERE oi.order_id = o.id
+          ORDER BY oi.created_at ASC
+          LIMIT 1
+       ) addr ON true
+       WHERE o.created_at >= $1::timestamptz
+         AND o.created_at <= $2::timestamptz
+       ORDER BY o.created_at DESC`,
+      [filters.dateFrom, filters.dateTo]
+    );
+
+    return res.rows.map((row) => ({
+      ...row,
+      totalAmount: Number(row.totalAmount),
+      gstAmount: Number(row.gstAmount),
+    }));
+  }
+
+  async getPendingActionsDashboard() {
+    const awaitingShiprocketOrdersRes = await this.query(
+      `SELECT
+          o.id,
+          o.id::text AS "orderNumber",
+          COALESCE(addr.full_name, u.name, 'Customer') AS customer,
+          o.total_amount AS total,
+          o.created_at AS "createdAt"
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN LATERAL (
+          SELECT a.full_name
+          FROM order_items oi
+          JOIN addresses a ON a.id = oi.delivery_address_id
+          WHERE oi.order_id = o.id
+          ORDER BY oi.created_at ASC
+          LIMIT 1
+       ) addr ON true
+       WHERE o.status = 'CONFIRMED'
+         AND o.shiprocket_order_id IS NULL
+       ORDER BY o.created_at DESC
+       LIMIT 10`
+    );
+
+    const codPendingOrdersRes = await this.query(
+      `SELECT
+          o.id,
+          o.id::text AS "orderNumber",
+          COALESCE(addr.full_name, u.name, 'Customer') AS customer,
+          o.total_amount AS total,
+          COALESCE(addr.mobile, o.guest_mobile, u.mobile) AS mobile
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN LATERAL (
+          SELECT a.full_name, a.mobile
+          FROM order_items oi
+          JOIN addresses a ON a.id = oi.delivery_address_id
+          WHERE oi.order_id = o.id
+          ORDER BY oi.created_at ASC
+          LIMIT 1
+       ) addr ON true
+       WHERE o.payment_method = 'COD'
+         AND o.status = 'PAYMENT_PENDING'
+       ORDER BY o.created_at DESC
+       LIMIT 10`
+    );
+
+    const failedPaymentsRes = await this.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM payments
+       WHERE status = 'FAILED'
+         AND created_at >= now() - interval '24 hours'`
+    );
+
+    const openReturnsRes = await this.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM return_requests
+       WHERE is_deleted = false
+         AND status NOT IN ('COMPLETED', 'REJECTED')`
+    );
+
+    return {
+      awaitingShiprocket: awaitingShiprocketOrdersRes.rows.length,
+      awaitingShiprocketOrders: awaitingShiprocketOrdersRes.rows.map((row) => ({
+        ...row,
+        total: Number(row.total),
+      })),
+      codPendingConfirmation: codPendingOrdersRes.rows.length,
+      codPendingOrders: codPendingOrdersRes.rows.map((row) => ({
+        ...row,
+        total: Number(row.total),
+      })),
+      failedPayments24h: Number(failedPaymentsRes.rows[0]?.count || 0),
+      openReturns: Number(openReturnsRes.rows[0]?.count || 0),
     };
   }
 }

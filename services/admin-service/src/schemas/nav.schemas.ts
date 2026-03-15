@@ -8,6 +8,7 @@ const NavItemSchema = z.object({
   targetSlug: z.string(),
   displayOrder: z.number().int().min(0),
   highlightColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
+  parentId: uuidSchema.nullable().optional(),
 });
 
 export const UpdateNavSchema = z.object({
@@ -78,16 +79,21 @@ export const UpdateHomepageConfigSchema = z.object({
 
 export type UpdateHomepageConfigDto = z.infer<typeof UpdateHomepageConfigSchema>;
 
-export const UpdateNavigationConfigSchema = z.object({
-  links: z.array(z.object({
-    label: z.string(),
-    href: z.string(),
-    icon: z.string().optional(),
-    children: z.array(z.object({
-      label: z.string(),
-      href: z.string()
-    })).optional()
-  }))
+const LegacyNavigationLinkSchema = z.object({
+  label: z.string().min(1).max(50),
+  href: z.string().min(1),
+  icon: z.string().optional(),
+  children: z.array(z.object({
+    label: z.string().min(1).max(50),
+    href: z.string().min(1)
+  })).optional()
 });
+
+export const UpdateNavigationConfigSchema = z.union([
+  UpdateNavSchema,
+  z.object({
+    links: z.array(LegacyNavigationLinkSchema).min(1).max(20)
+  })
+]);
 
 export type UpdateNavigationConfigDto = z.infer<typeof UpdateNavigationConfigSchema>;

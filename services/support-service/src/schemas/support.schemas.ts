@@ -15,9 +15,9 @@ export const UpdateQuerySchema = z.object({
 export type UpdateQueryDto = z.infer<typeof UpdateQuerySchema>;
 
 // SUP-04 Customer Lookup validation
-export const CustomerLookupQuerySchema = PaginationSchema.extend({
+export const CustomerLookupParamSchema = z.object({
   mobile: z.string().min(4).max(10), // Last 4 digits or full mobile
 });
-export type CustomerLookupQueryDto = z.infer<typeof CustomerLookupQuerySchema>;
+export type CustomerLookupParamDto = z.infer<typeof CustomerLookupParamSchema>;
 
 export const CaseIdParamSchema = z.object({ caseId: z.string().uuid() });

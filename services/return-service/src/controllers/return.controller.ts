@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ReturnService } from '../services/return.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 import { ReturnStatus } from '../repositories/return.repository';
-import { updateStatusSchema, resolveReturnSchema } from '../schemas/return.schemas';
+import { updateStatusSchema, resolveReturnSchema, returnIdParamSchema } from '../schemas/return.schemas';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 
 export class ReturnController {
@@ -30,8 +30,8 @@ export class ReturnController {
   });
 
   getReturnStatus = catchAsync(async (req: Request, res: Response) => {
-    const { returnId } = req.params;
-    const ret = await this.returnService.getReturnStatus(returnId as string);
+    const { returnId } = returnIdParamSchema.parse(req.params);
+    const ret = await this.returnService.getReturnStatus(returnId);
     
     const isCustomer = (req.user?.role as string) === 'customer';
     if (isCustomer && ret.userId !== req.user?.userId) {
@@ -54,13 +54,13 @@ export class ReturnController {
   });
 
   updateStatus = catchAsync(async (req: Request, res: Response) => {
-    const { returnId } = req.params;
+    const { returnId } = returnIdParamSchema.parse(req.params);
     const { status, agentNotes } = updateStatusSchema.parse(req.body);
     
     if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     const adminId = req.user.userId;
 
-    const updated = await this.returnService.updateStatus(returnId as string, status as ReturnStatus, agentNotes);
+    const updated = await this.returnService.updateStatus(returnId, status as ReturnStatus, adminId, agentNotes);
     
     // Rule 6: Audit log for admin write
     await this.auditLogRepo.insert({
@@ -75,12 +75,12 @@ export class ReturnController {
   });
 
   scheduleShiprocketPickup = catchAsync(async (req: Request, res: Response) => {
-    const { returnId } = req.params;
+    const { returnId } = returnIdParamSchema.parse(req.params);
     
     if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     const adminId = req.user.userId;
 
-    const updated = await this.returnService.scheduleShiprocketPickup(returnId as string);
+    const updated = await this.returnService.scheduleShiprocketPickup(returnId, adminId);
     
     // Rule 6: Audit log
     await this.auditLogRepo.insert({
@@ -94,13 +94,17 @@ export class ReturnController {
   });
 
   resolveReturn = catchAsync(async (req: Request, res: Response) => {
-    const { returnId } = req.params;
+    const { returnId } = returnIdParamSchema.parse(req.params);
     const { resolution, agentNotes } = resolveReturnSchema.parse(req.body);
     
     if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     const adminId = req.user.userId;
 
-    const updated = await this.returnService.resolveReturn(returnId as string, resolution, agentNotes);
+    if (req.user.role === 'supportAgent' && resolution === 'REFUND') {
+      throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Support agents can only resolve returns with replacement');
+    }
+
+    const updated = await this.returnService.resolveReturn(returnId, resolution, adminId, agentNotes);
     
     // Rule 6: Audit log
     await this.auditLogRepo.insert({
@@ -112,5 +116,33 @@ export class ReturnController {
     });
 
     res.status(200).json({ success: true, data: updated });
+  });
+
+  getReturnTimeline = catchAsync(async (req: Request, res: Response) => {
+    const { returnId } = returnIdParamSchema.parse(req.params);
+    const ret = await this.returnService.getReturnStatus(returnId);
+
+    const isCustomer = (req.user?.role as string) === 'customer';
+    if (isCustomer && ret.userId !== req.user?.userId) {
+      throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Forbidden');
+    }
+
+    const timeline = await this.returnService.getTimeline(returnId);
+    const events = timeline.map((event) => ({
+      status: event.status,
+      timestamp: event.createdAt,
+      actor: event.actorType,
+      note: event.note,
+      metadata: event.metadata || null,
+    }));
+
+    res.status(200).json({ success: true, data: events });
+  });
+
+  getRefundStatus = catchAsync(async (req: Request, res: Response) => {
+    const { returnId } = returnIdParamSchema.parse(req.params);
+    const refundStatus = await this.returnService.getRefundStatus(returnId);
+
+    res.status(200).json({ success: true, data: refundStatus });
   });
 }

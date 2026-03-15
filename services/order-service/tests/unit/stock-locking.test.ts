@@ -38,6 +38,8 @@ describe('OrderService - Stock Locking (OCC)', () => {
 
     mockOrderRepo = {
       getVariantForLock: vi.fn(),
+      getAddressByIdForUser: vi.fn(),
+      createGuestAddress: vi.fn(),
       lockStockWithOCC: vi.fn(),
       createOrder: vi.fn(),
       createOrderItem: vi.fn(),
@@ -69,6 +71,7 @@ describe('OrderService - Stock Locking (OCC)', () => {
     mockOrderRepo.getVariantForLock.mockResolvedValue({
       id: 'v1', qty: 5, base_price: 1000, version: 1, name: 'Test Variant'
     });
+    mockOrderRepo.getAddressByIdForUser.mockResolvedValue({ id: 'addr1' });
 
     await expect(orderService.placeOrder('u1', payload))
       .rejects.toThrow(/Stock unavailable/);
@@ -84,6 +87,7 @@ describe('OrderService - Stock Locking (OCC)', () => {
     mockOrderRepo.getVariantForLock.mockResolvedValue({
       id: 'v1', qty: 10, base_price: 1000, version: 1, name: 'Test Variant', product_id: 'p1'
     });
+    mockOrderRepo.getAddressByIdForUser.mockResolvedValue({ id: 'addr1' });
     
     // Simulate lockStockWithOCC returning false (meaning version mismatch)
     mockOrderRepo.lockStockWithOCC.mockResolvedValue(false);
@@ -102,6 +106,7 @@ describe('OrderService - Stock Locking (OCC)', () => {
     mockOrderRepo.getVariantForLock.mockResolvedValue({
       id: 'v1', qty: 10, base_price: 1000, version: 1, name: 'Test Variant', product_id: 'p1', sale_active: false
     });
+    mockOrderRepo.getAddressByIdForUser.mockResolvedValue({ id: 'addr1' });
     mockOrderRepo.lockStockWithOCC.mockResolvedValue(true);
     mockOrderRepo.createOrder.mockResolvedValue({ id: 'o1', status: 'PAYMENT_PENDING' });
 
@@ -136,6 +141,7 @@ describe('OrderService - Stock Locking (OCC)', () => {
     mockOrderRepo.getVariantForLock.mockResolvedValue({
       id: 'v1', qty: 10, base_price: 1000, version: 1, name: 'Test Variant', product_id: 'p1', sale_active: false
     });
+    mockOrderRepo.getAddressByIdForUser.mockResolvedValue({ id: 'addr1' });
     mockOrderRepo.lockStockWithOCC.mockResolvedValue(true);
     mockOrderRepo.createOrder.mockResolvedValue({ id: 'o1', status: 'CONFIRMED' });
     mockOrderRepo.checkCODHistoryFlag.mockResolvedValue(3); // 3 cancels

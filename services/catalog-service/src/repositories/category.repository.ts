@@ -3,11 +3,17 @@ import { BaseRepository, Category, ICategoryRepository } from '@fs/shared';
 export { Category };
 
 export class CategoryRepository extends BaseRepository implements ICategoryRepository {
-    async findAllActive(): Promise<Category[]> {
+    async findAll(includeInactive = false): Promise<Category[]> {
         const result = await this.query(
-            'SELECT * FROM categories WHERE is_active = true AND is_deleted = false ORDER BY display_order ASC, name ASC'
+            `SELECT * FROM categories
+             WHERE is_deleted = false ${includeInactive ? '' : 'AND is_active = true'}
+             ORDER BY display_order ASC, name ASC`
         );
         return result.rows.map(row => this.mapToCamelCase<Category>(row));
+    }
+
+    async findAllActive(): Promise<Category[]> {
+        return this.findAll(false);
     }
 
     async findById(id: string): Promise<Category | null> {
@@ -20,9 +26,9 @@ export class CategoryRepository extends BaseRepository implements ICategoryRepos
 
     async create(dto: any): Promise<Category> {
         const result = await this.query(
-            `INSERT INTO categories (name, slug, description, image_url, display_order, is_active) 
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [dto.name, dto.slug, dto.description, dto.imageUrl, dto.displayOrder ?? 0, dto.isActive ?? true]
+            `INSERT INTO categories (name, slug, parent_id, description, image_url, display_order, is_active) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [dto.name, dto.slug, dto.parentId ?? null, dto.description, dto.imageUrl, dto.displayOrder ?? 0, dto.isActive ?? true]
         );
         return this.mapToCamelCase<Category>(result.rows[0]);
     }
@@ -34,6 +40,7 @@ export class CategoryRepository extends BaseRepository implements ICategoryRepos
 
         if (dto.name !== undefined) { updates.push(`name = $${i++}`); values.push(dto.name); }
         if (dto.slug !== undefined) { updates.push(`slug = $${i++}`); values.push(dto.slug); }
+        if (dto.parentId !== undefined) { updates.push(`parent_id = $${i++}`); values.push(dto.parentId ?? null); }
         if (dto.description !== undefined) { updates.push(`description = $${i++}`); values.push(dto.description); }
         if (dto.imageUrl !== undefined) { updates.push(`image_url = $${i++}`); values.push(dto.imageUrl); }
         if (dto.displayOrder !== undefined) { updates.push(`display_order = $${i++}`); values.push(dto.displayOrder); }

@@ -8,7 +8,7 @@ export class CustomerViewService extends BaseRepository {
    */
   async getCustomer360ByMobile(mobile: string) {
     const { rows: users } = await this.query(`
-      SELECT id, name, mobile, is_wa_opted_in "isWaOptedIn", created_at as "joinedAt"
+      SELECT id, name, mobile, created_at as "joinedAt"
       FROM users WHERE mobile = $1 OR mobile LIKE '%' || $1
       LIMIT 1
     `, [mobile.slice(-10)]); // Allow 10-digit match
@@ -22,18 +22,38 @@ export class CustomerViewService extends BaseRepository {
 
     const [ordersRes, returnsRes] = await Promise.all([
       this.query(`
-        SELECT id, display_id as "displayId", status, total_amount as "totalAmount", 
-               payment_method as "paymentMethod", payment_status as "paymentStatus", created_at "createdAt"
-        FROM orders
-        WHERE user_id = $1
-        ORDER BY created_at DESC
+        SELECT
+          o.id,
+          o.id as "displayId",
+          o.status,
+          o.total_amount as "totalAmount",
+          o.payment_method as "paymentMethod",
+          pay.status as "paymentStatus",
+          o.created_at as "createdAt"
+        FROM orders o
+        LEFT JOIN LATERAL (
+          SELECT status
+          FROM payments p
+          WHERE p.order_id = o.id
+          ORDER BY p.created_at DESC
+          LIMIT 1
+        ) pay ON true
+        WHERE o.user_id = $1
+        ORDER BY o.created_at DESC
         LIMIT 20
       `, [user.id]),
       this.query(`
-        SELECT id, order_id as "orderId", status, refund_amount "refundAmount", created_at "createdAt"
-        FROM returns
-        WHERE user_id = $1
-        ORDER BY created_at DESC
+        SELECT
+          rr.id,
+          rr.order_id as "orderId",
+          rr.status,
+          COALESCE(SUM(ri.refund_amount), 0) as "refundAmount",
+          rr.created_at as "createdAt"
+        FROM return_requests rr
+        LEFT JOIN return_items ri ON ri.return_request_id = rr.id
+        WHERE rr.user_id = $1 AND rr.is_deleted = false
+        GROUP BY rr.id
+        ORDER BY rr.created_at DESC
         LIMIT 10
       `, [user.id])
     ]);
@@ -58,7 +78,7 @@ export class CustomerViewService extends BaseRepository {
 
   async getOrderHistorySnippet(orderId: string) {
     const { rows } = await this.query(`
-      SELECT display_id as "displayId", status, total_amount as "totalAmount", created_at "createdAt"
+      SELECT id as "displayId", status, total_amount as "totalAmount", created_at as "createdAt"
       FROM orders WHERE id = $1
     `, [orderId]);
     return rows[0] || null;

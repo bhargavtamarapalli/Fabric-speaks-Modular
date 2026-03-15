@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { SupportService } from '../services/support.service';
 import { CustomerViewService } from '../services/customer-view.service';
 import { 
-  CustomerLookupQuerySchema, 
+  CustomerLookupParamSchema, 
   SupportQueueQuerySchema, 
   UpdateQuerySchema,
   CaseIdParamSchema
@@ -35,7 +35,7 @@ export class SupportController {
   });
 
   getCustomerLookup = catchAsync(async (req: Request, res: Response) => {
-    const { mobile } = CustomerLookupQuerySchema.parse(req.params);
+    const { mobile } = CustomerLookupParamSchema.parse(req.params);
     const result = await this.customerViewService.getCustomer360ByMobile(mobile);
     res.json({ success: true, data: result });
   });

@@ -2,6 +2,7 @@ import { ConfigRepository } from '../repositories/config.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { Redis } from 'ioredis';
 import { UpdateHomepageConfigDto, UpdateNavigationConfigDto } from '../schemas/nav.schemas';
+import { AppError, ErrorCode } from '@fs/shared';
 
 export class ConfigService {
   constructor(
@@ -37,9 +38,7 @@ export class ConfigService {
   }
 
   async updateNavigationConfig(data: UpdateNavigationConfigDto, adminId: string) {
-    // Current admin uses UpdateNavDto (items[]), matching nav_items table
-    // We'll support both for compatibility during transition
-    const items = (data as any).items || (data as any).links;
+    const items = this.normalizeNavigationItems(data);
     
     await this.repo.updateNavItems(items);
 
@@ -57,5 +56,28 @@ export class ConfigService {
 
   async getNavigationConfig() {
     return this.repo.getNavItems();
+  }
+
+  private normalizeNavigationItems(data: UpdateNavigationConfigDto) {
+    if ('items' in data) {
+      return data.items;
+    }
+
+    const hasNestedChildren = data.links.some(link => (link.children?.length ?? 0) > 0);
+    if (hasNestedChildren) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'Nested navigation children are not supported by the current nav_items persistence model'
+      );
+    }
+
+    return data.links.map((link, index) => ({
+      label: link.label,
+      type: 'url' as const,
+      targetSlug: link.href,
+      displayOrder: index,
+      highlightColor: null,
+      parentId: null
+    }));
   }
 }

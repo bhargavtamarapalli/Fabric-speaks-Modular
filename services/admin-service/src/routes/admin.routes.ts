@@ -89,6 +89,7 @@ router.patch('/coupons/:id', requireRole('superAdmin'), couponController.updateC
 
 // ADM-10 (Content Pages)
 router.get('/content/pages', requireRole('superAdmin'), pageController.listPages);
+router.get('/content/pages/:id', requireRole('superAdmin'), pageController.getPage);
 router.post('/content/pages', requireRole('superAdmin'), pageController.createPage);
 router.patch('/content/pages/:id', requireRole('superAdmin'), pageController.updatePage);
 

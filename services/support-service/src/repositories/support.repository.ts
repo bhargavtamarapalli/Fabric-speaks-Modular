@@ -57,7 +57,17 @@ export class SupportRepository extends BaseRepository {
 
   async findById(caseId: string): Promise<any | null> {
     const { rows } = await this.query(`
-      SELECT q.*, u.name as "customerName", u.mobile as "customerMobile", u.is_wa_opted_in as "isWaOptedIn"
+      SELECT
+        q.*,
+        u.name as "customerName",
+        u.mobile as "customerMobile",
+        EXISTS (
+          SELECT 1
+          FROM consent_log cl
+          WHERE cl.user_id = u.id
+            AND cl.channel = 'whatsapp'
+            AND cl.opted_out_at IS NULL
+        ) as "isWaOptedIn"
       FROM support_queries q
       LEFT JOIN users u ON q.user_id = u.id
       WHERE q.id = $1

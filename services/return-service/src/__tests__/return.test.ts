@@ -16,6 +16,10 @@ describe('ReturnService - Unit Tests', () => {
       getReturns: vi.fn(),
       setShiprocketId: vi.fn(),
       resolve: vi.fn(),
+      insertStatusHistory: vi.fn(),
+      getOriginalOrderSummary: vi.fn().mockResolvedValue(null),
+      getReplacementOrderSummary: vi.fn().mockResolvedValue(null),
+      getTimeline: vi.fn().mockResolvedValue([]),
       withTransaction: vi.fn().mockImplementation((fn) => fn('mock-client'))
     };
     mockShiprocket = {
@@ -72,6 +76,7 @@ describe('ReturnService - Unit Tests', () => {
         const res = await service.initiateReturn('order_1', 'user_1', 'DAMAGED', [{ orderItemId: 'item_1', variantId: 'v_1', quantity: 1 }]);
         
         expect(mockRepo.create).toHaveBeenCalled();
+        expect(mockRepo.insertStatusHistory).toHaveBeenCalledWith('ret_1', 'REQUESTED', null, 'customer', 'user_1', expect.any(String));
         expect(res.status).toBe('REQUESTED');
     });
 
@@ -90,14 +95,14 @@ describe('ReturnService - Unit Tests', () => {
     it('prevents updateStatus on completed return', async () => {
         mockRepo.findById.mockResolvedValue({ id: 'ret_1', status: 'COMPLETED' });
 
-        await expect(service.updateStatus('ret_1', 'PICKED_UP'))
+        await expect(service.updateStatus('ret_1', 'PICKED_UP', 'admin_1'))
             .rejects.toThrowError(new AppError(ErrorCode.VALIDATION_ERROR, 'Cannot update status of a completed or rejected return'));
     });
 
     it('allows scheduling pickup only if APPROVED', async () => {
         mockRepo.findById.mockResolvedValue({ id: 'ret_1', status: 'REQUESTED' });
 
-        await expect(service.scheduleShiprocketPickup('ret_1'))
+        await expect(service.scheduleShiprocketPickup('ret_1', 'admin_1'))
             .rejects.toThrowError(new AppError(ErrorCode.VALIDATION_ERROR, 'Return must be APPROVED before scheduling pickup'));
     });
 
@@ -107,10 +112,19 @@ describe('ReturnService - Unit Tests', () => {
         mockShiprocket.createReversePickup.mockResolvedValue({ pickupDate: new Date(), awbCode: 'AWB123' });
         mockRepo.setShiprocketId.mockResolvedValue({ id: 'ret_1', status: 'PICKUP_SCHEDULED' });
 
-        const res = await service.scheduleShiprocketPickup('ret_1');
+        const res = await service.scheduleShiprocketPickup('ret_1', 'admin_1');
         
         expect(mockShiprocket.createReversePickup).toHaveBeenCalledWith('ret_1', 'order_1', expect.objectContaining({ name: 'Alice' }));
         expect(mockRepo.setShiprocketId).toHaveBeenCalledWith('ret_1', 'AWB123');
+        expect(mockRepo.insertStatusHistory).toHaveBeenCalledWith(
+            'ret_1',
+            'PICKUP_SCHEDULED',
+            'APPROVED',
+            'courier',
+            'admin_1',
+            expect.any(String),
+            expect.objectContaining({ awb: 'AWB123' })
+        );
         expect(res.status).toBe('PICKUP_SCHEDULED');
     });
   });
@@ -126,9 +140,9 @@ describe('ReturnService - Unit Tests', () => {
         mockRepo.findById.mockResolvedValue(mockReturn);
         mockRepo.resolve.mockResolvedValue({ ...mockReturn, status: 'COMPLETED' });
 
-        const res = await service.resolveReturn('ret_1', 'REFUND');
+        const res = await service.resolveReturn('ret_1', 'REFUND', 'admin_1');
         
-        expect(mockInternal.initiateRefund).toHaveBeenCalledWith('order_1', 100);
+        expect(mockInternal.initiateRefund).toHaveBeenCalledWith('order_1', 100, 'ret_1');
         expect(mockRepo.resolve).toHaveBeenCalledWith('ret_1', expect.objectContaining({ status: 'COMPLETED' }), 'mock-client');
         expect(res.status).toBe('COMPLETED');
     });
@@ -139,9 +153,9 @@ describe('ReturnService - Unit Tests', () => {
         mockInternal.createReplacementOrder.mockResolvedValue({ id: 'replacement_1' });
         mockRepo.resolve.mockResolvedValue({ ...mockReturn, status: 'COMPLETED', replacementOrderId: 'replacement_1' });
 
-        const res = await service.resolveReturn('ret_1', 'REPLACEMENT');
+        const res = await service.resolveReturn('ret_1', 'REPLACEMENT', 'admin_1');
         
-        expect(mockInternal.createReplacementOrder).toHaveBeenCalled();
+        expect(mockInternal.createReplacementOrder).toHaveBeenCalledWith('order_1', [], 'ret_1');
         expect(mockRepo.resolve).toHaveBeenCalledWith('ret_1', expect.objectContaining({ replacementOrderId: 'replacement_1' }), 'mock-client');
         expect(res.status).toBe('COMPLETED');
     });

@@ -3,15 +3,63 @@ import request from 'supertest';
 import app from '../../index';
 import { getDbPool } from '@fs/shared';
 
+const { mockPool, mockRedis } = vi.hoisted(() => ({
+  mockPool: {
+    query: vi.fn(async (text: string) => {
+      if (text.includes('FROM variants v') && text.includes('ORDER BY v.qty')) {
+        return {
+          rows: [
+            {
+              variantId: 'eeb7c044-67d4-42b7-873b-7a33e382d67d',
+              sku: 'SKU-001',
+              productName: 'Test Shirt',
+              stockQty: 12,
+              thresholdQty: 5
+            }
+          ],
+          rowCount: 1
+        };
+      }
+
+      return { rows: [], rowCount: 0 };
+    }),
+    connect: vi.fn(),
+    end: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn()
+  },
+  mockRedis: {
+    on: vi.fn(),
+    quit: vi.fn().mockResolvedValue(undefined)
+  }
+}));
+
+vi.mock('multer', () => {
+  const multer = () => ({
+    single: () => (req: any, _res: any, next: any) => next()
+  });
+  multer.memoryStorage = () => ({});
+  return { default: multer };
+});
+
+vi.mock('bullmq', () => ({
+  Queue: vi.fn().mockImplementation(() => ({
+    add: vi.fn().mockResolvedValue({}),
+    close: vi.fn().mockResolvedValue({})
+  }))
+}));
+
 // Mock requireAuth to always pass
 vi.mock('@fs/shared', async () => {
   const actual = await vi.importActual('@fs/shared');
   return {
     ...actual,
+    getDbPool: () => mockPool,
+    getRedisClient: () => mockRedis,
     requireAuth: (req: any, res: any, next: any) => {
       req.user = { userId: '51d382d6-7a3b-42b7-873b-7a33e382d67e', role: 'inventoryManager' };
       next();
-    }
+    },
+    requireRole: () => (_req: any, _res: any, next: any) => next()
   };
 });
 

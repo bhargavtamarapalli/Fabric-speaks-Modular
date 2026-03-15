@@ -1,9 +1,11 @@
 import { SettingsRepository } from '../repositories/settings.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+import { v5 as uuidv5 } from 'uuid';
 
 // Allowed public keys that storefront can view without JWT
 const PUBLIC_KEYS = ['store_name', 'free_shipping_above', 'cod_enabled'];
+const STORE_SETTING_NAMESPACE = '2bb80d53-54f9-4b8d-8ca2-4150bc4b7d33';
 
 export class SettingsService {
   constructor(
@@ -88,7 +90,7 @@ export class SettingsService {
       adminId,
       action: 'UPDATE_STORE_SETTING',
       entityType: 'STORE_SETTING',
-      entityId: key,
+      entityId: uuidv5(key, STORE_SETTING_NAMESPACE),
       beforeJson: oldValue !== null ? { value: oldValue } : null,
       afterJson: { value }
     });
