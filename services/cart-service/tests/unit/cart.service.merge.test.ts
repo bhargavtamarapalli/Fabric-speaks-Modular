@@ -34,8 +34,8 @@ describe('CartService - Merge Logic', () => {
         const guestSessionId = 'guest_123';
         const userId = 'user_abc';
         const guestItems = [
-            { variantId: 'v1', quantity: 2 },
-            { variantId: 'v2', quantity: 1 }
+            { variantId: 'v1', quantity: 2, price: 299 },
+            { variantId: 'v2', quantity: 1, price: 499 }
         ];
 
         mockCartRepo.getGuestCart.mockResolvedValue(guestItems);
@@ -44,8 +44,8 @@ describe('CartService - Merge Logic', () => {
 
         expect(mockCartRepo.getGuestCart).toHaveBeenCalledWith(guestSessionId);
         expect(mockCartRepo.addUserItem).toHaveBeenCalledTimes(2);
-        expect(mockCartRepo.addUserItem).toHaveBeenNthCalledWith(1, userId, 'v1', 2);
-        expect(mockCartRepo.addUserItem).toHaveBeenNthCalledWith(2, userId, 'v2', 1);
+        expect(mockCartRepo.addUserItem).toHaveBeenNthCalledWith(1, userId, 'v1', 2, 299);
+        expect(mockCartRepo.addUserItem).toHaveBeenNthCalledWith(2, userId, 'v2', 1, 499);
         expect(mockCartRepo.clearGuestCart).toHaveBeenCalledWith(guestSessionId);
     });
 

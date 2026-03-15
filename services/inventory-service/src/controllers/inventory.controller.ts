@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { InventoryService } from '../services/inventory.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
+import { ManualAdjustmentSchema, ExpectedArrivalSchema } from '../schemas/inventory.schemas';
 
 export class InventoryController {
   constructor(private inventoryService: InventoryService) {}
@@ -18,14 +19,20 @@ export class InventoryController {
 
   manualAdjustment = catchAsync(async (req: Request, res: Response) => {
     const { variantId } = req.params;
-    const { newQty, reason } = req.body;
     const adminUserId = req.user?.userId;
 
     if (!adminUserId) {
        throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
-    const updated = await this.inventoryService.manualAdjustment(variantId!, newQty, reason as string, adminUserId);
+    const validated = ManualAdjustmentSchema.parse(req.body);
+
+    const updated = await this.inventoryService.manualAdjustment(
+      variantId!, 
+      validated.newQty, 
+      validated.reason, 
+      adminUserId
+    );
     
     res.status(200).json({
       success: true,
@@ -53,17 +60,18 @@ export class InventoryController {
   });
 
   addExpectedArrival = catchAsync(async (req: Request, res: Response) => {
-    const { variantId, expectedQty, arrivalDate } = req.body;
-    
-    if (!variantId || !expectedQty || !arrivalDate) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Missing required fields');
+    const adminUserId = req.user?.userId;
+    if (!adminUserId) {
+      throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
+    const validated = ExpectedArrivalSchema.parse(req.body);
+
     const arrival = await this.inventoryService.addExpectedArrival({
-      variant_id: variantId,
-      expected_qty: expectedQty,
-      arrival_date: new Date(arrivalDate)
-    });
+      variant_id: validated.variantId,
+      expected_qty: validated.expectedQty,
+      arrival_date: new Date(validated.arrivalDate)
+    }, adminUserId);
     
     res.status(201).json({
       success: true,

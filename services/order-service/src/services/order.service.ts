@@ -28,7 +28,7 @@ export class OrderService {
     this.eventQueue = new Queue('order_events', { connection: redis });
   }
   
-  async placeOrder(userId: string, orderPayload: any) {
+  async placeOrder(userId: string | null, orderPayload: any) {
     const pool = getDbPool();
     const client = await pool.connect();
     
@@ -118,14 +118,16 @@ export class OrderService {
       await this.orderRepo.insertOrderStatusHistory(client, newOrder.id, newOrder.status, 'Order Placed', userId);
       
       // Optional: COD Fraud Flag Check
-      if (isCOD) {
+      if (isCOD && userId) {
         const cancels = await this.orderRepo.checkCODHistoryFlag(userId);
         if (cancels >= 2) {
           await this.orderRepo.flagOrderForCOD_Fraud(newOrder.id);
         }
       }
 
-      await this.orderRepo.clearUserCart(client, userId);
+      if (userId) {
+        await this.orderRepo.clearUserCart(client, userId);
+      }
       
       await client.query('COMMIT');
       
@@ -148,10 +150,7 @@ export class OrderService {
   }
 
   async getMyOrders(userId: string) {
-    const res = await getDbPool().query(`
-      SELECT id, status, total_amount, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20
-    `, [userId]);
-    return res.rows;
+    return this.orderRepo.getUserOrders(userId);
   }
   
   async getOrderDetails(orderId: string, userId: string) {
@@ -327,10 +326,13 @@ export class OrderService {
       const orderItems = await this.orderRepo.getOrderItems(orderId);
       let totalWeight = 0;
       const detailedItems = [];
+      let firstAddressId = '';
+      
       for (const item of orderItems) {
-        const variant = await this.orderRepo.getVariant(item.variantId);
-        const weight = variant?.weight || 0.5;
+        const weight = Number(item.weight) || 0.5;
         totalWeight += weight * item.quantity;
+        if (!firstAddressId) firstAddressId = item.deliveryAddressId;
+        
         detailedItems.push({
           name: item.productName || `Product ${item.productId}`,
           sku: item.sku || item.variantId,
@@ -339,14 +341,40 @@ export class OrderService {
         });
       }
 
-      // Fetch user email if not guest
-      let customerEmail = order.guest_mobile ? 'guest@fabricspeaks.in' : 'user@fabricspeaks.in';
+      // Fetch customer details (email and phone)
+      let customerEmail = 'guest@fabricspeaks.in';
+      let customerPhone = order.guest_mobile || '+919999999999';
+      let customerName = 'Customer';
+      let addressDetails = {
+        address: order.guest_address || 'N/A',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        pincode: '400000'
+      };
+
       if (order.user_id) {
-          // In a real app we'd fetch this from the user service/repo
-          // For now we assume the orderRepo or a new userRepo can provide it
-          const user = await getDbPool().query('SELECT email FROM users WHERE id = $1', [order.user_id]);
-          if (user.rows[0]?.email) {
-              customerEmail = user.rows[0].email;
+          const user = await this.orderRepo.getUserDetails(order.user_id);
+          if (user) {
+              customerEmail = user.email || customerEmail;
+              customerPhone = user.mobile || customerPhone;
+              customerName = user.name || customerName;
+          }
+      } else {
+          customerName = 'Guest';
+      }
+
+      // Fetch real address from DB if we have an addressId
+      if (firstAddressId) {
+          const addr = await this.orderRepo.getAddressById(firstAddressId);
+          if (addr) {
+              addressDetails = {
+                  address: `${addr.line1}, ${addr.line2 || ''}`,
+                  city: addr.city,
+                  state: addr.state,
+                  pincode: addr.pincode
+              };
+              customerPhone = addr.mobile || customerPhone;
+              customerName = addr.full_name || customerName;
           }
       }
 
@@ -355,14 +383,14 @@ export class OrderService {
         order_id: order.id,
         order_date: order.created_at.toISOString(),
         pickup_location: 'Primary',
-        billing_customer_name: order.user_id ? 'Customer' : 'Guest',
+        billing_customer_name: customerName,
         billing_email: customerEmail,
-        billing_phone: order.guest_mobile || '+919999999999',
-        billing_address: order.guest_address || 'N/A',
-        billing_city: 'Mumbai',
-        billing_state: 'Maharashtra',
+        billing_phone: customerPhone,
+        billing_address: addressDetails.address,
+        billing_city: addressDetails.city,
+        billing_state: addressDetails.state,
         billing_country: 'IN',
-        billing_pincode: '400000',
+        billing_pincode: addressDetails.pincode,
         shipping_is_billing: true,
         order_items: detailedItems,
         payment_method: order.payment_method,

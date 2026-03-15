@@ -6,7 +6,7 @@ export async function runMigrations() {
   try {
     const query = `
       CREATE TABLE IF NOT EXISTS inventory_adjustment_log (
-        id UUID PRIMARY KEY,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         variant_id UUID NOT NULL,
         old_qty INTEGER NOT NULL,
         new_qty INTEGER NOT NULL,
@@ -14,9 +14,21 @@ export async function runMigrations() {
         user_id UUID NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id SERIAL PRIMARY KEY,
+        admin_id UUID NOT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT,
+        before_json JSONB,
+        after_json JSONB,
+        ip_address TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
       
       CREATE TABLE IF NOT EXISTS expected_stock_arrivals (
-        id UUID PRIMARY KEY,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         variant_id UUID NOT NULL,
         expected_qty INTEGER NOT NULL,
         arrival_date DATE NOT NULL,
@@ -28,6 +40,8 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS idx_inv_adj_variant ON inventory_adjustment_log(variant_id);
       CREATE INDEX IF NOT EXISTS idx_exp_stock_variant ON expected_stock_arrivals(variant_id);
       CREATE INDEX IF NOT EXISTS idx_exp_stock_status ON expected_stock_arrivals(status);
+      CREATE INDEX IF NOT EXISTS idx_audit_admin ON admin_audit_log(admin_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_entity ON admin_audit_log(entity_type, entity_id);
     `;
     
     await pool.query(query);

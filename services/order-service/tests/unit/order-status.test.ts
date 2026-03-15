@@ -4,6 +4,13 @@ import { OrderRepository } from '../../src/repositories/order.repository';
 import { AuditLogRepository } from '../../src/repositories/audit_log.repository';
 import { AppError, ErrorCode } from '@fs/shared/src/errors';
 
+vi.mock('bullmq', () => ({
+  Queue: vi.fn(() => ({
+    add: vi.fn(),
+    on: vi.fn(),
+  })),
+}));
+
 describe('OrderService - Status Machine', () => {
   let orderService: OrderService;
   let mockOrderRepo: any;
@@ -26,8 +33,8 @@ describe('OrderService - Status Machine', () => {
 
   it('should successfully update status for a valid state', async () => {
     const orderId = 'order-123';
-    const newStatus = 'SHIPPED';
-    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, status: 'DELIVERED' });
+    const newStatus = 'PAYMENT_PENDING';
+    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, status: 'PLACED' });
     mockOrderRepo.updateOrderStatus.mockResolvedValue({ id: orderId, status: newStatus });
 
     const result = await orderService.updateOrderStatus(orderId, newStatus);
@@ -39,6 +46,7 @@ describe('OrderService - Status Machine', () => {
   it('should throw VALIDATION_ERROR for an invalid state', async () => {
     const orderId = 'order-123';
     const invalidStatus = 'INVALID_STATUS';
+    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, status: 'PLACED' });
 
     await expect(orderService.updateOrderStatus(orderId, invalidStatus))
       .rejects.toThrow(AppError);
@@ -53,7 +61,7 @@ describe('OrderService - Status Machine', () => {
   it('should allow cancellation if logic permits (stub)', async () => {
     const orderId = 'order-123';
     const newStatus = 'CANCELLED';
-    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, status: 'PLAIN' }); // Dummy current
+    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, status: 'PLACED' }); 
     mockOrderRepo.updateOrderStatus.mockResolvedValue({ id: orderId, status: newStatus });
 
     const result = await orderService.updateOrderStatus(orderId, newStatus);

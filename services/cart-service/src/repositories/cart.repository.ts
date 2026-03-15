@@ -6,11 +6,11 @@ import { getEffectivePrice } from '@fs/shared';
 export interface CartItem {
     variantId: string;
     quantity: number;
-    // Hydrated fields
+    price?: number; // RULE 1: Stored here for guests and time-locking
+    // Hydrated fields (UI only)
     productId?: string;
     name?: string;
     sku?: string;
-    price?: number;
     stock_qty?: number;
 }
 
@@ -62,6 +62,7 @@ export class CartRepository extends BaseRepository {
             ON CONFLICT (user_id, variant_id)
             DO UPDATE SET 
                 quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, 10),
+                price_at_add = COALESCE(cart_items.price_at_add, EXCLUDED.price_at_add),
                 updated_at = now()
                 -- NOTE: Do NOT update price_at_add on quantity change (lock price)
         `;

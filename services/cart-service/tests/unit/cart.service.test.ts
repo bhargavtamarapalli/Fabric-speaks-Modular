@@ -56,20 +56,42 @@ describe('CartService - Core Logic', () => {
             mockCatalogInt.getVariantStockDetails.mockResolvedValue({ stock_qty: 50, price: 100 });
             mockCartRepo.getUserCart.mockResolvedValue([]);
 
-            // Try adding 15, should cap at 10 based on schema (but let's say schema allows, service caps at 10)
             await service.addItem('user1', undefined, { variantId: 'v1', quantity: 15 });
 
-            expect(mockCartRepo.addUserItem).toHaveBeenCalledWith('user1', 'v1', 15);
-            // Note: DB repository handles the LEAST(..., 10) logic for users. Guest repo handles it in service.
+            // Repository handles capping for users via LEAST(..., 10) in SQL
+            expect(mockCartRepo.addUserItem).toHaveBeenCalledWith('user1', 'v1', 15, 100);
         });
 
-        it('should cap guest cart items at 10 correctly', async () => {
+        it('should cap guest cart items at 10 correctly and lock price', async () => {
             mockCatalogInt.getVariantStockDetails.mockResolvedValue({ stock_qty: 50, price: 100 });
-            mockCartRepo.getGuestCart.mockResolvedValue([{ variantId: 'v1', quantity: 8 }]);
+            mockCartRepo.getGuestCart.mockResolvedValue([{ variantId: 'v1', quantity: 8, price: 100 }]);
 
             await service.addItem(undefined, 'guest_1', { variantId: 'v1', quantity: 5 });
 
-            expect(mockCartRepo.saveGuestCart).toHaveBeenCalledWith('guest_1', [{ variantId: 'v1', quantity: 10 }]);
+            expect(mockCartRepo.saveGuestCart).toHaveBeenCalledWith('guest_1', [{ variantId: 'v1', quantity: 10, price: 100 }]);
+        });
+
+        it('should RULE 1: Lock price for guest cart on first add', async () => {
+            mockCatalogInt.getVariantStockDetails.mockResolvedValue({ stock_qty: 50, price: 299 });
+            mockCartRepo.getGuestCart.mockResolvedValue([]);
+
+            await service.addItem(undefined, 'guest_1', { variantId: 'v1', quantity: 1 });
+
+            expect(mockCartRepo.saveGuestCart).toHaveBeenCalledWith('guest_1', [{ variantId: 'v1', quantity: 1, price: 299 }]);
+        });
+    });
+
+    describe('getCart', () => {
+        it('should RULE 1: Use stored price for guest cart even if catalog price changes', async () => {
+            const guestItems = [{ variantId: 'v1', quantity: 2, price: 299 }];
+            mockCartRepo.getGuestCart.mockResolvedValue(guestItems);
+            // Catalog price changed to 399
+            mockCatalogInt.getVariantStockDetails.mockResolvedValue({ stock_qty: 10, price: 399 });
+
+            const result = await service.getCart(undefined, 'guest_1');
+
+            expect(result.items[0]!.price).toBe(299);
+            expect(result.subtotal).toBe(598);
         });
     });
 
