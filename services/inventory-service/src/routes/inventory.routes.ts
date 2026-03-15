@@ -5,7 +5,7 @@ import { InventoryService } from '../services/inventory.service';
 import { InventoryRepository } from '../repositories/inventory.repository';
 import { ExpectedStockRepository } from '../repositories/expected-stock.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
-import { ManualAdjustmentSchema, ExpectedArrivalSchema } from '../schemas/inventory.schemas';
+import { ManualAdjustmentSchema, ExpectedArrivalSchema, UpdateThresholdSchema } from '../schemas/inventory.schemas';
 import { validateBody } from '../middleware/validate';
 import multer from 'multer';
 
@@ -31,12 +31,16 @@ router.get('/', requireReadAccess, inventoryController.listInventory);
 // INV-02: Manual stock adjustment — write access only (SA + IM)
 router.patch('/:variantId', requireWriteAccess, validateBody(ManualAdjustmentSchema), inventoryController.manualAdjustment);
 
+// INV-08/SET-05: Update stock threshold
+router.patch('/:variantId/threshold', requireWriteAccess, validateBody(UpdateThresholdSchema), inventoryController.updateThreshold);
+
 // Bulk CSV adjustment — write access only
 router.post('/adjustment/bulk', requireWriteAccess, upload.single('file'), inventoryController.bulkAdjustment);
 
-// INV-04/05: Expected arrivals — write access only
+// INV-04/05/07: Expected arrivals — write access only
 router.get('/expected', requireWriteAccess, inventoryController.getExpectedArrivals);
 router.post('/expected', requireWriteAccess, validateBody(ExpectedArrivalSchema), inventoryController.addExpectedArrival);
+router.patch('/expected/:id/receive', requireWriteAccess, inventoryController.markArrivalReceived);
 
 // INV-05: Stock health dashboard — read access (SA + IM can see full data)
 router.get('/health', requireWriteAccess, inventoryController.getHealth);

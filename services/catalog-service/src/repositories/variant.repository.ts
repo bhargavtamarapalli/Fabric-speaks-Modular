@@ -34,6 +34,22 @@ export class VariantRepository extends BaseRepository implements IVariantReposit
         );
     }
 
+    async create(dto: any): Promise<Variant> {
+        const snakeDto: Record<string, any> = {};
+        for (const [key, value] of Object.entries(dto)) {
+            const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+            snakeDto[snakeKey] = value;
+        }
+
+        const columns = Object.keys(snakeDto);
+        const values = Object.values(snakeDto);
+        const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+
+        const queryStr = `INSERT INTO variants (${columns.join(', ')}) VALUES (${placeholders}) RETURNING *`;
+        const result = await this.query(queryStr, values);
+        return this.mapVariant(result.rows[0]);
+    }
+
     private mapVariant(row: Record<string, any>): Variant {
         const mapped = this.mapToCamelCase<Variant>(row);
         return {

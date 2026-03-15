@@ -27,6 +27,8 @@ router.get('/orders/track/:token', orderController.trackGuestOrder); // ORD-04
 // admin routes
 router.patch('/admin/orders/:orderId/status', requireAuth, requireRole('superAdmin', 'supportAgent'), orderController.adminUpdateStatus); // ORD-05
 router.post('/admin/orders/:orderId/shiprocket', requireAuth, requireRole('superAdmin'), orderController.adminPushToShiprocket); // ORD-06
+router.post('/admin/orders/bulk/shiprocket', requireAuth, requireRole('superAdmin'), orderController.adminBulkPushToShiprocket);
+router.get('/admin/orders/export', requireAuth, requireRole('superAdmin', 'supportAgent'), orderController.adminExportOrders);
 router.get('/admin/orders', requireAuth, requireRole('superAdmin', 'supportAgent'), orderController.adminListOrders); // ORD-07
 
 // webhooks (with signature validation)

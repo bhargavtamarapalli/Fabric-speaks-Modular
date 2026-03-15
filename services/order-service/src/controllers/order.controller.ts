@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema } from '../schemas/order.schemas';
+import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema, BulkPushToShiprocketSchema } from '../schemas/order.schemas';
 import { OrderService } from '../services/order.service';
 import { catchAsync } from '@fs/shared';
 
@@ -38,8 +38,14 @@ export class OrderController {
     const payload = AdminUpdateOrderStatusSchema.parse(req.body);
     const { orderId } = req.params;
     
-    const order = await this.orderService.updateOrderStatus(orderId as string, payload.status, req.user!.userId);
+    const order = await this.orderService.updateOrderStatus(orderId as string, payload.status, req.user!.userId, payload.notes);
     res.status(200).json({ success: true, data: order });
+  });
+
+  adminBulkPushToShiprocket = catchAsync(async (req: Request, res: Response) => {
+    const { orderIds } = BulkPushToShiprocketSchema.parse(req.body);
+    const results = await this.orderService.bulkPushToShiprocket(orderIds, req.user!.userId);
+    res.status(200).json({ success: true, data: results });
   });
 
   adminPushToShiprocket = catchAsync(async (req: Request, res: Response) => {
@@ -55,6 +61,15 @@ export class OrderController {
     const filters = AdminListOrdersSchema.parse(req.query);
     const result = await this.orderService.listOrdersForAdmin(filters);
     res.status(200).json({ success: true, data: { items: result.items }, meta: { total: result.total } });
+  });
+
+  adminExportOrders = catchAsync(async (req: Request, res: Response) => {
+    const filters = AdminListOrdersSchema.parse(req.query);
+    const csv = await this.orderService.exportOrdersCsv(filters);
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=orders_export.csv');
+    res.status(200).send(csv);
   });
 
   shiprocketWebhook = catchAsync(async (req: Request, res: Response) => {

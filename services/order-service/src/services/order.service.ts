@@ -153,17 +153,41 @@ export class OrderService {
     return this.orderRepo.getUserOrders(userId);
   }
   
-  async getOrderDetails(orderId: string, userId: string) {
+  async getOrderDetails(orderId: string, userId: string | null) {
     const order = await this.orderRepo.getOrderById(orderId, userId);
     if (!order) throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
-    return order;
+    
+    // Include status history for timeline
+    const history = await this.orderRepo.getOrderHistory(orderId);
+    return { ...order, history };
   }
 
   async listOrdersForAdmin(filters: any) {
     return this.orderRepo.findAllForAdmin(filters);
   }
 
-  async updateOrderStatus(orderId: string, status: string, adminId?: string) {
+  async exportOrdersCsv(filters: any): Promise<string> {
+    // Fetch a larger set for export (cap at 1000 for safety)
+    const result = await this.orderRepo.findAllForAdmin({ ...filters, page: 1, limit: 1000 });
+    const orders = result.items;
+
+    if (orders.length === 0) return 'id,status,total_amount,payment_method,customer_name,customer_email,created_at';
+
+    const headers = ['id', 'status', 'total_amount', 'payment_method', 'customer_name', 'customer_email', 'created_at'];
+    const rows = orders.map(o => [
+        o.id,
+        o.status,
+        o.totalAmount,
+        o.paymentMethod,
+        `"${o.customerName || ''}"`,
+        o.customerEmail || '',
+        o.createdAt
+    ]);
+
+    return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  }
+
+  async updateOrderStatus(orderId: string, status: string, adminId?: string, notes?: string) {
     // Fetch current order state before update (for audit trail and validation)
     const currentOrder = await this.orderRepo.getOrderById(orderId, null);
     if (!currentOrder) {
@@ -199,6 +223,9 @@ export class OrderService {
     
     const order = await this.orderRepo.updateOrderStatus(orderId, status);
     
+    // Add status history entry
+    await this.orderRepo.insertOrderStatusHistory(null, orderId, status, notes, adminId);
+
     // RULE 6: Log all status changes to audit trail
     await this.auditLogRepo.insert({
       adminId: adminId, // Added adminId for Rule 6
@@ -206,14 +233,15 @@ export class OrderService {
       entityType: 'ORDER',
       entityId: orderId,
       beforeJson: { status: currentOrder.status },
-      afterJson: { status: status }
+      afterJson: { status: status, notes }
     });
     
     // Emit event for status change (notification service will consume)
     await this.eventQueue.add('order.status_changed', {
       orderId: orderId,
       previousStatus: currentOrder.status,
-      newStatus: status
+      newStatus: status,
+      notes
     });
     
     logger.info(`Order status updated`, { orderId, fromStatus: currentOrder.status, toStatus: status });
@@ -300,6 +328,28 @@ export class OrderService {
    * Creates Shiprocket order and stores shipment ID for tracking
    */
   async pushOrderToShiprocket(orderId: string, adminId?: string): Promise<any> {
+    // ... logic remains same, just ensuring it's called by bulk
+    return this._pushOrderToShiprocketInternal(orderId, adminId);
+  }
+
+  async bulkPushToShiprocket(orderIds: string[], adminId: string): Promise<any> {
+    const results = [];
+    for (const orderId of orderIds) {
+      try {
+        const res = await this._pushOrderToShiprocketInternal(orderId, adminId);
+        results.push({ orderId, success: true, data: res });
+      } catch (error) {
+        results.push({ 
+          orderId, 
+          success: false, 
+          error: error instanceof Error ? error.message : String(error) 
+        });
+      }
+    }
+    return results;
+  }
+
+  private async _pushOrderToShiprocketInternal(orderId: string, adminId?: string): Promise<any> {
     if (!this.shiprocketClient) {
       throw new AppError(ErrorCode.INTERNAL_ERROR, 'Shiprocket client not initialized');
     }

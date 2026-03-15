@@ -6,6 +6,7 @@ export interface VariantStock {
     productName: string;
     stockQty: number;
     reservedQty: number;
+    thresholdQty: number;
     healthStatus: string;
 }
 
@@ -16,12 +17,12 @@ export class InventoryRepository extends BaseRepository {
                 v.id as "variantId", 
                 v.sku, 
                 p.name as "productName", 
-                i.stock_qty as "stockQty", 
-                i.reserved_qty as "reservedQty"
-            FROM inventory i
-            JOIN variants v ON i.variant_id = v.id
+                v.qty as "stockQty",
+                v.threshold_qty as "thresholdQty"
+            FROM variants v
             JOIN products p ON v.product_id = p.id
-            ORDER BY i.stock_qty ${sortBy.toUpperCase()}
+            WHERE v.is_deleted = false
+            ORDER BY v.qty ${sortBy.toUpperCase()}
         `;
         const { rows } = await this.query(query);
         return rows.map(row => ({
@@ -29,8 +30,9 @@ export class InventoryRepository extends BaseRepository {
             sku: row.sku,
             productName: row.productName,
             stockQty: Number(row.stockQty),
-            reservedQty: Number(row.reservedQty),
-            healthStatus: this.calculateHealth(Number(row.stockQty))
+            reservedQty: 0,
+            thresholdQty: Number(row.thresholdQty),
+            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty))
         }));
     }
 
@@ -40,12 +42,11 @@ export class InventoryRepository extends BaseRepository {
                 v.id as "variantId", 
                 v.sku, 
                 p.name as "productName", 
-                i.stock_qty as "stockQty", 
-                i.reserved_qty as "reservedQty"
-            FROM inventory i
-            JOIN variants v ON i.variant_id = v.id
+                v.qty as "stockQty",
+                v.threshold_qty as "thresholdQty"
+            FROM variants v
             JOIN products p ON v.product_id = p.id
-            WHERE v.id = $1
+            WHERE v.id = $1 AND v.is_deleted = false
         `;
         const { rows } = await this.query(query, [variantId]);
         if (!rows.length) return null;
@@ -55,31 +56,43 @@ export class InventoryRepository extends BaseRepository {
             sku: row.sku,
             productName: row.productName,
             stockQty: Number(row.stockQty),
-            reservedQty: Number(row.reservedQty),
-            healthStatus: this.calculateHealth(Number(row.stockQty))
+            reservedQty: 0,
+            thresholdQty: Number(row.thresholdQty),
+            healthStatus: this.calculateHealth(Number(row.stockQty), Number(row.thresholdQty))
         };
     }
 
-    async adjustStock(variantId: string, newQty: number, reason: string, adminUserId: string): Promise<VariantStock> {
-        return this.withTransaction(async (client) => {
-            // Fetch old quantity first
-            const oldRes = await client.query('SELECT stock_qty FROM inventory WHERE variant_id = $1', [variantId]);
-            if (!oldRes.rows.length) throw new Error(`Variant ${variantId} not found`);
-            const oldQty = oldRes.rows[0].stock_qty;
+    private readonly VALID_REASONS = [
+        'damaged', 'miscounted', 'theft', 'return_restocked',
+        'supplier_short_shipped', 'initial_stock', 'correction', 'other'
+    ];
 
+    async adjustStock(variantId: string, newQty: number, reason: string, adminUserId: string): Promise<VariantStock> {
+        if (!this.VALID_REASONS.includes(reason)) {
+            throw new Error(`Invalid adjustment reason: ${reason}`);
+        }
+
+        return this.withTransaction(async (client) => {
+            // 1. Lock variant row for update
+            const oldRes = await client.query('SELECT qty FROM variants WHERE id = $1 FOR UPDATE', [variantId]);
+            if (!oldRes.rows.length) throw new Error(`Variant ${variantId} not found`);
+            const oldQty = oldRes.rows[0].qty;
+
+            // 2. Update variant qty
             const updateQuery = `
-                UPDATE inventory 
-                SET stock_qty = $2, updated_at = now() 
-                WHERE variant_id = $1 
+                UPDATE variants 
+                SET qty = $2, updated_at = now() 
+                WHERE id = $1 
                 RETURNING *
             `;
-            const { rows } = await client.query(updateQuery, [variantId, newQty]);
-            if (!rows.length) throw new Error(`Variant ${variantId} not found after update`);
+            await client.query(updateQuery, [variantId, newQty]);
 
+            // 3. Insert into stock_adjustments (INSERT-ONLY table)
             const logQuery = `
-                INSERT INTO inventory_adjustment_log (variant_id, old_qty, new_qty, reason, user_id)
+                INSERT INTO stock_adjustments (variant_id, before_qty, after_qty, reason, adjusted_by)
                 VALUES ($1, $2, $3, $4, $5)
             `;
+            // Note: 'reason' must be one of the adjustment_reason enum values
             await client.query(logQuery, [variantId, oldQty, newQty, reason, adminUserId]);
             
             const variant = await this.getVariant(variantId);
@@ -88,25 +101,35 @@ export class InventoryRepository extends BaseRepository {
         });
     }
 
+    async updateThreshold(variantId: string, threshold: number): Promise<void> {
+        const query = `
+            UPDATE variants 
+            SET threshold_qty = $1, updated_at = now() 
+            WHERE id = $2
+        `;
+        await this.query(query, [threshold, variantId]);
+    }
+
     async getHealthSummary(): Promise<{ status: string; count: number }[]> {
         const query = `
             SELECT 
                 CASE 
-                    WHEN stock_qty <= 0 THEN 'CRITICAL'
-                    WHEN stock_qty < 5 THEN 'WARNING'
+                    WHEN qty <= 0 THEN 'CRITICAL'
+                    WHEN qty < threshold_qty THEN 'WARNING'
                     ELSE 'HEALTHY'
                 END as status,
                 COUNT(*) as count
-            FROM inventory
+            FROM variants
+            WHERE is_deleted = false
             GROUP BY status
         `;
         const { rows } = await this.query(query);
         return rows.map(r => ({ status: r.status, count: parseInt(r.count, 10) }));
     }
 
-    private calculateHealth(stockQty: number): string {
+    private calculateHealth(stockQty: number, threshold: number): string {
         if (stockQty <= 0) return 'CRITICAL';
-        if (stockQty < 5) return 'WARNING';
+        if (stockQty < threshold) return 'WARNING';
         return 'HEALTHY';
     }
 }

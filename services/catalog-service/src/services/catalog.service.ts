@@ -192,6 +192,71 @@ export class CatalogService {
         await this.redis.del(`catalog:product:${before.slug}`);
     }
 
+    async duplicateProduct(id: string, adminId: string): Promise<Product> {
+        const original = await this.productRepo.findById(id);
+        if (!original) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
+
+        const variants = await this.variantRepo.findByProductId(id);
+
+        const suffix = ` (Copy ${Math.floor(Date.now() / 1000).toString().slice(-4)})`;
+        const newName = original.name.length + suffix.length > 200 
+            ? original.name.slice(0, 200 - suffix.length) + suffix
+            : original.name + suffix;
+        
+        const newSlug = `${original.slug}-copy-${Math.floor(Date.now() / 1000).toString().slice(-4)}`;
+
+        // Use repo.create which handles attributes JSONB mapping
+        const copyDto: CreateProductDto = {
+            name: newName,
+            slug: newSlug,
+            brandId: original.brandId,
+            categoryId: original.categoryId,
+            description: original.description,
+            // Extract USP fields from raw product for CreateProductDto
+            ...this.extractFabricFields(original)
+        } as CreateProductDto;
+
+        const product = await this.productRepo.create(copyDto);
+
+        // Duplicate variants
+        for (const v of variants) {
+            await (this.variantRepo as any).create({
+                productId: product.id,
+                sku: `${v.sku}-COPY-${Math.floor(Date.now() / 1000).toString().slice(-4)}`,
+                size: v.size,
+                colour: v.colour,
+                basePrice: v.basePrice,
+                salePrice: v.salePrice,
+                saleActive: v.saleActive,
+                qty: 0, // Reset inventory for copies
+                isActive: v.isActive
+            });
+        }
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'product.duplicate',
+            entityType: 'product',
+            entityId: product.id,
+            afterJson: { originalId: id, newProduct: product }
+        });
+
+        await this.clearCatalogCache();
+        return product;
+    }
+
+    private extractFabricFields(product: Product): any {
+        const attrs = (product as any).attributes || {};
+        return {
+            fabricType: attrs.fabric_type,
+            gsmWeight: attrs.gsm_weight,
+            weaveType: attrs.weave_type,
+            breathabilityRating: attrs.breathability_rating,
+            careInstructions: attrs.care_instructions,
+            fabricOrigin: attrs.fabric_origin
+        };
+    }
+
     async listBrands(): Promise<Brand[]> {
         return this.brandRepo.findAllActive();
     }
