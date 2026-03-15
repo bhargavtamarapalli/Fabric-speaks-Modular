@@ -55,3 +55,9 @@ export const UpdateSettingSchema = z.object({
 });
 
 export type UpdateSettingDto = z.infer<typeof UpdateSettingSchema>;
+
+export const CustomerLookupSchema = z.object({
+  q: z.string().min(2).max(100),
+});
+
+export type CustomerLookupDto = z.infer<typeof CustomerLookupSchema>;

@@ -8,6 +8,7 @@ import { CouponRepository } from '../repositories/coupon.repository';
 import { PageRepository } from '../repositories/page.repository';
 import { ConfigRepository } from '../repositories/config.repository';
 import { SettingsRepository } from '../repositories/settings.repository';
+import { CustomerRepository } from '../repositories/customer.repository';
 
 // Services
 import { AdminService } from '../services/admin.service';
@@ -29,8 +30,9 @@ const redis = getRedisClient();
 
 // Wiring
 const adminUserRepo = new AdminUserRepository(db);
+const customerRepo = new CustomerRepository(db);
 const auditLogRepo = new AuditLogRepository(db);
-const adminService = new AdminService(adminUserRepo, auditLogRepo);
+const adminService = new AdminService(adminUserRepo, customerRepo, auditLogRepo);
 const adminController = new AdminController(adminService);
 
 const couponRepo = new CouponRepository(db);
@@ -62,6 +64,7 @@ router.patch('/users/:id/role', requireRole('superAdmin'), adminController.updat
 router.delete('/users/:id', requireRole('superAdmin'), adminController.deleteAdminUser);
 router.get('/audit-log', requireRole('superAdmin'), adminController.getAuditLogs);
 router.get('/dashboard/ops', requireRole('superAdmin', 'supportAgent'), adminController.getDashboardOps);
+router.get('/customers/lookup', requireRole('superAdmin', 'supportAgent'), adminController.lookupCustomers);
 
 // ADM-07 - ADM-09 (Coupons)
 router.get('/coupons', requireRole('superAdmin'), couponController.listCoupons);

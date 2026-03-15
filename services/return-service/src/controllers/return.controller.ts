@@ -54,12 +54,12 @@ export class ReturnController {
 
   updateStatus = catchAsync(async (req: Request, res: Response) => {
     const { returnId } = req.params;
-    const { status } = req.body;
+    const { status, agentNotes } = req.body;
     
     if (!req.user?.userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     const adminId = req.user.userId;
 
-    const updated = await this.returnService.updateStatus(returnId as string, status as ReturnStatus);
+    const updated = await this.returnService.updateStatus(returnId as string, status as ReturnStatus, agentNotes);
     
     // Rule 6: Audit log for admin write
     await this.auditLogRepo.insert({
@@ -67,7 +67,7 @@ export class ReturnController {
         action: 'UPDATE_RETURN_STATUS',
         entityType: 'RETURN',
         entityId: returnId as string,
-        afterJson: { status }
+        afterJson: { status, agentNotes }
     });
 
     res.status(200).json({ success: true, data: updated });

@@ -71,6 +71,56 @@ export class ProductRepository extends BaseRepository implements IProductReposit
         return { items, total };
     }
 
+    async findAllAdmin(filters: any): Promise<{ items: Product[]; total: number }> {
+        const { page, limit, 'filter[is_active]': isActive, 'filter[brand_id]': brandId, 'filter[has_sale]': hasSale } = filters;
+        const offset = (page - 1) * limit;
+        
+        let queryStr = 'SELECT p.*, COUNT(*) OVER() as total_count FROM products p ';
+        const whereClauses: string[] = ['is_deleted = false'];
+        const params: unknown[] = [];
+        let paramIdx = 1;
+
+        if (isActive !== undefined) {
+            whereClauses.push(`p.is_active = $${paramIdx}`);
+            params.push(isActive === 'true');
+            paramIdx++;
+        }
+
+        if (brandId) {
+            whereClauses.push(`p.brand_id = $${paramIdx}`);
+            params.push(brandId);
+            paramIdx++;
+        }
+
+        if (hasSale !== undefined) {
+             queryStr += 'LEFT JOIN variants v ON p.id = v.product_id ';
+             whereClauses.push(`v.sale_active = $${paramIdx}`);
+             params.push(hasSale === 'true');
+             paramIdx++;
+             queryStr += ' GROUP BY p.id '; // Important if joining variants to avoid duplicate rows, but count(*) over() might get tricky.
+             // Simpler approach without group by if we use EXISTS
+        }
+
+        // Refined hasSale logic using EXISTS to avoid duplicate row explosion
+        if (hasSale !== undefined && !queryStr.includes('JOIN')) {
+            if (hasSale === 'true') {
+                 whereClauses.push(`EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sale_active = true)`);
+            } else {
+                 whereClauses.push(`NOT EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sale_active = true)`);
+            }
+        }
+
+        queryStr += ' WHERE ' + whereClauses.join(' AND ');
+        queryStr += ` ORDER BY p.created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+        params.push(limit, offset);
+
+        const result = await this.query(queryStr, params);
+        const items = result.rows.map(row => this.mapToCamelCase<Product>(row));
+        const total = result.rows[0] ? parseInt(result.rows[0].total_count) : 0;
+
+        return { items, total };
+    }
+
     async create(dto: CreateProductDto): Promise<Product> {
         // Extract fabric fields to map to JSONB 'attributes' column
         const fabricFields = [

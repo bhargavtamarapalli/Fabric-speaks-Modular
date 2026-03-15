@@ -34,7 +34,8 @@ export const initiateReturnSchema = z.object({
 });
 
 export const updateStatusSchema = z.object({
-  status: returnStatusSchema
+  status: returnStatusSchema,
+  agentNotes: z.string().optional()
 });
 
 export const resolveReturnSchema = z.object({

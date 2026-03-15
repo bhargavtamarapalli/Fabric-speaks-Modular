@@ -1,4 +1,5 @@
 import { SupportRepository } from '../repositories/support.repository';
+import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { CustomerViewService } from './customer-view.service';
 import { SupportQueueQueryDto, UpdateQueryDto } from '../schemas/support.schemas';
 import { AppError, ErrorCode, logger } from '@fs/shared';
@@ -6,6 +7,7 @@ import { AppError, ErrorCode, logger } from '@fs/shared';
 export class SupportService {
   constructor(
     private supportRepo: SupportRepository,
+    private auditLogRepo: AuditLogRepository,
     private customerViewService: CustomerViewService
   ) {}
 
@@ -29,11 +31,34 @@ export class SupportService {
     if (!caseData) throw new AppError(ErrorCode.NOT_FOUND, 'Support case not found');
 
     if (data.status || data.priority) {
+      const before: any = {};
+      if (data.status) before.status = caseData.status;
+      if (data.priority) before.priority = caseData.priority;
+
       await this.supportRepo.updateStatus(caseId, data.status, data.priority);
+
+      // Rule 6: Audit log
+      await this.auditLogRepo.insert({
+        adminId,
+        action: 'UPDATE_SUPPORT_CASE',
+        entityType: 'SUPPORT_CASE',
+        entityId: caseId,
+        beforeJson: before,
+        afterJson: { status: data.status, priority: data.priority }
+      });
     }
 
     if (data.note) {
       await this.supportRepo.addNote(caseId, adminId, data.note);
+      
+      // Rule 6: Audit log
+      await this.auditLogRepo.insert({
+        adminId,
+        action: 'ADD_SUPPORT_NOTE',
+        entityType: 'SUPPORT_CASE',
+        entityId: caseId,
+        afterJson: { noteSnippet: data.note.substring(0, 50) }
+      });
     }
 
     return this.getCaseDetail(caseId);
@@ -44,6 +69,15 @@ export class SupportService {
     if (!caseData) throw new AppError(ErrorCode.NOT_FOUND, 'Support case not found');
 
     await this.supportRepo.addNote(caseId, adminId, text);
+    
+    // Rule 6: Audit log
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'ADD_SUPPORT_NOTE',
+      entityType: 'SUPPORT_CASE',
+      entityId: caseId,
+      afterJson: { noteSnippet: text.substring(0, 50) }
+    });
     
     return { success: true };
   }

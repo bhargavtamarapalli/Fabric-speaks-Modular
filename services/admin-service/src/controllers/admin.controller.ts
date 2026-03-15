@@ -4,7 +4,8 @@ import {
   AdminListQuerySchema, 
   AuditLogQuerySchema, 
   ChangeRoleSchema,
-  CreateAdminUserSchema 
+  CreateAdminUserSchema,
+  CustomerLookupSchema
 } from '../schemas/admin.schemas';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
@@ -59,6 +60,12 @@ export class AdminController {
 
   getDashboardOps = catchAsync(async (req: Request, res: Response) => {
     const result = await this.adminService.getDashboardMetrics();
+    res.json({ success: true, data: result });
+  });
+
+  lookupCustomers = catchAsync(async (req: Request, res: Response) => {
+    const { q } = CustomerLookupSchema.parse(req.query);
+    const result = await this.adminService.lookupCustomers(q);
     res.json({ success: true, data: result });
   });
 }

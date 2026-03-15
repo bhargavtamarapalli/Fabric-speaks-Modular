@@ -164,6 +164,7 @@ export interface IProductRepository {
   findById(id: string): Promise<Product | null>;
   findBySlug(slug: string): Promise<Product | null>;
   findAll(filters: ProductQueryDto): Promise<{ items: Product[]; total: number }>;
+  findAllAdmin(filters: any): Promise<{ items: Product[]; total: number }>;
   create(dto: any): Promise<Product>; // dto will be mapped to snake_case
   update(id: string, dto: any): Promise<Product>;
   softDelete(id: string): Promise<void>;
@@ -183,6 +184,20 @@ export interface IBrandRepository {
 
 export interface ICategoryRepository {
   findAllActive(): Promise<Category[]>;
+  findById(id: string): Promise<Category | null>;
+  create(dto: any): Promise<Category>;
+  update(id: string, dto: any): Promise<Category>;
+}
+
+export interface ICollectionRepository {
+  findAllActive(): Promise<Collection[]>;
+  findBySlug(slug: string): Promise<Collection | null>;
+  findById(id: string): Promise<Collection | null>;
+  findProductsByCollectionId(collectionId: string): Promise<string[]>;
+  create(dto: any): Promise<Collection>;
+  update(id: string, dto: any): Promise<Collection>;
+  addProducts(collectionId: string, productIds: string[]): Promise<void>;
+  removeProduct(collectionId: string, productId: string): Promise<void>;
 }
 
 // Database Utility Types
