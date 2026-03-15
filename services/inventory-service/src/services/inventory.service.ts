@@ -2,9 +2,10 @@ import { InventoryRepository, VariantStock } from '../repositories/inventory.rep
 import { ExpectedStockRepository, ExpectedStock } from '../repositories/expected-stock.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { BulkAdjustmentRowSchema } from '../schemas/inventory.schemas';
-import { AppError, ErrorCode, logger } from '@fs/shared';
+import { AppError, ErrorCode, logger, getRedisClient } from '@fs/shared';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
+import { Queue } from 'bullmq';
 
 export interface BulkAdjustmentError {
   row: Record<string, any>;
@@ -18,11 +19,16 @@ export interface BulkAdjustmentResponse {
 }
 
 export class InventoryService {
+  private eventQueue: Queue;
+
   constructor(
     private invRepo: InventoryRepository,
     private expectedRepo: ExpectedStockRepository,
     private auditLogRepo: AuditLogRepository
-  ) {}
+  ) {
+    const redis = getRedisClient();
+    this.eventQueue = new Queue('platform_events', { connection: redis });
+  }
 
   public static calculateHealthStatus(qty: number): 'CRITICAL' | 'WARNING' | 'HEALTHY' {
     if (qty <= 0) return 'CRITICAL';
@@ -52,6 +58,15 @@ export class InventoryService {
     });
 
     logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
+    
+    if (updated.stockQty < 5) {
+      await this.eventQueue.add('stock.low', {
+        variantId: updated.variantId,
+        productName: updated.productName,
+        stockCount: updated.stockQty
+      });
+    }
+
     return updated;
   }
 
@@ -88,6 +103,14 @@ export class InventoryService {
                 beforeJson: { stockQty: currentVariant.stockQty },
                 afterJson: { stockQty: updated.stockQty, reason: validated.reason }
               });
+
+              if (updated.stockQty < 5) {
+                await this.eventQueue.add('stock.low', {
+                  variantId: updated.variantId,
+                  productName: updated.productName,
+                  stockCount: updated.stockQty
+                });
+              }
 
               successCount++;
             } catch (err) {

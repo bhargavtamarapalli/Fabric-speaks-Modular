@@ -31,7 +31,7 @@ export class WhatsAppService {
           template: {
             name: payload.templateName,
             language: {
-              code: 'en_US' // Defaulting to English, could be dynamic
+              code: env.WHATSAPP_LANGUAGE
             },
             components: payload.components || []
           }
