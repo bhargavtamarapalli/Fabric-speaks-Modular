@@ -49,7 +49,13 @@ export const attachAuthUser = async (req: Request, _res: Response, next: NextFun
   }
 
   try {
-    const payload = jwt.verify(token, process.env.APP_JWT_SECRET || '') as JwtPayload & { iat?: number };
+    const jwtSecret = process.env.APP_JWT_SECRET;
+    if (!jwtSecret) {
+      logger.error({ msg: 'APP_JWT_SECRET is not configured; skipping auth token verification' });
+      return next();
+    }
+
+    const payload = jwt.verify(token, jwtSecret) as JwtPayload & { iat?: number };
     if (!payload?.userId || !payload?.role) {
       return next();
     }
@@ -271,7 +277,11 @@ export const rateLimit = (options: { windowMs: number; max: number }) => {
       next();
     } catch (error) {
       logger.error({ err: error, msg: 'Rate limiter error' });
-      next(); // Fail open to avoid blocking users if Redis is down
+      const failOpen = process.env.APP_ENV !== 'production' && process.env.APP_ENV !== 'staging';
+      if (failOpen) {
+        return next();
+      }
+      return next(new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Rate limiter unavailable'));
     }
   };
 };

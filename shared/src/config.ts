@@ -4,6 +4,10 @@ import { logger } from './logger';
 
 dotenv.config();
 
+if (!process.env.APP_JWT_SECRET && process.env.JWT_SECRET) {
+  process.env.APP_JWT_SECRET = process.env.JWT_SECRET;
+}
+
 export const BaseEnvSchema = z.object({
   APP_PORT: z.string().default('8080'),
   APP_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
@@ -34,7 +38,18 @@ export type BaseEnv = z.infer<typeof BaseEnvSchema>;
  * merged with a standard base schema for microservices.
  */
 export function loadEnv<T extends z.ZodRawShape>(serviceSchema: T) {
-  const mergedSchema = BaseEnvSchema.extend(serviceSchema);
+  const mergedSchema = BaseEnvSchema.extend(serviceSchema).superRefine((env, ctx) => {
+    const requireStrongSecret = env.APP_ENV === 'production' || env.APP_ENV === 'staging';
+    if (requireStrongSecret) {
+      if (!env.APP_JWT_SECRET || env.APP_JWT_SECRET === 'test_secret' || env.APP_JWT_SECRET.length < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'APP_JWT_SECRET must be at least 32 characters in staging/production',
+          path: ['APP_JWT_SECRET']
+        });
+      }
+    }
+  });
   
   try {
     return mergedSchema.parse(process.env);

@@ -32,8 +32,8 @@ create_secret "DATABASE_URL" "$DB_URL"
 read -p "Enter Upstash REDIS_URL (rediss://): " REDIS_URL
 create_secret "REDIS_URL" "$REDIS_URL"
 
-read -p "Enter JWT_SECRET: " JWT_SEC
-create_secret "JWT_SECRET" "$JWT_SEC"
+read -p "Enter APP_JWT_SECRET: " JWT_SEC
+create_secret "APP_JWT_SECRET" "$JWT_SEC"
 
 echo "--------------------------------------------------------"
 echo "✅ Secrets successfully configured in GCP Secret Manager!"
