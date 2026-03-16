@@ -138,7 +138,7 @@ export class AdminService {
   }
 
   async getDashboardMetrics() {
-    const [revenue, trends, topProducts, topFabrics, codStats, failedPayments, funnel, health, abandonedRate, dailyComparison, weeklyComparison] = await Promise.all([
+    const [revenue, trends, topProducts, topFabrics, codStats, failedPayments, funnel, health, abandonedRate, dailyComparison, weeklyComparison, shiprocketIssues] = await Promise.all([
       this.dashboardRepo.getRevenueMetrics(30),
       this.dashboardRepo.getOrderTrends(30),
       this.dashboardRepo.getTopProducts(5),
@@ -149,7 +149,8 @@ export class AdminService {
       this.dashboardRepo.getSystemHealth(),
       this.dashboardRepo.getAbandonedCartRate(),
       this.dashboardRepo.getPeriodComparison(1),
-      this.dashboardRepo.getPeriodComparison(7)
+      this.dashboardRepo.getPeriodComparison(7),
+      this.dashboardRepo.getShiprocketIssues(6)
     ]);
     
     return {
@@ -166,7 +167,7 @@ export class AdminService {
         yesterday: dailyComparison,
         week: weeklyComparison
       },
-      shiprocketIssues: 0,
+      shiprocketIssues,
       fraudFlags: codStats.fraud_flagged
     };
   }

@@ -103,4 +103,19 @@ export class SupportService {
 
     return flag;
   }
+
+  async createPickupFailedAlert(orderId: string, returnId?: string | null, reason?: string | null) {
+    const userId = await this.supportRepo.getUserIdByOrderId(orderId);
+    const summary = `Shiprocket pickup failed for return ${returnId || 'N/A'} (order ${orderId})${reason ? `: ${reason}` : ''}`.slice(0, 500);
+
+    const alert = await this.supportRepo.createAlert({
+      userId,
+      orderId,
+      type: 'shiprocket_pickup_failed',
+      summary,
+      priority: 'P1'
+    });
+
+    return alert;
+  }
 }

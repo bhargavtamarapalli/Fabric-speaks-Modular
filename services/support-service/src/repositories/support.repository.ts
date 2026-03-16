@@ -3,6 +3,26 @@ import { v4 as uuidv4 } from 'uuid';
 import { SupportQueueQueryDto } from '../schemas/support.schemas';
 
 export class SupportRepository extends BaseRepository {
+  async createAlert(data: { userId?: string | null; orderId?: string | null; type: string; summary: string; priority?: 'P0' | 'P1' | 'P2' }): Promise<any> {
+    const query = `
+      INSERT INTO support_queries (user_id, order_id, type, summary, priority, status)
+      VALUES ($1, $2, $3, $4, $5, 'open')
+      RETURNING *
+    `;
+    const { rows } = await this.query(query, [
+      data.userId ?? null,
+      data.orderId ?? null,
+      data.type,
+      data.summary,
+      data.priority ?? 'P2'
+    ]);
+    return rows[0];
+  }
+
+  async getUserIdByOrderId(orderId: string): Promise<string | null> {
+    const { rows } = await this.query('SELECT user_id FROM orders WHERE id = $1', [orderId]);
+    return rows[0]?.user_id ?? null;
+  }
   async listQueue(filters: SupportQueueQueryDto): Promise<PaginatedResponse<any>> {
     const params: any[] = [];
     let whereClause = '1=1';

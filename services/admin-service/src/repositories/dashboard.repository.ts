@@ -265,22 +265,61 @@ export class DashboardRepository extends BaseRepository {
   }
 
   async getSystemHealth(): Promise<SystemHealth> {
-    // Simplified health check using event_log for latency and audit_log for error proxies
-    const query = `
+    const latencyQuery = `
       SELECT 
         COALESCE(AVG(CAST(metadata_json->>'latency_ms' AS INTEGER)), 0) as avg_latency,
         COUNT(DISTINCT session_id) as active_sessions
       FROM event_log
       WHERE created_at >= now() - interval '1 hour'
     `;
-    const { rows } = await this.query(query);
-    
-    // Proxy for errors: check audit logs for specific failure actions or just mock for now
+    const notificationQuery = `
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed
+      FROM notification_log
+      WHERE sent_at >= now() - interval '1 hour'
+    `;
+
+    const [latencyRes, notifRes] = await Promise.all([
+      this.query(latencyQuery),
+      this.query(notificationQuery)
+    ]);
+
+    const avgLatency = parseFloat(latencyRes.rows[0].avg_latency);
+    const activeSessions = parseInt(latencyRes.rows[0].active_sessions);
+    const total = parseInt(notifRes.rows[0]?.total ?? '0', 10);
+    const failed = parseInt(notifRes.rows[0]?.failed ?? '0', 10);
+    const errorRate = total === 0 ? 0 : Number((failed / total).toFixed(4));
+
     return {
-      avgLatency: parseFloat(rows[0].avg_latency),
-      activeSessions: parseInt(rows[0].active_sessions),
-      errorRate: 0.02 // Placeholder 2% error rate proxy
+      avgLatency,
+      activeSessions,
+      errorRate
     };
+  }
+
+  async getShiprocketIssues(hours: number = 6): Promise<number> {
+    const ordersQuery = `
+      SELECT COUNT(*)::integer as count
+      FROM orders
+      WHERE status IN ('CONFIRMED', 'PACKED', 'SHIPPED')
+        AND shiprocket_order_id IS NULL
+        AND created_at <= now() - interval '1 hour' * $1
+    `;
+    const returnsQuery = `
+      SELECT COUNT(*)::integer as count
+      FROM return_requests
+      WHERE status = 'APPROVED'
+        AND shiprocket_return_id IS NULL
+        AND created_at <= now() - interval '1 hour' * $1
+    `;
+
+    const [ordersRes, returnsRes] = await Promise.all([
+      this.query(ordersQuery, [hours]),
+      this.query(returnsQuery, [hours])
+    ]);
+
+    return (ordersRes.rows[0]?.count ?? 0) + (returnsRes.rows[0]?.count ?? 0);
   }
 
   async getCouponUsage(limit: number = 50, offset: number = 0): Promise<CouponUsageRow[]> {
