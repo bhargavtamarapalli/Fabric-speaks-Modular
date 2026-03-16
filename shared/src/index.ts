@@ -10,3 +10,4 @@ export * from './config';
 export * from './app';
 export * from './repository';
 export * from './media';
+export * from './http';

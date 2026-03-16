@@ -1,5 +1,5 @@
-import axios, { AxiosInstance } from 'axios';
-import { logger, AppError, ErrorCode } from '@fs/shared';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import { logger, AppError, ErrorCode, withExternalRetry } from '@fs/shared';
 import { env } from '../config/env';
 
 /**
@@ -111,9 +111,15 @@ export class ShiprocketClient {
     }
 
     try {
-      const response = await this.client.post('/auth/login', {
-        email: env.SHIPROCKET_EMAIL,
-        password: env.SHIPROCKET_PASSWORD,
+      const response = await this.requestWithRetry<{ token: string }>({
+        method: 'POST',
+        url: '/auth/login',
+        data: {
+          email: env.SHIPROCKET_EMAIL,
+          password: env.SHIPROCKET_PASSWORD,
+        },
+        idempotent: true,
+        operation: 'shiprocket.auth'
       });
 
       const token = response.data?.token;
@@ -132,22 +138,54 @@ export class ShiprocketClient {
     }
   }
 
-  private async authorizedPost<T>(url: string, payload?: unknown): Promise<T> {
+  private async requestWithRetry<T>(config: {
+    method: 'GET' | 'POST';
+    url: string;
+    data?: unknown;
+    headers?: Record<string, string>;
+    idempotent?: boolean;
+    operation?: string;
+  }): Promise<AxiosResponse<T>> {
+    return withExternalRetry(
+      () => this.client.request<T>({
+        method: config.method,
+        url: config.url,
+        data: config.data,
+        headers: config.headers
+      }),
+      {
+        method: config.method,
+        idempotent: config.idempotent,
+        operation: config.operation
+      }
+    );
+  }
+
+  private async authorizedPost<T>(url: string, payload?: unknown, idempotent: boolean = false, operation?: string): Promise<T> {
     const token = await this.getAccessToken();
-    const response = await this.client.post(url, payload, {
+    const response = await this.requestWithRetry<T>({
+      method: 'POST',
+      url,
+      data: payload,
       headers: {
         Authorization: `Bearer ${token}`
-      }
+      },
+      idempotent,
+      operation
     });
     return response.data as T;
   }
 
   private async authorizedGet<T>(url: string): Promise<T> {
     const token = await this.getAccessToken();
-    const response = await this.client.get(url, {
+    const response = await this.requestWithRetry<T>({
+      method: 'GET',
+      url,
       headers: {
         Authorization: `Bearer ${token}`
-      }
+      },
+      idempotent: true,
+      operation: `shiprocket.get.${url}`
     });
     return response.data as T;
   }
@@ -159,7 +197,12 @@ export class ShiprocketClient {
    */
   async createOrder(orderData: ShiprocketCreateOrderRequest): Promise<ShiprocketCreateOrderResponse> {
     try {
-      const response = await this.authorizedPost<ShiprocketCreateOrderResponse>('/orders/create/adhoc', orderData);
+      const response = await this.authorizedPost<ShiprocketCreateOrderResponse>(
+        '/orders/create/adhoc',
+        orderData,
+        false,
+        'shiprocket.createOrder'
+      );
 
       // Check Shiprocket's own status code in response
       if (response.status_code !== 'success' && response.status !== 1) {
@@ -223,7 +266,7 @@ export class ShiprocketClient {
    */
   async cancelOrder(orderId: string): Promise<any> {
     try {
-      return await this.authorizedPost(`/orders/${orderId}/cancel`);
+      return await this.authorizedPost(`/orders/${orderId}/cancel`, undefined, true, 'shiprocket.cancelOrder');
     } catch (error) {
       logger.error('Failed to cancel Shiprocket order', { orderId });
       throw error;

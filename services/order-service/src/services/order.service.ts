@@ -1,4 +1,4 @@
-import { getDbPool, getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+import { getDbPool, getRedisClient, AppError, ErrorCode, logger, withExternalRetry } from '@fs/shared';
 import { Queue } from 'bullmq';
 import { OrderRepository, Order } from '../repositories/order.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
@@ -707,18 +707,25 @@ export class OrderService {
     }
 
     try {
-      const response = await axios.post(
-        `https://api.razorpay.com/v1/payments/${razorpayPaymentId}/refund`,
-        {
-          amount: Math.round(amount * 100),
-          speed: 'normal',
-        },
-        {
-          auth: {
-            username: keyId,
-            password: keySecret,
+      const response = await withExternalRetry(
+        () => axios.post(
+          `https://api.razorpay.com/v1/payments/${razorpayPaymentId}/refund`,
+          {
+            amount: Math.round(amount * 100),
+            speed: 'normal',
           },
-          timeout: 10000,
+          {
+            auth: {
+              username: keyId,
+              password: keySecret,
+            },
+            timeout: 10000,
+          }
+        ),
+        {
+          method: 'POST',
+          idempotent: false,
+          operation: 'razorpay.refund'
         }
       );
 

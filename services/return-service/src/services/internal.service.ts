@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getDbPool, getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+import { getDbPool, getRedisClient, AppError, ErrorCode, logger, withExternalRetry } from '@fs/shared';
 import { randomUUID } from 'crypto';
 import { env } from '../config/env';
 
@@ -186,15 +186,22 @@ export class InternalService {
     const refundAmount = Math.round(amount * 100);
 
     try {
-      const response = await axios.post(
-        `${RAZORPAY_API_URL}/payments/${payment.razorpayPaymentId}/refund`,
-        { amount: refundAmount, speed: 'normal' },
+      const response = await withExternalRetry(
+        () => axios.post(
+          `${RAZORPAY_API_URL}/payments/${payment.razorpayPaymentId}/refund`,
+          { amount: refundAmount, speed: 'normal' },
+          {
+            auth: {
+              username: credentials.keyId,
+              password: credentials.keySecret,
+            },
+            timeout: 10000,
+          }
+        ),
         {
-          auth: {
-            username: credentials.keyId,
-            password: credentials.keySecret,
-          },
-          timeout: 10000,
+          method: 'POST',
+          idempotent: false,
+          operation: 'razorpay.refund.create'
         }
       );
 
@@ -257,13 +264,20 @@ export class InternalService {
     }
 
     try {
-      const response = await axios.get(`${RAZORPAY_API_URL}/refunds/${payment.refundId}`, {
-        auth: {
-          username: credentials.keyId,
-          password: credentials.keySecret,
-        },
-        timeout: 10000,
-      });
+      const response = await withExternalRetry(
+        () => axios.get(`${RAZORPAY_API_URL}/refunds/${payment.refundId}`, {
+          auth: {
+            username: credentials.keyId,
+            password: credentials.keySecret,
+          },
+          timeout: 10000,
+        }),
+        {
+          method: 'GET',
+          idempotent: true,
+          operation: 'razorpay.refund.status'
+        }
+      );
 
       const providerRefund = response.data as Record<string, any>;
       const refundStatus: RefundStatusPayload = {

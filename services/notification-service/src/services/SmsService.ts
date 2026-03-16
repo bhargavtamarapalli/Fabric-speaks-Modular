@@ -1,6 +1,5 @@
 import { env } from '../config/env';
-import { logger } from '@fs/shared';
-import pRetry from 'p-retry';
+import { fetchJsonWithRetry, logger } from '@fs/shared';
 
 export interface SmsPayload {
   to: string;
@@ -35,34 +34,25 @@ export class SmsService {
     params.append('From', this.fromNumber);
     params.append('Body', payload.body);
 
-    const run = async () => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        logger.error(`❌ SMS API Error (Attempt):`, data);
-        throw new Error(`SMS API Error: ${JSON.stringify(data)}`);
-      }
-
-      return data;
-    };
-
     try {
-      const data = await pRetry(run, {
-        retries: 3,
-        onFailedAttempt: error => {
-          logger.warn(`SMS attempt ${error.attemptNumber} failed. ${error.retriesLeft} retries left.`);
+      const { data } = await fetchJsonWithRetry<any>(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: params
+        },
+        {
+          method: 'POST',
+          idempotent: true,
+          retryOnNetworkError: true,
+          operation: 'sms.send'
         }
-      });
-      logger.info(`✅ SMS message sent to ${payload.to}`);
+      );
+      logger.info(`SMS message sent to ${payload.to}`);
       return data;
     } catch (error) {
       logger.error(`Failed to send SMS to ${payload.to} after retries`, error);
