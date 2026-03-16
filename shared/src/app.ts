@@ -1,12 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import express, { Express } from 'express';
 import cookieParser from 'cookie-parser';
-import { globalErrorHandler } from './middleware';
+import { globalErrorHandler, attachAuthUser } from './middleware';
 
 interface AppOptions {
   serviceName: string;
   withCookies?: boolean;
   captureRawBody?: boolean;
+  withJwtAuth?: boolean;
 }
 
 declare global {
@@ -43,6 +44,10 @@ export function createBaseApp(options: AppOptions): Express {
   );
   if (options.withCookies !== false) {
     app.use(cookieParser());
+  }
+
+  if (options.withJwtAuth !== false && process.env.APP_ENV !== 'test') {
+    app.use(attachAuthUser);
   }
 
   // Standard Health Check
