@@ -1,10 +1,28 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError, ErrorCode } from './errors';
-import { Role } from './types';
+import { Role, JwtPayload } from './types';
 import pino from 'pino';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
+import { getDbPool } from './db';
+import * as Sentry from '@sentry/node';
 
 const logger = pino();
+
+// Initialize Sentry for backend services
+const initializeSentry = () => {
+  const sentryDsn = process.env.SENTRY_DSN;
+  if (sentryDsn) {
+    Sentry.init({
+      dsn: sentryDsn,
+      environment: process.env.APP_ENV || 'development',
+      tracesSampleRate: process.env.APP_ENV === 'production' ? 0.1 : 1.0,
+    });
+  }
+};
+
+// Initialize Sentry on module load
+initializeSentry();
 
 // Extend Express Request type to include the user property
 declare global {
@@ -23,6 +41,84 @@ export const requireAuth = (req: Request, _res: Response, next: NextFunction) =>
   if (!req.user || !req.user.userId) {
     return next(new AppError(ErrorCode.JWT_INVALID, 'Authentication required'));
   }
+  next();
+};
+
+const extractJwtToken = (req: Request): string | null => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+
+  const cookieToken = (req as any).cookies?.jwt;
+  if (cookieToken) {
+    return cookieToken as string;
+  }
+
+  return null;
+};
+
+export const attachAuthUser = async (req: Request, _res: Response, next: NextFunction) => {
+  const token = extractJwtToken(req);
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const jwtSecret = process.env.APP_JWT_SECRET;
+    if (!jwtSecret) {
+      logger.error({ msg: 'APP_JWT_SECRET is not configured; skipping auth token verification' });
+      return next();
+    }
+
+    const payload = jwt.verify(token, jwtSecret) as JwtPayload & { iat?: number };
+    if (!payload?.userId || !payload?.role) {
+      return next();
+    }
+
+    const { rows } = await getDbPool().query(
+      `SELECT id, role, is_deleted, session_version, session_revoked_at
+       FROM users WHERE id = $1`,
+      [payload.userId]
+    );
+
+    const userRow = rows[0];
+    if (!userRow || userRow.is_deleted) {
+      return next();
+    }
+
+    const dbVersion = Number(userRow.session_version ?? 0);
+    const tokenVersion = payload.sessionVersion ?? 0;
+
+    if (dbVersion > tokenVersion) {
+      return next();
+    }
+
+    if (userRow.session_revoked_at && payload.iat) {
+      const revokedAtSeconds = Math.floor(new Date(userRow.session_revoked_at).getTime() / 1000);
+      if (payload.iat < revokedAtSeconds) {
+        return next();
+      }
+    }
+
+    req.user = {
+      userId: payload.userId,
+      role: userRow.role ?? payload.role,
+      mobile: payload.mobile
+    };
+  } catch (error) {
+    // Ignore expected JWT errors to keep public routes accessible
+    const isJwtError = error instanceof Error && 
+      (error.name === 'JsonWebTokenError' || 
+       error.name === 'TokenExpiredError' ||
+       error.message.includes('jwt'));
+    
+    if (!isJwtError) {
+      // Log unexpected errors for observability
+      logger?.error({ error }, 'Unexpected error in JWT verification middleware');
+    }
+  }
+
   next();
 };
 
@@ -104,6 +200,11 @@ export const globalErrorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
+  // Capture error with Sentry
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(err);
+  }
+
   if (err instanceof AppError) {
     logger.error({ code: err.code, msg: err.message, meta: err.meta });
     return res
@@ -206,7 +307,11 @@ export const rateLimit = (options: { windowMs: number; max: number }) => {
       next();
     } catch (error) {
       logger.error({ err: error, msg: 'Rate limiter error' });
-      next(); // Fail open to avoid blocking users if Redis is down
+      const failOpen = process.env.APP_ENV !== 'production' && process.env.APP_ENV !== 'staging';
+      if (failOpen) {
+        return next();
+      }
+      return next(new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Rate limiter unavailable'));
     }
   };
 };

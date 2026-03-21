@@ -1,188 +1,390 @@
 'use client';
+// app/admin/products/new/page.tsx
 
-import { useState } from 'react';
-import { InventoryAllowed } from '@/components/admin/WithRoleGuard';
-import { apiFetch } from '@/lib/apiClient';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save } from 'lucide-react';
-import Link from 'next/link';
+import { THEME } from '@/lib/admin/theme';
+import { productsApi, brandsApi, categoriesApi } from '@/lib/admin/api';
+import type { Brand, Category, Variant } from '@/lib/admin/types';
+import Image from 'next/image';
+import {
+  PageHeader, SectionCard, ActionButton, FormField, TextInput,
+  Textarea, Select, Toggle, useToast, ErrorBanner, MonoText,
+  formatCurrency, 
+} from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
-export default function AdminProductForm() {
-  const router = useRouter();
-  const [formData, setFormData] = useState({
-    name: '',
-    slug: '',
-    description: '',
-    basePrice: '',
-    fabricType: '',
-    gsmWeight: '',
-    weaveType: '',
-    careInstructions: '',
-    fabricOrigin: 'India',
-    isActive: true
-  });
+const SIZES   = ['0.5m','1m','1.5m','2m','2.5m','3m','5m','10m'];
+const COLOURS = ['White','Off-white','Ecru','Beige','Grey','Black','Navy','Olive','Rust','Indigo'];
+const FABRIC_TYPES  = ['Linen','Cotton','Khadi','Silk','Wool','Georgette','Chiffon','Crepe'];
+const WEAVE_TYPES   = ['Plain','Twill','Satin','Dobby','Jacquard'];
+const BREATHABILITY = ['Excellent','Good','Fair','Poor'];
 
-  const [loading, setLoading] = useState(false);
+const INITIAL_FORM = {
+  name: '',
+  description: '',
+  brandId: '',
+  categoryId: '',
+  fabricType: 'Linen',
+  gsmWeight: '120',
+  weaveType: 'Plain',
+  breathabilityRating: 'Excellent',
+  careInstructions: '',
+  fabricOrigin: 'India',
+  isActive: true,
+};
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const payload = {
-        ...formData,
-        basePrice: Number(formData.basePrice)
-      };
-      await apiFetch('POST', '/api/v1/catalog/admin/products', payload, { withCredentials: true });
-      router.push('/admin/products');
-    } catch (err: any) {
-      alert(err.message || 'Failed to create product');
-    } finally {
-      setLoading(false);
-    }
+type ProductForm = typeof INITIAL_FORM;
+
+interface MatrixCell {
+  enabled: boolean; price: string; comparePrice: string; stockQty: string; sku: string;
+}
+type Matrix = Record<string, Record<string, MatrixCell>>;
+
+function generateSku(productName: string, colour: string, size: string): string {
+  const p = (productName.slice(0,3).toUpperCase().replace(/\s/g,'') || 'PRD');
+  return `${p}-${colour.slice(0,3).toUpperCase()}-${size.replace('.','').replace('m','M')}`;
+}
+
+function VariantMatrix({ productName, sizes, colours, matrix, onChange }: { productName: string; sizes: string[]; colours: string[]; matrix: Matrix; onChange: (m: Matrix) => void }) {
+  const toggle = (colour: string, size: string) => {
+    const cell = matrix[colour]?.[size] ?? { enabled: false, price: '', comparePrice: '', stockQty: '0', sku: generateSku(productName, colour, size) };
+    onChange({ ...matrix, [colour]: { ...matrix[colour], [size]: { ...cell, enabled: !cell.enabled } } });
+  };
+  const update = (colour: string, size: string, field: keyof MatrixCell, value: string) => {
+    const cell = matrix[colour]?.[size] ?? { enabled: false, price: '', comparePrice: '', stockQty: '0', sku: generateSku(productName, colour, size) };
+    onChange({ ...matrix, [colour]: { ...matrix[colour], [size]: { ...cell, [field]: value } } });
   };
 
   return (
-    <InventoryAllowed>
-      <div className="max-w-3xl mx-auto space-y-6 pb-20">
-        <div className="flex items-center gap-4">
-          <Link href="/admin/products" className="p-2 border border-gray-800 rounded hover:bg-gray-800 transition text-gray-400 hover:text-[var(--fs-linen)]">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-serif text-[var(--fs-linen)]">Create Product</h1>
-            <p className="text-gray-400 text-sm mt-1">Add a new fabric product to the catalog.</p>
-          </div>
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse' }} role="grid" aria-label="Product variants matrix">
+        <thead>
+          <tr>
+            <th scope="col" style={{ padding: '6px 10px', textAlign: 'left', color: THEME.colors.muted, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.xs, textTransform: 'uppercase', letterSpacing: '0.06em', borderRight: `1px solid ${THEME.colors.ghost}` }}>Colour / Size</th>
+            {sizes.map(s => <th key={s} scope="col" style={{ padding: '6px 8px', textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.xs, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{s}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {colours.map(colour => (
+            <tr key={colour}>
+              <th scope="row" style={{ padding: '6px 10px', color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, whiteSpace: 'nowrap', borderRight: `1px solid ${THEME.colors.ghost}`, fontSize: THEME.fontSizes.base, fontWeight: 500 }}>{colour}</th>
+              {sizes.map(size => {
+                const cell = matrix[colour]?.[size] ?? { enabled: false, price: '', comparePrice: '', stockQty: '0', sku: generateSku(productName, colour, size) };
+                const cellId = `cell-${colour}-${size}`;
+                return (
+                  <td key={size} style={{ padding: '4px 5px', verticalAlign: 'top' }}>
+                    <div style={{ width: '88px', background: cell.enabled ? 'rgba(201,169,110,0.05)' : THEME.colors.bg, border: `1px solid ${cell.enabled ? 'rgba(201,169,110,0.2)' : THEME.colors.ghost}`, borderRadius: THEME.radius.sm, padding: '5px', transition: 'all 0.12s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cell.enabled ? '5px' : 0 }}>
+                        <span style={{ fontSize: '10px', color: cell.enabled ? THEME.colors.linen : THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{cell.enabled ? 'Active' : 'Off'}</span>
+                        <button
+                          onClick={() => toggle(colour, size)}
+                          aria-pressed={cell.enabled}
+                          aria-label={`${cell.enabled ? 'Disable' : 'Enable'} ${colour} ${size} variant`}
+                          style={{ width: '26px', height: '14px', borderRadius: '7px', background: cell.enabled ? THEME.colors.success : THEME.colors.ghost, cursor: 'pointer', position: 'relative', transition: 'background 0.2s', border: 'none', padding: 0 }}
+                        >
+                          <span aria-hidden="true" style={{ position: 'absolute', top: '2px', left: cell.enabled ? '13px' : '2px', width: '10px', height: '10px', background: 'white', borderRadius: '50%', transition: 'left 0.2s', display: 'block' }} />
+                        </button>
+                      </div>
+                      {cell.enabled && (
+                        <>
+                          <label className="sr-only" htmlFor={`price-${cellId}`}>Price for {colour} {size}</label>
+                          <input 
+                            id={`price-${cellId}`}
+                            type="number" 
+                            placeholder="₹ Price" 
+                            value={cell.price} 
+                            onChange={e => update(colour, size, 'price', e.target.value)} 
+                            aria-label={`Price for ${colour} ${size}`}
+                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ivory, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} 
+                          />
+                          <label className="sr-only" htmlFor={`stock-${cellId}`}>Stock for {colour} {size}</label>
+                          <input 
+                            id={`stock-${cellId}`}
+                            type="number" 
+                            placeholder="Stock" 
+                            value={cell.stockQty} 
+                            onChange={e => update(colour, size, 'stockQty', e.target.value)}
+                            aria-label={`Stock for ${colour} ${size}`}
+                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ash, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} 
+                          />
+                          <div style={{ fontSize: '9px', color: THEME.colors.muted, fontFamily: THEME.fonts.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} aria-label={`SKU: ${cell.sku}`}>{cell.sku}</div>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function NewProductPage() {
+  const router = useRouter();
+  const { showToast, ToastComponent } = useToast();
+  const [brands,     setBrands]     = useState<Brand[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [saving,     setSaving]     = useState(false);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [selectedSizes,   setSelectedSizes]   = useState(['1m','2m','3m']);
+  const [selectedColours, setSelectedColours] = useState(['White','Ecru']);
+  const [matrix, setMatrix] = useState<Matrix>({});
+  const [form, setForm] = useState<ProductForm>(INITIAL_FORM);
+  const [errors, setErrors] = useState<Partial<Record<keyof ProductForm, string>>>({});
+  const [variantError, setVariantError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      brandsApi.list(controller.signal), 
+      categoriesApi.list(controller.signal)
+    ]).then(([b,c]) => { 
+      setBrands(b); 
+      setCategories(c); 
+    }).catch(err => {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
+      console.error('Failed to load initial data', err);
+    });
+    return () => controller.abort();
+  }, []);
+
+  const updateField = <K extends keyof ProductForm>(key: K, value: ProductForm[K]) => {
+    setForm(p => ({ ...p, [key]: value }));
+    setErrors(prev => (prev[key] ? { ...prev, [key]: '' } : prev));
+  };
+
+  const handleMatrixChange = (m: Matrix) => {
+    setMatrix(m);
+    if (variantError) setVariantError('');
+  };
+
+  const toggleSize = (size: string) => {
+    setSelectedSizes(p => p.includes(size) ? p.filter(x => x !== size) : [...p, size]);
+    if (variantError) setVariantError('');
+  };
+
+  const toggleColour = (colour: string) => {
+    setSelectedColours(p => p.includes(colour) ? p.filter(x => x !== colour) : [...p, colour]);
+    if (variantError) setVariantError('');
+  };
+
+  const validate = (values: ProductForm) => {
+    const next: Partial<Record<keyof ProductForm, string>> = {};
+    const gsmValue = Number(values.gsmWeight);
+    if (!values.name.trim()) next.name = 'Product name is required';
+    if (!values.brandId) next.brandId = 'Brand is required';
+    if (!values.categoryId) next.categoryId = 'Category is required';
+    if (!values.gsmWeight.trim()) next.gsmWeight = 'GSM weight is required';
+    if (values.gsmWeight && (Number.isNaN(gsmValue) || gsmValue <= 0)) next.gsmWeight = 'GSM weight must be a positive number';
+    return next;
+  };
+
+  const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    setImageFiles(p => [...p, ...files].slice(0,6));
+    files.forEach(f => { const r = new FileReader(); r.onload = ev => setImagePreviews(p => [...p, ev.target?.result as string].slice(0,6)); r.readAsDataURL(f); });
+  };
+
+  const buildVariants = () => {
+    const vars: Variant[] = [];
+    for (const colour of selectedColours) for (const size of selectedSizes) {
+      const cell = matrix[colour]?.[size];
+      if (!cell?.enabled || !cell.price) continue;
+      vars.push({ id: `var-${Date.now()}-${Math.random().toString(36).substr(2,9)}`, size, colour, sku: cell.sku, price: parseFloat(cell.price), comparePrice: cell.comparePrice ? parseFloat(cell.comparePrice) : null, stockQty: parseInt(cell.stockQty,10)||0, colourImageUrl: null, version: 1 });
+    }
+    return vars;
+  };
+
+  const handleSave = async () => {
+    const validationErrors = validate(form);
+    if (Object.values(validationErrors).some(Boolean)) {
+      setErrors(validationErrors);
+      return;
+    }
+    const variants = buildVariants();
+    if (!variants.length) { setVariantError('Enable at least one variant with a price'); return; }
+    setVariantError('');
+    try {
+      setSaving(true);
+      const imageUrls: string[] = [];
+      for (const file of imageFiles) imageUrls.push(await productsApi.uploadImage(file));
+      await productsApi.create({ ...form, gsmWeight: parseInt(form.gsmWeight,10), brandName: brands.find(b=>b.id===form.brandId)?.name??'', categoryName: categories.find(c=>c.id===form.categoryId)?.name??'', variants, images: imageUrls });
+      showToast('Product created', 'success');
+      router.push('/admin/products');
+    } catch (e: any) { showToast(mapError(e), 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const chip = (label: string, selected: boolean, onClick: () => void) => (
+    <div onClick={onClick} style={{ padding: '4px 10px', borderRadius: THEME.radius.sm, cursor: 'pointer', border: `1px solid ${selected ? 'rgba(201,169,110,0.3)' : THEME.colors.ghost}`, background: selected ? 'rgba(201,169,110,0.08)' : 'transparent', color: selected ? THEME.colors.linen : THEME.colors.ash, fontSize: THEME.fontSizes.sm, fontFamily: THEME.fonts.ui, transition: 'all 0.12s' }}>{label}</div>
+  );
+
+  return (
+    <div>
+      <PageHeader title="New product" action={
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <ActionButton variant="ghost" onClick={() => router.push('/admin/products')}>Cancel</ActionButton>
+          <ActionButton onClick={handleSave} loading={saving}>Save product</ActionButton>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-            <h2 className="text-lg font-medium border-b border-gray-800 pb-2 mb-4">Basic Information</h2>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">Product Name</label>
-                <input 
-                  required
-                  type="text" 
-                  className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                  value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value, slug: e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-')})}
+      } />
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <SectionCard title="Product information">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <FormField label="Product name" required error={errors.name} errorId="product-name-error">
+                <TextInput
+                  value={form.name}
+                  onChange={e => updateField('name', e.target.value)}
+                  aria-invalid={!!errors.name}
+                  aria-describedby={errors.name ? 'product-name-error' : undefined}
                 />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">Slug</label>
-                <input 
-                  required
-                  type="text" 
-                  className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                  value={formData.slug}
-                  onChange={e => setFormData({...formData, slug: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm text-gray-400">Description</label>
-              <textarea 
-                required
-                rows={4}
-                className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                value={formData.description}
-                onChange={e => setFormData({...formData, description: e.target.value})}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm text-gray-400">Base Price (₹)</label>
-              <input 
-                required
-                type="number" 
-                min="0"
-                step="0.01"
-                className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                value={formData.basePrice}
-                onChange={e => setFormData({...formData, basePrice: e.target.value})}
-              />
-            </div>
-          </div>
-
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-            <h2 className="text-lg font-medium border-b border-gray-800 pb-2 mb-4">Fabric USP Attributes</h2>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">Fabric Type (e.g Cotton, Silk)</label>
-                <input 
-                  required
-                  type="text" 
-                  className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                  value={formData.fabricType}
-                  onChange={e => setFormData({...formData, fabricType: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">GSM Weight</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                  value={formData.gsmWeight}
-                  onChange={e => setFormData({...formData, gsmWeight: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">Weave Type (e.g Twill, Plain)</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                  value={formData.weaveType}
-                  onChange={e => setFormData({...formData, weaveType: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">Fabric Origin</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                  value={formData.fabricOrigin}
-                  onChange={e => setFormData({...formData, fabricOrigin: e.target.value})}
-                />
+              </FormField>
+              <FormField label="Description">
+                <Textarea value={form.description} onChange={e => updateField('description', e.target.value)} rows={3} />
+              </FormField>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <FormField label="Brand" required error={errors.brandId} errorId="product-brand-error">
+                  <Select
+                    value={form.brandId}
+                    onChange={e => updateField('brandId', e.target.value)}
+                    aria-invalid={!!errors.brandId}
+                    aria-describedby={errors.brandId ? 'product-brand-error' : undefined}
+                  >
+                    <option value="">Select brand</option>
+                    {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </Select>
+                </FormField>
+                <FormField label="Category" required error={errors.categoryId} errorId="product-category-error">
+                  <Select
+                    value={form.categoryId}
+                    onChange={e => updateField('categoryId', e.target.value)}
+                    aria-invalid={!!errors.categoryId}
+                    aria-describedby={errors.categoryId ? 'product-category-error' : undefined}
+                  >
+                    <option value="">Select category</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </FormField>
               </div>
             </div>
-
-            <div className="space-y-2">
-              <label className="text-sm text-gray-400">Care Instructions</label>
-              <textarea 
-                rows={2}
-                className="w-full bg-[var(--fs-void)] border border-gray-700 rounded-md py-2 px-3 text-[var(--fs-linen)] focus:outline-none focus:border-gray-500"
-                value={formData.careInstructions}
-                onChange={e => setFormData({...formData, careInstructions: e.target.value})}
-              />
+          </SectionCard>
+          <SectionCard title="Fabric details">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <FormField label="Fabric type">
+                <Select value={form.fabricType} onChange={e => updateField('fabricType', e.target.value)}>
+                  {FABRIC_TYPES.map(t => <option key={t}>{t}</option>)}
+                </Select>
+              </FormField>
+              <FormField label="GSM weight" error={errors.gsmWeight} errorId="product-gsm-error">
+                <TextInput
+                  type="number"
+                  value={form.gsmWeight}
+                  suffix="GSM"
+                  onChange={e => updateField('gsmWeight', e.target.value)}
+                  aria-invalid={!!errors.gsmWeight}
+                  aria-describedby={errors.gsmWeight ? 'product-gsm-error' : undefined}
+                />
+              </FormField>
+              <FormField label="Weave type">
+                <Select value={form.weaveType} onChange={e => updateField('weaveType', e.target.value)}>
+                  {WEAVE_TYPES.map(t => <option key={t}>{t}</option>)}
+                </Select>
+              </FormField>
+              <FormField label="Breathability">
+                <Select value={form.breathabilityRating} onChange={e => updateField('breathabilityRating', e.target.value)}>
+                  {BREATHABILITY.map(t => <option key={t}>{t}</option>)}
+                </Select>
+              </FormField>
+              <FormField label="Origin">
+                <TextInput value={form.fabricOrigin} onChange={e => updateField('fabricOrigin', e.target.value)} />
+              </FormField>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3 bg-gray-900 border border-gray-800 rounded-xl p-6">
-            <input 
-              type="checkbox" 
-              id="isActive"
-              className="w-4 h-4"
-              checked={formData.isActive}
-              onChange={e => setFormData({...formData, isActive: e.target.checked})}
-            />
-            <label htmlFor="isActive" className="text-sm font-medium">Product is actively visible to customers</label>
-          </div>
-
-          <div className="flex justify-end pt-4">
-            <button 
-              type="submit"
-              disabled={loading}
-              className="px-6 py-3 disabled:opacity-50 bg-[var(--fs-linen)] text-[var(--fs-void)] hover:bg-gray-200 text-sm rounded flex items-center gap-2 font-medium transition shadow-lg"
-            >
-              {loading ? <span className="animate-spin text-xs">...</span> : <Save className="w-4 h-4" />}
-              Save Product
-            </button>
-          </div>
-        </form>
+            <div style={{ marginTop: '12px' }}>
+              <FormField label="Care instructions">
+                <Textarea value={form.careInstructions} onChange={e => updateField('careInstructions', e.target.value)} rows={2} />
+              </FormField>
+            </div>
+          </SectionCard>
+          <SectionCard title="Variants">
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sizes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>{SIZES.map(s => chip(s, selectedSizes.includes(s), () => toggleSize(s)))}</div>
+            </div>
+            <div style={{ marginBottom: '14px' }}>
+              <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Colours</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>{COLOURS.map(c => chip(c, selectedColours.includes(c), () => toggleColour(c)))}</div>
+            </div>
+            {selectedSizes.length && selectedColours.length ? (
+              <VariantMatrix productName={form.name} sizes={selectedSizes} colours={selectedColours} matrix={matrix} onChange={handleMatrixChange} />
+            ) : (
+              <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.sm, fontFamily: THEME.fonts.ui }}>Select sizes and colours above to configure variants</div>
+            )}
+            {variantError && <div style={{ color: THEME.colors.error, fontSize: THEME.fontSizes.sm, fontFamily: THEME.fonts.ui }}>{variantError}</div>}
+          </SectionCard>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <SectionCard title="Visibility">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>Active on storefront</div>
+                <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, marginTop: '2px' }}>Customers can find and buy this product</div>
+              </div>
+              <Toggle checked={form.isActive} onChange={v => updateField('isActive', v)} />
+            </div>
+          </SectionCard>
+          <SectionCard title={`Images (${imagePreviews.length}/6)`}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+              {imagePreviews.map((src,i) => (
+                <div key={i} style={{ aspectRatio: '1', borderRadius: THEME.radius.md, overflow: 'hidden', border: `1px solid ${THEME.colors.border}`, position: 'relative' }}>
+                  <Image
+                    src={src}
+                    alt=""
+                    fill
+                    unoptimized
+                    style={{ objectFit: 'cover' }}
+                  />
+                  <button onClick={() => { setImagePreviews(p=>p.filter((_,j)=>j!==i)); setImageFiles(p=>p.filter((_,j)=>j!==i)); }} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 12, zIndex: 1 }}>×</button>
+                </div>
+              ))}
+              {imagePreviews.length < 6 && (
+                <label style={{ aspectRatio: '1', borderRadius: THEME.radius.md, border: `1px dashed ${THEME.colors.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ color: THEME.colors.muted, fontSize: 20 }} aria-hidden="true">+</span>
+                  <span style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui }}>Add image</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    multiple 
+                    onChange={handleImageAdd} 
+                    style={{ display: 'none' }}
+                    aria-label="Upload product images"
+                  />
+                </label>
+              )}
+            </div>
+            <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>JPG, PNG, WebP. Converted to WebP on upload.</div>
+          </SectionCard>
+          {buildVariants().length > 0 && (
+            <SectionCard title={`Variant summary (${buildVariants().length})`} noPadding>
+              {buildVariants().slice(0,6).map(v => (
+                <div key={v.sku} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', borderBottom: `1px solid ${THEME.colors.ghost}20` }}>
+                  <div>
+                    <MonoText color={THEME.colors.muted}>{v.sku}</MonoText>
+                    <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{v.colour} · {v.size} · {v.stockQty} units</div>
+                  </div>
+                  <span style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.sm }}>{formatCurrency(v.price)}</span>
+                </div>
+              ))}
+              {buildVariants().length > 6 && <div style={{ padding: '8px 14px', fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>+{buildVariants().length-6} more variants</div>}
+            </SectionCard>
+          )}
+        </div>
       </div>
-    </InventoryAllowed>
+      {ToastComponent}
+    </div>
   );
 }

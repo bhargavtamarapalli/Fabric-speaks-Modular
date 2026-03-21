@@ -26,6 +26,10 @@ export class BannerService {
     return this.bannerRepo.list(filters);
   }
 
+  async listActiveBanners(limit: number = 10) {
+    return this.bannerRepo.listActiveNow(limit);
+  }
+
   async getBanner(id: string) {
     const banner = await this.bannerRepo.findById(id);
     if (!banner) throw new AppError(ErrorCode.NOT_FOUND, 'Banner not found');

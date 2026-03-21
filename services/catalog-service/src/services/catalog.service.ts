@@ -6,6 +6,7 @@ import {
     Variant, 
     Brand, 
     Category, 
+    Collection,
     EnhancedProduct,
     IProductRepository,
     IVariantRepository,
@@ -15,8 +16,11 @@ import {
     ProductQueryDto,
     CreateProductDto,
     UpdateProductDto,
+    CreateVariantDto,
+    BulkVariantUpdateDto,
+    UpdateVariantDto,
 } from '@fs/shared';
-import { CreateBrandDto, CreateCollectionDto, AdminProductQueryDto, CreateCategoryDto, UpdateCategoryDto, UpdateCollectionDto, DeactivateProductSchema } from '../schemas/catalog.schemas';
+import { CreateBrandDto, CreateCollectionDto, AdminProductQueryDto, CreateCategoryDto, UpdateCategoryDto, UpdateCollectionDto, CreateVariantInputDto, UpdateVariantInputDto, UpdateBrandDto } from '../schemas/catalog.schemas';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { logger } from '@fs/shared/logger';
 
@@ -118,14 +122,19 @@ export class CatalogService {
     }
 
     async createProduct(dto: CreateProductDto, adminId: string): Promise<Product> {
-        const product = await this.productRepo.create(dto);
+        const { variants, ...productPayload } = dto;
+        const product = await (this.productRepo as any).withTransaction(async (client: any) => {
+            const createdProduct = await (this.productRepo as any).create(productPayload, client);
+            await this.variantRepo.bulkCreate(createdProduct.id, variants, client);
+            return createdProduct;
+        });
         
         await this.auditLogRepo.insert({
             adminId,
             action: 'product.create',
             entityType: 'product',
             entityId: product.id,
-            afterJson: product
+            afterJson: { ...product, variantCount: variants.length }
         });
 
         await this.clearCatalogCache();
@@ -213,25 +222,23 @@ export class CatalogService {
             categoryId: original.categoryId,
             description: original.description,
             // Extract USP fields from raw product for CreateProductDto
-            ...this.extractFabricFields(original)
-        } as CreateProductDto;
-
-        const product = await this.productRepo.create(copyDto);
-
-        // Duplicate variants
-        for (const v of variants) {
-            await (this.variantRepo as any).create({
-                productId: product.id,
+            ...this.extractFabricFields(original),
+            variants: variants.map(v => ({
                 sku: `${v.sku}-COPY-${Math.floor(Date.now() / 1000).toString().slice(-4)}`,
                 size: v.size,
                 colour: v.colour,
+                sizeLabel: v.sizeLabel,
                 basePrice: v.basePrice,
+                priceOverride: v.priceOverride,
                 salePrice: v.salePrice,
                 saleActive: v.saleActive,
-                qty: 0, // Reset inventory for copies
+                qty: 0,
+                badges: v.badges,
+                images: v.images ?? [],
                 isActive: v.isActive
-            });
-        }
+            }))
+        } as CreateProductDto;
+        const product = await this.createProduct(copyDto, adminId);
 
         await this.auditLogRepo.insert({
             adminId,
@@ -243,6 +250,192 @@ export class CatalogService {
 
         await this.clearCatalogCache();
         return product;
+    }
+
+    async bulkUpdateVariants(productId: string, updates: BulkVariantUpdateDto[], adminId: string): Promise<Variant[]> {
+        const product = await this.productRepo.findById(productId);
+        if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
+
+        const variantIds = updates.map(update => update.variantId);
+        const existingVariants = await this.variantRepo.findByProductId(productId);
+        const existingById = new Map(existingVariants.map(variant => [variant.id, variant]));
+
+        const allBelongToProduct = await this.variantRepo.verifyBelongToProduct(variantIds, productId);
+        if (!allBelongToProduct) {
+            throw new AppError(ErrorCode.VARIANT_NOT_FOUND, 'One or more variants do not belong to this product');
+        }
+
+        const updated = await (this.variantRepo as any).withTransaction(async (client: any) => {
+            return this.variantRepo.bulkUpdate(updates, client);
+        });
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'product.variants.bulk_update',
+            entityType: 'product',
+            entityId: productId,
+            beforeJson: updates.map(update => {
+                const before = existingById.get(update.variantId);
+                return before ? { variantId: before.id, qty: before.qty, basePrice: before.basePrice, colour: before.colour } : null;
+            }).filter(Boolean),
+            afterJson: updated.map((variant: Variant) => ({
+                variantId: variant.id,
+                qty: variant.qty,
+                basePrice: variant.basePrice,
+                colour: variant.colour
+            }))
+        });
+
+        await this.clearCatalogCache();
+        await this.redis.del(`catalog:product:${product.slug}`);
+        return updated;
+    }
+
+    async bulkUpdatePrices(dto: { targetType: 'product' | 'variant' | 'collection' | 'brand' | 'global'; targetIds: string[]; adjustmentType: 'PERCENT' | 'FIXED'; adjustmentValue: number; applyTo: 'base_price' | 'price_override' }, adminId: string) {
+        const updatedCount = await (this.variantRepo as any).bulkAdjustPrices({
+            targetType: dto.targetType,
+            targetIds: dto.targetIds,
+            adjustmentType: dto.adjustmentType,
+            adjustmentValue: dto.adjustmentValue,
+            applyTo: dto.applyTo
+        });
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'pricing.bulk_update',
+            entityType: 'pricing',
+            entityId: '00000000-0000-0000-0000-000000000100',
+            afterJson: {
+                targetType: dto.targetType,
+                targetIds: dto.targetIds,
+                adjustmentType: dto.adjustmentType,
+                adjustmentValue: dto.adjustmentValue,
+                applyTo: dto.applyTo,
+                updatedCount
+            }
+        });
+
+        await this.clearCatalogCache();
+        return { updatedCount };
+    }
+
+    async createVariant(productId: string, dto: CreateVariantInputDto, adminId: string): Promise<Variant> {
+        const product = await this.productRepo.findById(productId);
+        if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
+
+        const sku = await this.generateVariantSku(product.slug, dto.size, dto.colour);
+        const variantDto: CreateVariantDto = {
+            sku,
+            size: dto.size,
+            colour: dto.colour,
+            sizeLabel: dto.sizeLabel,
+            basePrice: dto.basePrice,
+            priceOverride: dto.priceOverride,
+            salePrice: dto.salePrice,
+            saleActive: dto.saleActive,
+            qty: 0,
+            images: dto.images ?? [],
+            isActive: true
+        };
+
+        const variant = await this.variantRepo.create({ ...variantDto, productId });
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'variant.create',
+            entityType: 'variant',
+            entityId: variant.id,
+            afterJson: {
+                productId,
+                sku: variant.sku,
+                size: variant.size,
+                colour: variant.colour,
+                basePrice: variant.basePrice
+            }
+        });
+
+        await this.clearCatalogCache();
+        await this.redis.del(`catalog:product:${product.slug}`);
+        return this.withComputedVariantFields(variant) as any;
+    }
+
+    async updateVariant(variantId: string, dto: UpdateVariantInputDto, adminId: string): Promise<Variant> {
+        const before = await this.variantRepo.findById(variantId);
+        if (!before) throw new AppError(ErrorCode.VARIANT_NOT_FOUND);
+
+        const product = await this.productRepo.findById(before.productId);
+        if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
+
+        const updated = await this.variantRepo.updateById(variantId, {
+            sizeLabel: dto.sizeLabel,
+            basePrice: dto.basePrice,
+            priceOverride: dto.priceOverride,
+            salePrice: dto.salePrice,
+            saleActive: dto.saleActive,
+            qty: undefined,
+            badges: undefined,
+            images: dto.images,
+            isActive: undefined
+        } as UpdateVariantDto);
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'variant.update',
+            entityType: 'variant',
+            entityId: variantId,
+            beforeJson: {
+                sizeLabel: before.sizeLabel,
+                basePrice: before.basePrice,
+                priceOverride: before.priceOverride,
+                salePrice: before.salePrice,
+                saleActive: before.saleActive
+            },
+            afterJson: {
+                sizeLabel: updated.sizeLabel,
+                basePrice: updated.basePrice,
+                priceOverride: updated.priceOverride,
+                salePrice: updated.salePrice,
+                saleActive: updated.saleActive
+            }
+        });
+
+        await this.clearCatalogCache();
+        await this.redis.del(`catalog:product:${product.slug}`);
+        return this.withComputedVariantFields(updated) as any;
+    }
+
+    async deactivateVariant(variantId: string, adminId: string): Promise<{ variantId: string; deactivated: true; wishlistNotificationsSent: number }> {
+        const before = await this.variantRepo.findById(variantId);
+        if (!before) throw new AppError(ErrorCode.VARIANT_NOT_FOUND);
+
+        const activeOrders = await (this.variantRepo as any).countActiveOrders(variantId);
+        if (activeOrders > 0) {
+            throw new AppError(ErrorCode.PRODUCT_HAS_PENDING_ORDERS, 'Variant has pending orders');
+        }
+
+        const product = await this.productRepo.findById(before.productId);
+        if (!product) throw new AppError(ErrorCode.PRODUCT_NOT_FOUND);
+
+        const deactivated = await this.variantRepo.deactivate(variantId);
+        const subscriptions = await (this.variantRepo as any).countActiveNotifySubscriptions(variantId);
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'variant.deactivate',
+            entityType: 'variant',
+            entityId: variantId,
+            beforeJson: { isActive: before.isActive },
+            afterJson: { isActive: deactivated.isActive, wishlistNotificationsSent: subscriptions }
+        });
+
+        await this.clearCatalogCache();
+        await this.redis.del(`catalog:product:${product.slug}`);
+
+        return {
+            variantId,
+            deactivated: true,
+            wishlistNotificationsSent: subscriptions
+        };
     }
 
     private extractFabricFields(product: Product): any {
@@ -261,8 +454,20 @@ export class CatalogService {
         return this.brandRepo.findAllActive();
     }
 
+    async adminListBrands(): Promise<Brand[]> {
+        return this.brandRepo.findAll(true);
+    }
+
     async listCategories(): Promise<Category[]> {
         return this.categoryRepo.findAllActive();
+    }
+
+    async adminListCategories(): Promise<Category[]> {
+        return this.categoryRepo.findAll(true);
+    }
+
+    async adminListCollections(): Promise<Collection[]> {
+        return this.collectionRepo.findAll(true);
     }
 
     async createCategory(dto: CreateCategoryDto, adminId: string): Promise<Category> {
@@ -288,6 +493,22 @@ export class CatalogService {
             afterJson: category
         });
         return category;
+    }
+
+    async updateBrand(id: string, dto: UpdateBrandDto, adminId: string): Promise<Brand> {
+        const before = await this.brandRepo.findById(id);
+        if (!before) throw new AppError(ErrorCode.NOT_FOUND, 'Brand not found');
+
+        const brand = await this.brandRepo.update(id, dto);
+        await this.auditLogRepo.insert({
+            adminId,
+            action: dto.isActive === false ? 'brand.deactivate' : 'brand.update',
+            entityType: 'brand',
+            entityId: id,
+            beforeJson: before,
+            afterJson: brand
+        });
+        return brand;
     }
 
     async createBrand(dto: CreateBrandDto, adminId: string): Promise<Brand> {
@@ -352,6 +573,26 @@ export class CatalogService {
         });
     }
 
+    async reorderCollectionProducts(id: string, productIds: string[], adminId: string): Promise<void> {
+        const collection = await this.collectionRepo.findById(id);
+        if (!collection) throw new AppError(ErrorCode.NOT_FOUND, 'Collection not found');
+
+        try {
+            await this.collectionRepo.reorderProducts(id, productIds);
+        } catch (error) {
+            logger.warn({ collectionId: id, productIds, error }, 'Invalid collection reorder payload');
+            throw new AppError(ErrorCode.VALIDATION_ERROR, 'Reorder payload must match the products already assigned to the collection');
+        }
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'collection.reorder_products',
+            entityType: 'collection',
+            entityId: id,
+            afterJson: { productIds }
+        });
+    }
+
     async getCollection(slug: string): Promise<any> {
         const collection = await this.collectionRepo.findBySlug(slug);
         if (!collection) throw new AppError(ErrorCode.NOT_FOUND);
@@ -379,5 +620,33 @@ export class CatalogService {
             careInstructions: attrs.care_instructions,
             fabricOrigin: attrs.fabric_origin
         };
+    }
+
+    private withComputedVariantFields(variant: Variant) {
+        return {
+            ...variant,
+            effectivePrice: getEffectivePrice({
+                base_price: variant.basePrice,
+                sale_price: variant.salePrice,
+                price_override: variant.priceOverride,
+                sale_active: variant.saleActive
+            }),
+            isOnSale: Boolean(variant.saleActive && variant.salePrice)
+        };
+    }
+
+    private async generateVariantSku(productSlug: string, size: string, colour: string): Promise<string> {
+        const slugPrefix = productSlug.replace(/[^a-z0-9]/g, '').toUpperCase().slice(0, 4) || 'PROD';
+        const sizeCode = size.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 10);
+        const colourCode = colour.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 3);
+
+        let candidate = `FS-${slugPrefix}-${sizeCode}-${colourCode}`;
+        let counter = 1;
+        while (await this.variantRepo.findBySku(candidate)) {
+            candidate = `FS-${slugPrefix}-${sizeCode}-${colourCode}-${counter}`;
+            counter += 1;
+        }
+
+        return candidate;
     }
 }

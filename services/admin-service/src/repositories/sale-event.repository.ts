@@ -1,16 +1,19 @@
 import { BaseRepository } from '@fs/shared';
 
+export type SaleEventScope = 'global' | 'collection' | 'specific_products' | 'fabric_type';
+
 export interface SaleEvent {
   id: string;
   name: string;
   description?: string;
   discount_type: 'PERCENT' | 'FIXED';
   discount_value: number;
-  scope: 'global' | 'collection' | 'specific_products';
+  scope: SaleEventScope;
   scope_ids: string[];
   starts_at: Date;
   ends_at: Date;
   is_active: boolean;
+  paused_at?: Date | null;
   created_by: string;
   created_at: Date;
   updated_at: Date;

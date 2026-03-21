@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { AppError, ErrorCode, logger } from '@fs/shared';
+import { env } from '../config/env';
 
 // Shiprocket IP whitelist (documented in Shiprocket API docs)
 const SHIPROCKET_IP_WHITELIST = [
@@ -14,7 +15,7 @@ const SHIPROCKET_IP_WHITELIST = [
  */
 export const validateShiprocketWebhookSignature = (req: Request, res: Response, next: NextFunction) => {
   const signature = req.headers['x-shiprocket-signature'] as string;
-  const shiprocketSecret = process.env.SHIPROCKET_WEBHOOK_SECRET;
+  const shiprocketSecret = env.SHIPROCKET_WEBHOOK_SECRET;
 
   if (!shiprocketSecret) {
     logger.error('SHIPROCKET_WEBHOOK_SECRET not configured');
@@ -63,7 +64,7 @@ export const validateShiprocketSourceIP = (req: Request, res: Response, next: Ne
 
   const isWhitelisted = SHIPROCKET_IP_WHITELIST.some(cidr => isIPInRange(ip, cidr));
   
-  if (!isWhitelisted && process.env.APP_ENV === 'production') {
+  if (!isWhitelisted && env.APP_ENV === 'production') {
     logger.warn('Webhook source IP not whitelisted', { ip });
     throw new AppError(ErrorCode.UNAUTHORIZED, 'Webhook source IP not whitelisted');
   }

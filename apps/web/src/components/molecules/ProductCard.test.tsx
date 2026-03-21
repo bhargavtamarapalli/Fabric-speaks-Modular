@@ -6,17 +6,18 @@ const mockProduct = {
   id: 'pro_123',
   slug: 'test-fabric',
   name: 'Test Fabric',
+  brandName: 'Fabric Speaks',
   brand: { name: 'Fabric Speaks' },
   price: 5000,
-  sale_active: false,
-  thumbnail_url: 'http://example.com/img.jpg',
+  isSaleActive: false,
+  thumbnailUrl: 'http://example.com/img.jpg',
 };
 
 const mockProductSale = {
   ...mockProduct,
   id: 'pro_456',
-  sale_active: true,
-  sale_price: 3500,
+  isSaleActive: true,
+  salePrice: 3500,
 };
 
 describe('ProductCard Edge Cases', () => {

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { AppError, ErrorCode } from '@fs/shared';
+import { AppError, ErrorCode, withExternalRetry } from '@fs/shared';
 import {
   PAYMENT_EVENT,
   PAYMENT_METHOD_HINT,
@@ -202,15 +202,23 @@ export class PaymentService {
     }
 
     try {
-      const razorpayOrder = await this.dependencies.razorpayClient.orders.create({
-        amount: Math.round(order.totalAmount * 100),
-        currency: payload.currency,
-        receipt: payload.orderId,
-        notes: {
-          userId,
-          orderId: payload.orderId,
-        },
-      });
+      const razorpayOrder = await withExternalRetry(
+        () => this.dependencies.razorpayClient.orders.create({
+          amount: Math.round(order.totalAmount * 100),
+          currency: payload.currency,
+          receipt: payload.orderId,
+          notes: {
+            userId,
+            orderId: payload.orderId,
+          },
+        }),
+        {
+          method: 'POST',
+          idempotent: false,
+          retryOnNetworkError: true,
+          operation: 'razorpay.order.create'
+        }
+      );
 
       await this.dependencies.paymentRepo.createPayment({
         orderId: payload.orderId,
@@ -516,10 +524,18 @@ export class PaymentService {
     const nextStatus = resolveRefundStatus(payment.amount, refundAmount);
 
     try {
-      const refund = await this.dependencies.razorpayClient.payments.refund(payment.razorpayPaymentId, {
-        amount: payload.amount ? Math.round(payload.amount * 100) : undefined,
-        speed: 'normal',
-      });
+      const refund = await withExternalRetry(
+        () => this.dependencies.razorpayClient.payments.refund(payment.razorpayPaymentId, {
+          amount: payload.amount ? Math.round(payload.amount * 100) : undefined,
+          speed: 'normal',
+        }),
+        {
+          method: 'POST',
+          idempotent: false,
+          retryOnNetworkError: true,
+          operation: 'razorpay.payment.refund'
+        }
+      );
 
       const updatedPayment = payment.razorpayOrderId
         ? await this.dependencies.paymentRepo.updatePayment(payment.razorpayOrderId, {
@@ -574,7 +590,14 @@ export class PaymentService {
     }
 
     try {
-      return await this.dependencies.razorpayClient.payments.fetch(paymentId);
+      return await withExternalRetry(
+        () => this.dependencies.razorpayClient.payments.fetch!(paymentId),
+        {
+          method: 'GET',
+          idempotent: true,
+          operation: 'razorpay.payment.fetch'
+        }
+      );
     } catch (error) {
       this.dependencies.logger.warn(
         {

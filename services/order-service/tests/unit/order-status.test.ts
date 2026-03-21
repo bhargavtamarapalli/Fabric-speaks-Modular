@@ -11,6 +11,12 @@ vi.mock('bullmq', () => ({
   })),
 }));
 
+vi.mock('axios', () => ({
+  default: {
+    post: vi.fn(),
+  },
+}));
+
 describe('OrderService - Status Machine', () => {
   let orderService: OrderService;
   let mockOrderRepo: any;
@@ -20,6 +26,12 @@ describe('OrderService - Status Machine', () => {
     mockOrderRepo = {
       updateOrderStatus: vi.fn(),
       getOrderById: vi.fn(),
+      insertOrderStatusHistory: vi.fn(),
+      getOrderHistory: vi.fn(),
+      getPaymentByOrderId: vi.fn(),
+      markPaymentRefunded: vi.fn(),
+      restockOrderItems: vi.fn(),
+      withTransaction: vi.fn().mockImplementation((fn) => fn('mock-client')),
     };
     mockAuditLogRepo = {
       insert: vi.fn(),
@@ -67,5 +79,43 @@ describe('OrderService - Status Machine', () => {
     const result = await orderService.updateOrderStatus(orderId, newStatus);
 
     expect(result!.status).toBe(newStatus);
+  });
+
+  it('should map timeline actors for admin and courier events', async () => {
+    const orderId = 'order-123';
+    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, user_id: 'user-1', status: 'SHIPPED' });
+    mockOrderRepo.getOrderHistory.mockResolvedValue([
+      { status: 'CONFIRMED', createdAt: new Date().toISOString(), timelineActorId: 'admin-1', timelineActorType: 'admin', timelineNote: null },
+      { status: 'SHIPPED', createdAt: new Date().toISOString(), timelineActorId: null, timelineActorType: 'courier', timelineNote: 'Shiprocket webhook: in_transit' },
+    ]);
+
+    const result = await orderService.getOrderTimeline(orderId, null);
+
+    expect(result).toEqual([
+      expect.objectContaining({ status: 'CONFIRMED', actor: 'admin' }),
+      expect.objectContaining({ status: 'SHIPPED', actor: 'courier' }),
+    ]);
+  });
+
+  it('should cancel a confirmed order and restock items', async () => {
+    const orderId = 'order-123';
+    mockOrderRepo.getOrderById.mockResolvedValue({ id: orderId, status: 'CONFIRMED' });
+    mockOrderRepo.getPaymentByOrderId.mockResolvedValue(null);
+    mockOrderRepo.updateOrderStatus.mockResolvedValue({ id: orderId, status: 'CANCELLED' });
+
+    const result = await orderService.cancelOrder(orderId, 'admin-1', 'Customer requested cancellation before dispatch');
+
+    expect(mockOrderRepo.restockOrderItems).toHaveBeenCalledWith('mock-client', orderId);
+    expect(mockOrderRepo.insertOrderStatusHistory).toHaveBeenCalledWith(
+      'mock-client',
+      expect.objectContaining({
+        orderId,
+        status: 'CANCELLED',
+        previousStatus: 'CONFIRMED',
+        actorType: 'admin',
+        actorId: 'admin-1',
+      })
+    );
+    expect(result!.status).toBe('CANCELLED');
   });
 });

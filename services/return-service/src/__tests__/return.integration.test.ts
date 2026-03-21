@@ -10,7 +10,11 @@ const mockRepo = {
     findById: vi.fn().mockResolvedValue({ id: 'ret_1', status: 'APPROVED', userId: 'user_1' }),
     getReturns: vi.fn(),
     setShiprocketId: vi.fn(),
-    resolve: vi.fn()
+    resolve: vi.fn(),
+    insertStatusHistory: vi.fn().mockResolvedValue(undefined),
+    getOriginalOrderSummary: vi.fn().mockResolvedValue(null),
+    getReplacementOrderSummary: vi.fn().mockResolvedValue(null),
+    getTimeline: vi.fn().mockResolvedValue([])
 };
 
 const mockShiprocket = {
@@ -28,7 +32,8 @@ const mockInternal = {
         quantity: 5 
     }]),
     initiateRefund: vi.fn().mockResolvedValue({ success: true }),
-    createReplacementOrder: vi.fn().mockResolvedValue({ id: 'replacement_1' })
+    createReplacementOrder: vi.fn().mockResolvedValue({ id: 'replacement_1' }),
+    getRefundStatus: vi.fn().mockResolvedValue(null)
 };
 
 const mockAuditLog = {
@@ -48,6 +53,14 @@ app.post('/api/orders/:orderId/return', (req: any, res: any, next: any) => {
 app.patch('/api/admin/returns/:returnId/status', (req: any, res: any, next: any) => {
     req.user = { userId: 'admin_1', role: 'superAdmin' };
     controller.updateStatus(req, res, next);
+});
+app.get('/api/admin/returns/:returnId/timeline', (req: any, res: any, next: any) => {
+    req.user = { userId: 'admin_1', role: 'superAdmin' };
+    controller.getReturnTimeline(req, res, next);
+});
+app.post('/api/admin/returns/:returnId/resolve', (req: any, res: any, next: any) => {
+    req.user = { userId: 'support_1', role: 'supportAgent' };
+    controller.resolveReturn(req, res, next);
 });
 
 app.use((err: any, req: any, res: any, next: any) => {
@@ -84,5 +97,33 @@ describe('Return Service Integration (Manual Setup)', () => {
 
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
+    });
+
+    it('GET /api/admin/returns/:returnId/timeline - returns timeline data', async () => {
+        mockRepo.getTimeline.mockResolvedValue([
+            {
+                status: 'REQUESTED',
+                createdAt: new Date().toISOString(),
+                actorType: 'customer',
+                note: 'Return requested',
+                metadata: null,
+            }
+        ]);
+
+        const response = await request(app)
+            .get('/api/admin/returns/00000000-0000-0000-0000-000000000004/timeline');
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.data[0].status).toBe('REQUESTED');
+    });
+
+    it('POST /api/admin/returns/:returnId/resolve - blocks refund resolution for support agents', async () => {
+        const response = await request(app)
+            .post('/api/admin/returns/00000000-0000-0000-0000-000000000004/resolve')
+            .send({ resolution: 'REFUND' });
+
+        expect(response.status).toBe(500);
+        expect(response.body.message).toContain('Support agents can only resolve returns with replacement');
     });
 });

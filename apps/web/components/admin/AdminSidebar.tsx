@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useAuth } from '@/lib/hooks/useAuth';
 import { 
   LayoutDashboard, ShoppingBag, Package, RefreshCcw, 
   Activity, Tag, Layers, Ticket, Monitor, FileText, 
   Users, Headset, LogOut 
 } from 'lucide-react';
-import { AdminRole } from './WithRoleGuard';
+import { useAuth } from '@/lib/hooks/useAuth';
+import type { AdminRole } from '@/lib/admin/types';
 
 interface NavItem {
   label: string;
@@ -18,19 +18,19 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['superAdmin', 'inventoryManager', 'supportAgent'] },
-  { label: 'Orders', href: '/admin/orders', icon: ShoppingBag, roles: ['superAdmin', 'supportAgent'] },
-  { label: 'Products', href: '/admin/products', icon: Package, roles: ['superAdmin', 'inventoryManager'] },
-  { label: 'Inventory', href: '/admin/inventory', icon: Layers, roles: ['superAdmin', 'inventoryManager'] },
-  { label: 'Stock Health', href: '/admin/inventory/health', icon: Activity, roles: ['superAdmin', 'inventoryManager'] },
-  { label: 'Returns', href: '/admin/returns', icon: RefreshCcw, roles: ['superAdmin', 'supportAgent', 'inventoryManager'] },
-  { label: 'Categories', href: '/admin/categories', icon: Tag, roles: ['superAdmin', 'inventoryManager'] },
-  { label: 'Collections', href: '/admin/collections', icon: Layers, roles: ['superAdmin', 'inventoryManager'] },
-  { label: 'Coupons', href: '/admin/coupons', icon: Ticket, roles: ['superAdmin'] },
-  { label: 'Store Config', href: '/admin/config', icon: Monitor, roles: ['superAdmin'] },
-  { label: 'Pages', href: '/admin/pages', icon: FileText, roles: ['superAdmin'] },
-  { label: 'Admin Users', href: '/admin/users', icon: Users, roles: ['superAdmin'] },
-  { label: 'Support Queue', href: '/admin/support', icon: Headset, roles: ['superAdmin', 'supportAgent'] },
+  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT'] },
+  { label: 'Orders', href: '/admin/orders', icon: ShoppingBag, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT'] },
+  { label: 'Products', href: '/admin/products', icon: Package, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
+  { label: 'Inventory', href: '/admin/inventory', icon: Layers, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
+  { label: 'Stock Health', href: '/admin/inventory/health', icon: Activity, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
+  { label: 'Returns', href: '/admin/returns', icon: RefreshCcw, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT', 'INVENTORY_MANAGER'] },
+  { label: 'Categories', href: '/admin/categories', icon: Tag, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
+  { label: 'Collections', href: '/admin/collections', icon: Layers, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
+  { label: 'Coupons', href: '/admin/coupons', icon: Ticket, roles: ['SUPER_ADMIN'] },
+  { label: 'Store Config', href: '/admin/config', icon: Monitor, roles: ['SUPER_ADMIN'] },
+  { label: 'Pages', href: '/admin/pages', icon: FileText, roles: ['SUPER_ADMIN'] },
+  { label: 'Admin Users', href: '/admin/users', icon: Users, roles: ['SUPER_ADMIN'] },
+  { label: 'Support Queue', href: '/admin/support', icon: Headset, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT'] },
 ];
 
 export const AdminSidebar = () => {

@@ -29,9 +29,13 @@ router.post(
     returnController.initiateReturn
 );
 router.get('/returns/:returnId', requireAuth, returnController.getReturnStatus);
+router.get('/returns/:returnId/timeline', requireAuth, returnController.getReturnTimeline);
 
 // Admin endpoints — requireAuth MUST come before requireAdmin so the JWT is verified first
 router.get('/admin/returns', requireAuth, requireAdmin, returnController.listReturns);
+router.get('/admin/returns/:returnId/refund-status', requireAuth, requireAdmin, returnController.getRefundStatus);
+router.get('/admin/returns/:returnId/timeline', requireAuth, requireAdmin, returnController.getReturnTimeline);
+router.get('/admin/returns/:returnId', requireAuth, requireAdmin, returnController.getReturnStatus);
 router.patch(
     '/admin/returns/:returnId/status', 
     requireAuth,

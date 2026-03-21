@@ -9,7 +9,7 @@ export interface DashboardMetrics {
 }
 
 export const getDashboardMetrics = async (): Promise<DashboardMetrics> => {
-  return await apiFetch<DashboardMetrics>('GET', '/api/v1/admin/dashboard', undefined, { withCredentials: true });
+  return await apiFetch<DashboardMetrics>('/admin/dashboard', { method: 'GET' });
 };
 
 // ... More will be added as we build SCR-28, SCR-20, etc.

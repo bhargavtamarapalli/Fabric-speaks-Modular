@@ -16,9 +16,9 @@ export interface AuditLogEntry {
 export class AuditLogRepository extends BaseRepository {
     async insert(entry: AuditLogEntry): Promise<void> {
         const sql = `
-            INSERT INTO admin_audit_logs (
-                admin_id, action, entity_type, entity_id, before_json, after_json, ip_address, user_agent
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO admin_audit_log (
+                admin_id, action, entity_type, entity_id, before_json, after_json, ip_address
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         `;
         await this.query(sql, [
             entry.adminId,
@@ -27,8 +27,7 @@ export class AuditLogRepository extends BaseRepository {
             entry.entityId,
             entry.beforeJson ? JSON.stringify(entry.beforeJson) : null,
             entry.afterJson ? JSON.stringify(entry.afterJson) : null,
-            entry.ipAddress || null,
-            entry.userAgent || null
+            entry.ipAddress || null
         ]);
     }
 }

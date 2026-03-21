@@ -1,12 +1,12 @@
 import { apiFetch } from '@/lib/apiClient';
 
 export interface PincodeCheckResult {
-  serviceable: boolean;
-  cod_available: boolean;
-  estimated_delivery_days: number;
-  delivery_date_display: string;
+  isServiceable: boolean;
+  codAvailable: boolean;
+  estimatedDays: number;
+  deliveryDate: string;
 }
 
-export async function checkPincode(pincode: string): Promise<PincodeCheckResult> {
-  return apiFetch<PincodeCheckResult>(`/pincodes/${pincode}`);
+export async function checkPincode(pincode: string, signal?: AbortSignal): Promise<PincodeCheckResult> {
+  return apiFetch<PincodeCheckResult>(`/delivery/check?pincode=${pincode}`, { signal });
 }

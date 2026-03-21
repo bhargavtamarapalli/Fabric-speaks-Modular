@@ -55,7 +55,7 @@ for ENTRY in "${SERVICES[@]}"; do
     --timeout=30 \
     --concurrency=80 \
     --set-env-vars=APP_ENV=$ENV \
-    --set-secrets=DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,JWT_SECRET=JWT_SECRET:latest"
+    --set-secrets=DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,APP_JWT_SECRET=APP_JWT_SECRET:latest"
 
   # Special handling for DB-dependent services (Cloud SQL proxy is optional for Supabase, 
   # but keeping the hook if we switch back to Cloud SQL)

@@ -9,6 +9,8 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Log the error (error is used in useEffect in child component)
+  void error;
   return (
     <html>
       <body>

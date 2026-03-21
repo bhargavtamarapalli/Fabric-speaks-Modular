@@ -89,6 +89,22 @@ export class AdminUserRepository extends BaseRepository {
         return (result.rowCount ?? 0) > 0;
     }
 
+    async resetSession(id: string): Promise<{ sessionVersion: number; revokedAt: Date }> {
+        const query = `
+            UPDATE users
+            SET session_version = session_version + 1,
+                session_revoked_at = now(),
+                updated_at = now()
+            WHERE id = $1 AND is_deleted = false
+            RETURNING session_version as "sessionVersion", session_revoked_at as "revokedAt"
+        `;
+        const { rows } = await this.query(query, [id]);
+        if (!rows.length) {
+            throw new Error('User not found');
+        }
+        return rows[0];
+    }
+
     // Dashboard Methods
     async getFailedPaymentsCount() {
         const { rows } = await this.query("SELECT COUNT(*) FROM payments WHERE status = 'FAILED'");

@@ -1,9 +1,25 @@
 import { SettingsRepository } from '../repositories/settings.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+import { v5 as uuidv5 } from 'uuid';
 
 // Allowed public keys that storefront can view without JWT
 const PUBLIC_KEYS = ['store_name', 'free_shipping_above', 'cod_enabled'];
+
+const ALLOWED_SETTING_KEYS = new Set([
+  'store_name',
+  'store_email',
+  'store_phone',
+  'gst_number',
+  'free_shipping_above',
+  'cod_enabled',
+  'stock_alert_threshold',
+  'razorpay_live_mode',
+  'admin_whatsapp',
+  'inventory_manager_whatsapp',
+  'admin_notification_preferences'
+]);
+const STORE_SETTING_NAMESPACE = '2bb80d53-54f9-4b8d-8ca2-4150bc4b7d33';
 
 export class SettingsService {
   constructor(
@@ -66,6 +82,10 @@ export class SettingsService {
   }
 
   async updateSetting(key: string, value: string, adminId: string): Promise<any> {
+    if (!ALLOWED_SETTING_KEYS.has(key)) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Unsupported setting key: ${key}`);
+    }
+
     // Fetch previous value for audit log
     const oldValue = await this.settingsRepo.getByKey(key);
     
@@ -88,7 +108,7 @@ export class SettingsService {
       adminId,
       action: 'UPDATE_STORE_SETTING',
       entityType: 'STORE_SETTING',
-      entityId: key,
+      entityId: uuidv5(key, STORE_SETTING_NAMESPACE),
       beforeJson: oldValue !== null ? { value: oldValue } : null,
       afterJson: { value }
     });

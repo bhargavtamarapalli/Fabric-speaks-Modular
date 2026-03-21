@@ -11,6 +11,7 @@ import { SettingsRepository } from '../repositories/settings.repository';
 import { CustomerRepository } from '../repositories/customer.repository';
 import { BannerRepository } from '../repositories/banner.repository';
 import { SaleEventRepository } from '../repositories/sale-event.repository';
+import { SaleEventTargetRepository } from '../repositories/sale-event-target.repository';
 import { DashboardRepository } from '../repositories/dashboard.repository';
 
 // Services
@@ -21,6 +22,7 @@ import { ConfigService } from '../services/config.service';
 import { SettingsService } from '../services/settings.service';
 import { BannerService } from '../services/banner.service';
 import { SaleEventService } from '../services/sale-event.service';
+import { AnalyticsService } from '../services/analytics.service';
 
 // Controllers
 import { AdminController } from '../controllers/admin.controller';
@@ -30,6 +32,7 @@ import { ConfigController } from '../controllers/config.controller';
 import { SettingsController } from '../controllers/settings.controller';
 import { BannerController } from '../controllers/banner.controller';
 import { SaleEventController } from '../controllers/sale-event.controller';
+import { AnalyticsController } from '../controllers/analytics.controller';
 
 const router = Router();
 const db = getDbPool();
@@ -64,11 +67,17 @@ const bannerService = new BannerService(bannerRepo, auditLogRepo);
 const bannerController = new BannerController(bannerService);
 
 const saleEventRepo = new SaleEventRepository(db);
-const saleEventService = new SaleEventService(saleEventRepo, auditLogRepo);
+const saleEventTargetRepo = new SaleEventTargetRepository(db);
+const saleEventService = new SaleEventService(saleEventRepo, auditLogRepo, saleEventTargetRepo);
 const saleEventController = new SaleEventController(saleEventService);
+
+const analyticsService = new AnalyticsService(dashboardRepo, saleEventRepo);
+const analyticsController = new AnalyticsController(analyticsService);
 
 // Public settings (Storefront) - must be before requireAuth
 router.get('/settings/public', settingsController.getPublicSettings);
+router.get('/homepage/public', configController.getHomepageConfigPublic);
+router.get('/content/banners/active', bannerController.listActiveBanners);
 
 // Global middleware for whole admin suite ingress
 router.use(requireAuth);
@@ -78,8 +87,13 @@ router.get('/users', requireRole('superAdmin'), adminController.listAdminUsers);
 router.post('/users', requireRole('superAdmin'), adminController.createAdminUser);
 router.patch('/users/:id/role', requireRole('superAdmin'), adminController.updateAdminRole);
 router.delete('/users/:id', requireRole('superAdmin'), adminController.deleteAdminUser);
+router.post('/users/:id/reset-session', requireRole('superAdmin'), adminController.resetAdminSession);
 router.get('/audit-log', requireRole('superAdmin'), adminController.getAuditLogs);
 router.get('/dashboard/ops', requireRole('superAdmin', 'supportAgent'), adminController.getDashboardOps);
+router.get('/dashboard/reports/coupons', requireRole('superAdmin'), analyticsController.getCouponUsage);
+router.get('/dashboard/reports/returns', requireRole('superAdmin'), analyticsController.getReturnRateByProduct);
+router.get('/dashboard/reports/sales/:id', requireRole('superAdmin'), analyticsController.getSalePerformance);
+router.get('/dashboard/sales/live', requireRole('superAdmin'), analyticsController.getLiveSaleMonitor);
 router.get('/customers/lookup', requireRole('superAdmin', 'supportAgent'), adminController.lookupCustomers);
 
 // ADM-07 - ADM-09 (Coupons)
@@ -89,6 +103,7 @@ router.patch('/coupons/:id', requireRole('superAdmin'), couponController.updateC
 
 // ADM-10 (Content Pages)
 router.get('/content/pages', requireRole('superAdmin'), pageController.listPages);
+router.get('/content/pages/:id', requireRole('superAdmin'), pageController.getPage);
 router.post('/content/pages', requireRole('superAdmin'), pageController.createPage);
 router.patch('/content/pages/:id', requireRole('superAdmin'), pageController.updatePage);
 
@@ -111,6 +126,11 @@ router.get('/content/sales', requireRole('superAdmin'), saleEventController.list
 router.post('/content/sales', requireRole('superAdmin'), saleEventController.createSaleEvent);
 router.patch('/content/sales/:id', requireRole('superAdmin'), saleEventController.updateSaleEvent);
 router.delete('/content/sales/:id', requireRole('superAdmin'), saleEventController.deleteSaleEvent);
+router.get('/content/sales/:id/preview', requireRole('superAdmin'), saleEventController.previewSaleEvent);
+router.post('/content/sales/:id/apply', requireRole('superAdmin'), saleEventController.applySaleEvent);
+router.post('/content/sales/:id/end', requireRole('superAdmin'), saleEventController.endSaleEvent);
+router.post('/content/sales/:id/pause', requireRole('superAdmin'), saleEventController.pauseSaleEvent);
+router.post('/content/sales/:id/extend', requireRole('superAdmin'), saleEventController.extendSaleEvent);
 
 // GET methods for homepage/nav
 router.get('/homepage', requireRole('superAdmin'), configController.getHomepageConfig);

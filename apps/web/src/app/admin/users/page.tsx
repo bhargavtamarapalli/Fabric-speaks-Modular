@@ -1,107 +1,198 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { SuperAdminOnly } from '@/components/admin/WithRoleGuard';
-import { AdminTable } from '@/components/admin/AdminTable';
-import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
-import { useConfirmationModal } from '@/components/admin/ConfirmationModal';
-import { Plus, ShieldAlert, Trash2 } from 'lucide-react';
+// app/admin/users/page.tsx
 
-export default function AdminUsersPage() {
-  const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { requestConfirmation } = useConfirmationModal();
+import React, { useEffect, useState, useCallback } from 'react';
+import { THEME } from '@/lib/admin/theme';
+import { adminUsersApi } from '@/lib/admin/api';
+import type { AdminUser, AdminRole } from '@/lib/admin/types';
+import {
+  PageHeader, Badge, DataTable, ActionButton, ErrorBanner,
+  Drawer, FormField, TextInput, Select, ConfirmModal, useToast,
+  formatDateTime,
+} from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
-  const loadData = async () => {
+const ROLE_LABELS: Record<AdminRole, string> = {
+  SUPER_ADMIN:       'Super Admin',
+  INVENTORY_MANAGER: 'Inventory Manager',
+  SUPPORT_AGENT:     'Support Agent',
+};
+
+export default function UsersPage() {
+  const { showToast, ToastComponent } = useToast();
+
+  const [users,    setUsers]    = useState<AdminUser[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form,     setForm]     = useState({ name: '', email: '', role: 'SUPPORT_AGENT' as AdminRole });
+  const [errors,   setErrors]   = useState<Partial<Record<'name' | 'email' | 'role', string>>>({});
+  const [saving,   setSaving]   = useState(false);
+  const [deactId,  setDeactId]  = useState<string | null>(null);
+
+  const load = useCallback(async () => {
     try {
+      setError(null);
       setLoading(true);
-      const res = await apiFetch<{ items: any[] }>('GET', '/api/v1/admin/users', undefined, { withCredentials: true });
-      setUsers(res.items || (res as any));
-    } catch (e) {
-      console.error(e);
+      setUsers(await adminUsersApi.list());
+    } catch (e: any) {
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadData();
   }, []);
 
-  const handleDelete = async (id: string, name: string) => {
-    const confirmed = await requestConfirmation({
-      title: 'Revoke Access',
-      message: `Are you sure you want to permanently revoke admin panel access for ${name}?`,
-      confirmLabel: 'Revoke',
-      isDestructive: true
-    });
+  useEffect(() => { load(); }, [load]);
 
-    if (confirmed) {
-      try {
-        await apiFetch('DELETE', `/api/v1/admin/users/${id}`, undefined, { withCredentials: true });
-        loadData();
-      } catch (err: any) {
-        alert(err.message || 'Deletion failed');
-      }
+  const updateField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+    setForm(p => ({ ...p, [key]: value }));
+    setErrors(prev => (prev[key] ? { ...prev, [key]: '' } : prev));
+  };
+
+  const validate = () => {
+    const next: Partial<Record<'name' | 'email' | 'role', string>> = {};
+    if (!form.name.trim()) next.name = 'Full name is required';
+    if (!form.email.trim()) next.email = 'Email address is required';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) next.email = 'Enter a valid email address';
+    return next;
+  };
+
+  const handleCreate = async () => {
+    const validationErrors = validate();
+    if (Object.values(validationErrors).some(Boolean)) {
+      setErrors(validationErrors);
+      return;
+    }
+    try {
+      setSaving(true);
+      await adminUsersApi.create({ ...form, isActive: true });
+      showToast('User created — invite sent', 'success');
+      setShowForm(false);
+      setForm({ name: '', email: '', role: 'SUPPORT_AGENT' });
+      setErrors({});
+      load();
+    } catch (e: any) {
+      showToast(mapError(e), 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (loading) return <div className="py-20 flex justify-center"><SpiderLoader size="md" /></div>;
+  const handleDeactivate = async () => {
+    if (!deactId) return;
+    try {
+      await adminUsersApi.deactivate(deactId);
+      showToast('User deactivated', 'success');
+      setDeactId(null);
+      load();
+    } catch (e: any) {
+      showToast(mapError(e), 'error');
+    }
+  };
+
+  const columns = [
+    {
+      key:    'name',
+      label:  'Name',
+      render: (u: AdminUser) => (
+        <div>
+          <div style={{ color: THEME.colors.ivory, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>{u.name}</div>
+          <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.mono }}>{u.email}</div>
+        </div>
+      ),
+    },
+    {
+      key:    'role',
+      label:  'Role',
+      width:  '160px',
+      render: (u: AdminUser) => {
+        const badgeMap: Record<AdminRole, string> = { SUPER_ADMIN: 'superadmin', INVENTORY_MANAGER: 'inventory', SUPPORT_AGENT: 'support' };
+        return <Badge type={badgeMap[u.role] as any}>{ROLE_LABELS[u.role]}</Badge>;
+      },
+    },
+    {
+      key:    'status',
+      label:  'Status',
+      width:  '90px',
+      render: (u: AdminUser) => <Badge type={u.isActive ? 'active' : 'inactive'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>,
+    },
+    {
+      key:    'last',
+      label:  'Last active',
+      width:  '130px',
+      render: (u: AdminUser) => (
+        <span style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.mono }}>
+          {u.lastActiveAt ? formatDateTime(u.lastActiveAt) : 'Never'}
+        </span>
+      ),
+    },
+    {
+      key:    'actions',
+      label:  '',
+      width:  '100px',
+      render: (u: AdminUser) => (
+        <button
+          onClick={e => { e.stopPropagation(); setDeactId(u.id); }}
+          disabled={!u.isActive}
+          style={{ background: 'none', border: 'none', color: u.isActive ? THEME.colors.error : THEME.colors.ghost, fontSize: THEME.fontSizes.sm, cursor: u.isActive ? 'pointer' : 'not-allowed', fontFamily: THEME.fonts.ui }}
+        >
+          Deactivate
+        </button>
+      ),
+    },
+  ];
 
   return (
-    <SuperAdminOnly>
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-serif text-[var(--fs-linen)]">Identity & Access Management</h1>
-            <p className="text-gray-400 text-sm mt-1">Manage staff roles and permissions. Changes are logged.</p>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => alert('Opening audit logs module...')} className="px-4 py-2 border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800 text-sm rounded flex items-center gap-2 transition">
-              <ShieldAlert className="w-4 h-4" /> View Audit Logs
-            </button>
-            <button onClick={() => alert('Add user API triggered')} className="px-4 py-2 bg-[var(--fs-linen)] text-[var(--fs-void)] hover:bg-gray-200 text-sm rounded flex items-center gap-2 font-medium transition">
-              <Plus className="w-4 h-4" /> Provision Account
-            </button>
-          </div>
-        </div>
+    <div>
+      <PageHeader
+        title="Admin users"
+        subtitle={`${users.length} members`}
+        action={<ActionButton onClick={() => { setForm({ name: '', email: '', role: 'SUPPORT_AGENT' }); setErrors({}); setShowForm(true); }}>+ Add user</ActionButton>}
+      />
 
-        <AdminTable
-          data={users}
-          globalSearchField="name"
-          searchPlaceholder="Search staff name..."
-          columns={[
-            { header: 'Staff Name', accessor: 'name', sortable: true },
-            { header: 'Mobile (Login)', accessor: 'mobile' },
-            { 
-              header: 'Role Access', 
-              accessor: (row) => (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
-                  row.role === 'superAdmin' ? 'bg-purple-950/30 text-purple-400 border-purple-900' :
-                  row.role === 'inventoryManager' ? 'bg-amber-950/30 text-amber-400 border-amber-900' :
-                  'bg-blue-950/30 text-blue-400 border-blue-900'
-                }`}>
-                  {row.role}
-                </span>
-              ),
-              sortable: true
-            },
-            { header: 'Created', accessor: (row) => new Date(row.createdAt).toLocaleDateString() },
-            {
-              header: 'Revoke',
-              accessor: (row) => (
-                <button 
-                  onClick={() => handleDelete(row.id, row.name)}
-                  className="p-1.5 bg-red-950/20 hover:bg-red-900 text-red-500 rounded transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )
-            }
-          ]}
-        />
+      {error && <div style={{ marginBottom: '12px' }}><ErrorBanner message={error} onRetry={load} /></div>}
+
+      <div style={{ background: THEME.colors.surface3, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
+        <DataTable columns={columns} data={users} loading={loading} empty="No admin users" rowKey={u => u.id} />
       </div>
-    </SuperAdminOnly>
+
+      <Drawer open={showForm} onClose={() => { setShowForm(false); setErrors({}); }} title="Add admin user">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <FormField label="Full name" required error={errors.name} errorId="admin-name-error">
+            <TextInput
+              value={form.name}
+              onChange={e => updateField('name', e.target.value)}
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'admin-name-error' : undefined}
+            />
+          </FormField>
+          <FormField label="Email address" required error={errors.email} errorId="admin-email-error">
+            <TextInput
+              type="email"
+              value={form.email}
+              onChange={e => updateField('email', e.target.value)}
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? 'admin-email-error' : undefined}
+            />
+          </FormField>
+          <FormField label="Role" required>
+            <Select value={form.role} onChange={e => updateField('role', e.target.value as AdminRole)}>
+              <option value="SUPER_ADMIN">Super Admin</option>
+              <option value="INVENTORY_MANAGER">Inventory Manager</option>
+              <option value="SUPPORT_AGENT">Support Agent</option>
+            </Select>
+          </FormField>
+          <div style={{ background: 'rgba(201,169,110,0.06)', border: `1px solid rgba(201,169,110,0.12)`, borderRadius: THEME.radius.md, padding: '10px 12px', fontSize: THEME.fontSizes.sm, color: THEME.colors.linenDark, fontFamily: THEME.fonts.ui }}>
+            An invite email will be sent to the address above.
+          </div>
+          <ActionButton onClick={handleCreate} loading={saving} fullWidth>Send invite</ActionButton>
+        </div>
+      </Drawer>
+
+      <ConfirmModal open={!!deactId} title="Deactivate user?" message="This user will lose access immediately. Their audit log history is preserved." onConfirm={handleDeactivate} onCancel={() => setDeactId(null)} confirmLabel="Deactivate" danger />
+
+      {ToastComponent}
+    </div>
   );
 }

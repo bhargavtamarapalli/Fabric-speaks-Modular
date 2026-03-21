@@ -54,6 +54,17 @@ export class AdminController {
     res.json({ success: true, data: result });
   });
 
+  resetAdminSession = catchAsync(async (req: Request, res: Response) => {
+    const { id } = IdParamSchema.parse(req.params);
+    const adminId = req.user?.userId;
+    const adminRole = req.user?.role;
+
+    if (!adminId || !adminRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+
+    const result = await this.adminService.resetAdminSession(id, adminId, adminRole);
+    res.json({ success: true, data: result });
+  });
+
   getAuditLogs = catchAsync(async (req: Request, res: Response) => {
     const filters = AuditLogQuerySchema.parse(req.query);
     const result = await this.adminService.getAuditLogs(filters);

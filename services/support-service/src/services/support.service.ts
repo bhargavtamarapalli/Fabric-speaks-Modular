@@ -3,12 +3,14 @@ import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { CustomerViewService } from './customer-view.service';
 import { SupportQueueQueryDto, UpdateQueryDto } from '../schemas/support.schemas';
 import { AppError, ErrorCode, logger } from '@fs/shared';
+import { CustomerFlagRepository } from '../repositories/customer-flag.repository';
 
 export class SupportService {
   constructor(
     private supportRepo: SupportRepository,
     private auditLogRepo: AuditLogRepository,
-    private customerViewService: CustomerViewService
+    private customerViewService: CustomerViewService,
+    private customerFlagRepo: CustomerFlagRepository
   ) {}
 
   async getQueue(filters: SupportQueueQueryDto) {
@@ -80,5 +82,40 @@ export class SupportService {
     });
     
     return { success: true };
+  }
+
+  async upsertCustomerFlag(userId: string, flagType: 'VIP' | 'FRAUD', note: string | null, adminId: string) {
+    const existing = await this.customerFlagRepo.findActiveByUserAndType(userId, flagType);
+    let flag;
+    if (existing) {
+      flag = await this.customerFlagRepo.updateFlag(existing.id, note, adminId);
+    } else {
+      flag = await this.customerFlagRepo.createFlag(userId, flagType, note, adminId);
+    }
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'UPDATE_CUSTOMER_FLAG',
+      entityType: 'CUSTOMER',
+      entityId: userId,
+      afterJson: { flagType, note }
+    });
+
+    return flag;
+  }
+
+  async createPickupFailedAlert(orderId: string, returnId?: string | null, reason?: string | null) {
+    const userId = await this.supportRepo.getUserIdByOrderId(orderId);
+    const summary = `Shiprocket pickup failed for return ${returnId || 'N/A'} (order ${orderId})${reason ? `: ${reason}` : ''}`.slice(0, 500);
+
+    const alert = await this.supportRepo.createAlert({
+      userId,
+      orderId,
+      type: 'shiprocket_pickup_failed',
+      summary,
+      priority: 'P1'
+    });
+
+    return alert;
   }
 }

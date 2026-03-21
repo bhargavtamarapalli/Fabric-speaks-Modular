@@ -9,20 +9,25 @@ import { useRouter } from 'next/navigation';
 export default function AccountDeletionPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
-  
+
   const [step, setStep] = useState<'DISCLAIMER' | 'OTP' | 'SUCCESS'>('DISCLAIMER');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleRequestOtp = async () => {
+    const controller = new AbortController();
     try {
       setLoading(true);
       setError('');
       // Trigger OTP generation exclusively for the logged in user's mobile context
-      await apiFetch('/auth/delete-otp-request', { method: 'POST' });
+      await apiFetch('/auth/delete-otp-request', {
+        method: 'POST',
+        signal: controller.signal
+      });
       setStep('OTP');
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
       setError(err.message || 'Could not send verification code.');
     } finally {
       setLoading(false);
@@ -40,12 +45,14 @@ export default function AccountDeletionPage() {
       // Fires the rule-compliant deletion triggering cooling-off period
       await apiFetch('/auth/account', {
         method: 'DELETE',
-        body: JSON.stringify({ otp })
+        data: { otp },
       });
       setStep('SUCCESS');
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
       setError(err.message || 'Invalid verification code.');
-      setLoading(false); // Don't hang loader if invalid code
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -60,7 +67,7 @@ export default function AccountDeletionPage() {
           Your account deletion request has been registered and is now in the 14-day cooling off period as per DPDPA regulations.
         </p>
         <p className="text-[var(--fs-ash)] text-sm">You have been logged out securely.</p>
-        <button 
+        <button
           onClick={() => {
             logout(); // Clear internal client states
             router.push('/');
@@ -84,7 +91,7 @@ export default function AccountDeletionPage() {
 
       <div className="p-6 bg-red-950/10 border border-red-900/30 rounded-sm space-y-6">
         <h3 className="font-medium text-red-400">Please read carefully before proceeding:</h3>
-        
+
         <ul className="space-y-4 text-sm text-[var(--fs-ash)] list-disc list-inside">
           <li>
             <strong className="text-[var(--fs-ivory)]">Permanent Erasure:</strong> Your name, email, saved addresses, notification preferences, and wishlist will be permanently deleted.
@@ -108,7 +115,7 @@ export default function AccountDeletionPage() {
 
         {step === 'DISCLAIMER' && (
           <div className="pt-6 border-t border-red-900/30">
-            <button 
+            <button
               onClick={handleRequestOtp}
               disabled={loading}
               className="px-6 py-3 bg-red-950 text-red-400 hover:bg-red-900 hover:text-red-100 text-sm font-medium uppercase tracking-[0.1em] border border-red-900 transition flex items-center gap-2 disabled:opacity-50"
@@ -121,13 +128,14 @@ export default function AccountDeletionPage() {
         {step === 'OTP' && (
           <div className="pt-6 border-t border-red-900/30 space-y-6">
             <div className="space-y-2">
-              <label className="text-xs uppercase tracking-widest text-red-400">
+              <label htmlFor="verify-otp" className="text-xs uppercase tracking-widest text-red-400 cursor-pointer">
                 Verification Code Sent to {user?.mobile}
               </label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input 
-                  type="text" 
+                <input
+                  id="verify-otp"
+                  type="text"
                   maxLength={6}
                   placeholder="000000"
                   value={otp}
@@ -136,16 +144,16 @@ export default function AccountDeletionPage() {
                 />
               </div>
             </div>
-            
+
             <div className="flex items-center gap-4">
-              <button 
+              <button
                 onClick={handleConfirmDeletion}
                 disabled={loading || otp.length < 6}
                 className="px-6 py-3 bg-red-600 text-white hover:bg-red-500 text-sm font-medium uppercase tracking-[0.1em] transition disabled:opacity-50"
               >
                 {loading ? 'Deleting...' : 'Confirm Account Deletion'}
               </button>
-              <button 
+              <button
                 onClick={() => setStep('DISCLAIMER')}
                 disabled={loading}
                 className="text-xs text-gray-400 hover:text-white uppercase tracking-widest"

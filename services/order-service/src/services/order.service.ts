@@ -1,10 +1,11 @@
-import { getDbPool, getRedisClient, AppError, ErrorCode, logger } from '@fs/shared';
+import { getDbPool, getRedisClient, AppError, ErrorCode, logger, withExternalRetry } from '@fs/shared';
 import { Queue } from 'bullmq';
 import { OrderRepository, Order } from '../repositories/order.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { ShiprocketClient } from './shiprocket.client';
-import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
+import axios from 'axios';
+import { env } from '../config/env';
 
 export class OrderService {
   private eventQueue: Queue;
@@ -34,6 +35,33 @@ export class OrderService {
     
     try {
       await client.query('BEGIN');
+
+      const guestAddress = orderPayload.guest_address;
+      const guestMobile = orderPayload.guest_mobile || guestAddress?.mobile || null;
+      const formattedGuestAddress = guestAddress
+        ? [guestAddress.line1, guestAddress.line2, guestAddress.city, guestAddress.state, guestAddress.pincode]
+            .filter(Boolean)
+            .join(', ')
+        : null;
+
+      let deliveryAddressId = orderPayload.address_id || null;
+      if (userId) {
+        if (!deliveryAddressId) {
+          throw new AppError(ErrorCode.VALIDATION_ERROR, 'address_id is required for authenticated checkout');
+        }
+
+        const address = await this.orderRepo.getAddressByIdForUser(deliveryAddressId, userId);
+        if (!address) {
+          throw new AppError(ErrorCode.VALIDATION_ERROR, 'Address not found for this user');
+        }
+      } else {
+        if (!guestAddress) {
+          throw new AppError(ErrorCode.VALIDATION_ERROR, 'guest_address is required for guest checkout');
+        }
+
+        const createdGuestAddress = await this.orderRepo.createGuestAddress(client, guestAddress);
+        deliveryAddressId = createdGuestAddress.id;
+      }
       
       let subtotal = 0;
       let totalGst = 0;
@@ -76,7 +104,7 @@ export class OrderService {
           unit_price: unitPrice,
           gst_rate: gstRate,
           gst_amount: gstAmount,
-          delivery_address_id: orderPayload.address_id
+          delivery_address_id: deliveryAddressId
         });
       }
       
@@ -97,8 +125,8 @@ export class OrderService {
         payment_method: orderPayload.payment_method,
         subtotal, discount_amount: discountAmount, gst_amount: totalGst, total_amount: totalAmount,
         coupon_id: couponId, tracking_url: trackingUrl, cod_confirm_by: null, notes: null,
-        guest_mobile: orderPayload.guest_mobile,
-        guest_address: orderPayload.guest_address
+        guest_mobile: guestMobile,
+        guest_address: formattedGuestAddress
       });
       
       for (const vItem of verifiedItems) {
@@ -115,7 +143,14 @@ export class OrderService {
         gst_amount: totalGst
       });
       
-      await this.orderRepo.insertOrderStatusHistory(client, newOrder.id, newOrder.status, 'Order Placed', userId);
+      await this.orderRepo.insertOrderStatusHistory(client, {
+        orderId: newOrder.id,
+        status: newOrder.status,
+        previousStatus: null,
+        actorType: userId ? 'customer' : 'system',
+        actorId: userId,
+        note: 'Order placed',
+      });
       
       // Optional: COD Fraud Flag Check
       if (isCOD && userId) {
@@ -162,6 +197,26 @@ export class OrderService {
     return { ...order, history };
   }
 
+  async getAdminOrderDetails(orderId: string) {
+    return this.getOrderDetails(orderId, null);
+  }
+
+  async getOrderTimeline(orderId: string, userId: string | null) {
+    const order = await this.orderRepo.getOrderById(orderId, userId);
+    if (!order) throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
+
+    const history = await this.orderRepo.getOrderHistory(orderId);
+    return history.map((event: any) => ({
+      status: event.status,
+      timestamp: event.createdAt,
+      actor:
+        event.timelineActorId === order.user_id && event.timelineActorType === 'admin'
+          ? 'customer'
+          : event.timelineActorType,
+      note: event.timelineNote || null,
+    }));
+  }
+
   async listOrdersForAdmin(filters: any) {
     return this.orderRepo.findAllForAdmin(filters);
   }
@@ -185,6 +240,119 @@ export class OrderService {
     ]);
 
     return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  }
+
+  async cancelOrder(orderId: string, adminId: string, reason: string) {
+    const currentOrder = await this.orderRepo.getOrderById(orderId, null);
+    if (!currentOrder) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
+    }
+
+    const cancellableStates = ['CONFIRMED', 'PACKED'];
+    if (!cancellableStates.includes(currentOrder.status)) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Only confirmed or packed orders can be cancelled (current: ${currentOrder.status})`
+      );
+    }
+
+    const payment = await this.orderRepo.getPaymentByOrderId(orderId);
+    if (payment?.status === 'CAPTURED' || payment?.status === 'PARTIALLY_REFUNDED') {
+      const refundAmount = Number(payment.amount) - Number(payment.refund_amount || 0);
+      if (refundAmount > 0) {
+        const refund = await this.createRazorpayRefund(payment.razorpay_payment_id, refundAmount);
+        const nextPaymentStatus = refundAmount < Number(payment.amount) ? 'PARTIALLY_REFUNDED' : 'REFUNDED';
+        await this.orderRepo.markPaymentRefunded(orderId, nextPaymentStatus, refund.id, refundAmount);
+      }
+    }
+
+    const order = await this.orderRepo.withTransaction(async (client) => {
+      const updated = await this.orderRepo.updateOrderStatus(orderId, 'CANCELLED', client);
+      await this.orderRepo.restockOrderItems(client, orderId);
+      await this.orderRepo.insertOrderStatusHistory(client, {
+        orderId,
+        status: 'CANCELLED',
+        previousStatus: currentOrder.status,
+        actorType: 'admin',
+        actorId: adminId,
+        note: reason,
+      });
+      return updated;
+    });
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'ORDER_CANCELLED',
+      entityType: 'ORDER',
+      entityId: orderId,
+      beforeJson: { status: currentOrder.status },
+      afterJson: { status: 'CANCELLED', reason },
+    });
+
+    await this.eventQueue.add('order.cancelled', {
+      orderId,
+      previousStatus: currentOrder.status,
+      reason,
+    });
+
+    return order;
+  }
+
+  async getPackingSlip(orderId: string) {
+    const slip = await this.orderRepo.getPackingSlipData(orderId);
+    if (!slip) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'Order not found');
+    }
+
+    return {
+      orderNumber: slip.id,
+      orderDate: slip.orderDate,
+      customer: {
+        name: slip.customerName,
+        phone: slip.customerPhone,
+        address: slip.customerAddress,
+      },
+      items: slip.items,
+      totalItems: slip.items.reduce((sum: number, item: any) => sum + Number(item.qty), 0),
+      paymentMethod: slip.paymentMethod,
+      codAmount: slip.paymentMethod === 'COD' ? Number(slip.totalAmount) : null,
+      specialInstructions: slip.specialInstructions,
+    };
+  }
+
+  async getGstInvoice(orderId: string) {
+    const invoice = await this.orderRepo.getGstInvoiceData(orderId);
+    if (!invoice) {
+      throw new AppError(ErrorCode.ORDER_NOT_FOUND, 'GST invoice not found');
+    }
+
+    return invoice;
+  }
+
+  async exportBulkInvoicesCsv(filters: { dateFrom: string; dateTo: string }): Promise<string> {
+    const invoices = await this.orderRepo.getBulkGstInvoiceData(filters);
+
+    if (invoices.length === 0) {
+      return 'order_id,order_number,invoice_number,customer,total_amount,gst_amount,issued_at,pdf_url';
+    }
+
+    const headers = ['order_id', 'order_number', 'invoice_number', 'customer', 'total_amount', 'gst_amount', 'issued_at', 'pdf_url'];
+    const rows = invoices.map((invoice: any) => [
+      invoice.orderId,
+      invoice.orderNumber,
+      invoice.invoiceNumber,
+      `"${invoice.customer || ''}"`,
+      invoice.totalAmount,
+      invoice.gstAmount,
+      invoice.issuedAt,
+      invoice.pdfUrl || '',
+    ]);
+
+    return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+  }
+
+  async getPendingActionsDashboard() {
+    return this.orderRepo.getPendingActionsDashboard();
   }
 
   async updateOrderStatus(orderId: string, status: string, adminId?: string, notes?: string) {
@@ -224,17 +392,26 @@ export class OrderService {
     const order = await this.orderRepo.updateOrderStatus(orderId, status);
     
     // Add status history entry
-    await this.orderRepo.insertOrderStatusHistory(null, orderId, status, notes, adminId);
+    await this.orderRepo.insertOrderStatusHistory(null, {
+      orderId,
+      status,
+      previousStatus: currentOrder.status,
+      actorType: adminId ? 'admin' : 'system',
+      actorId: adminId || null,
+      note: notes || null,
+    });
 
     // RULE 6: Log all status changes to audit trail
-    await this.auditLogRepo.insert({
-      adminId: adminId, // Added adminId for Rule 6
-      action: 'ORDER_STATUS_CHANGED',
-      entityType: 'ORDER',
-      entityId: orderId,
-      beforeJson: { status: currentOrder.status },
-      afterJson: { status: status, notes }
-    });
+    if (adminId) {
+      await this.auditLogRepo.insert({
+        adminId,
+        action: 'ORDER_STATUS_CHANGED',
+        entityType: 'ORDER',
+        entityId: orderId,
+        beforeJson: { status: currentOrder.status },
+        afterJson: { status: status, notes }
+      });
+    }
     
     // Emit event for status change (notification service will consume)
     await this.eventQueue.add('order.status_changed', {
@@ -294,13 +471,13 @@ export class OrderService {
     // Update order status
     const updatedOrder = await this.orderRepo.updateOrderStatus(order.id, internalStatus);
     
-    // Audit log the status change
-    await this.auditLogRepo.insert({
-      action: 'ORDER_STATUS_CHANGED_VIA_WEBHOOK',
-      entityType: 'ORDER',
-      entityId: order.id,
-      beforeJson: { status: order.status, shiprocketStatus: shiprocketStatus },
-      afterJson: { status: internalStatus, trackingNumber: tracking_number }
+    await this.orderRepo.insertOrderStatusHistory(null, {
+      orderId: order.id,
+      status: internalStatus,
+      previousStatus: order.status,
+      actorType: 'courier',
+      actorId: null,
+      note: `Shiprocket webhook: ${shiprocketStatus}${tracking_number ? ` (${tracking_number})` : ''}`,
     });
 
     // Emit event for status change (notification service will consume)
@@ -454,7 +631,7 @@ export class OrderService {
       const shiprocketOrder = {
         order_id: order.id,
         order_date: order.created_at.toISOString(),
-        pickup_location: 'Primary',
+        pickup_location: env.SHIPROCKET_PICKUP_LOCATION,
         billing_customer_name: customerName,
         billing_email: customerEmail,
         billing_phone: customerPhone,
@@ -515,6 +692,47 @@ export class OrderService {
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
+    }
+  }
+
+  private async createRazorpayRefund(razorpayPaymentId: string | null | undefined, amount: number) {
+    if (!razorpayPaymentId) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Missing Razorpay payment id for refund');
+    }
+
+    const keyId = env.RAZORPAY_KEY_ID;
+    const keySecret = env.RAZORPAY_KEY_SECRET;
+    if (!keyId || !keySecret) {
+      throw new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Razorpay credentials are not configured');
+    }
+
+    try {
+      const response = await withExternalRetry(
+        () => axios.post(
+          `https://api.razorpay.com/v1/payments/${razorpayPaymentId}/refund`,
+          {
+            amount: Math.round(amount * 100),
+            speed: 'normal',
+          },
+          {
+            auth: {
+              username: keyId,
+              password: keySecret,
+            },
+            timeout: 10000,
+          }
+        ),
+        {
+          method: 'POST',
+          idempotent: false,
+          operation: 'razorpay.refund'
+        }
+      );
+
+      return response.data as { id: string };
+    } catch (error) {
+      logger.error({ razorpayPaymentId, amount, error }, 'Failed to create Razorpay refund');
+      throw new AppError(ErrorCode.EXTERNAL_SERVICE_ERROR, 'Unable to create Razorpay refund');
     }
   }
 }

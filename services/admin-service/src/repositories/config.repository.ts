@@ -25,15 +25,37 @@ export class ConfigRepository extends BaseRepository {
     }
 
     async updateNavItems(items: any[]): Promise<void> {
-        // Administrative update: replace current nav with new state
-        // In a real scenario, should use a transaction
-        await this.query('DELETE FROM nav_items');
-        for (const item of items) {
-            await this.query(`
-                INSERT INTO nav_items (label, link_type, link_target, display_order, is_active, highlight_color)
-                VALUES ($1, $2, $3, $4, $5, $6)
-            `, [item.label, item.type, item.targetSlug, item.displayOrder, true, item.highlightColor]);
+        // Validate that items array is non-empty before deleting
+        if (!items || items.length === 0) {
+            throw new Error('Cannot update nav items with an empty array - this would delete all navigation items');
         }
+        
+        await this.withTransaction(async (client) => {
+            await client.query('DELETE FROM nav_items');
+
+            for (const item of items) {
+                await client.query(`
+                    INSERT INTO nav_items (
+                        label,
+                        link_type,
+                        link_target,
+                        display_order,
+                        is_active,
+                        highlight_color,
+                        parent_id
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                `, [
+                    item.label,
+                    item.type,
+                    item.targetSlug,
+                    item.displayOrder,
+                    true,
+                    item.highlightColor ?? null,
+                    item.parentId ?? null
+                ]);
+            }
+        });
     }
 
     async getNavItems(): Promise<any[]> {

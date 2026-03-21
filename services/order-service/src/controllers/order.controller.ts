@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema, BulkPushToShiprocketSchema, OrderIdParamSchema, BulkUpdateOrderStatusSchema } from '../schemas/order.schemas';
+import { PlaceOrderSchema, AdminUpdateOrderStatusSchema, PushToShiprocketSchema, AdminListOrdersSchema, BulkPushToShiprocketSchema, OrderIdParamSchema, BulkUpdateOrderStatusSchema, CancelOrderSchema, BulkInvoiceExportSchema } from '../schemas/order.schemas';
 import { OrderService } from '../services/order.service';
 import { catchAsync } from '@fs/shared';
 
@@ -9,7 +9,7 @@ export class OrderController {
 
   placeOrder = catchAsync(async (req: Request, res: Response) => {
     const payload = PlaceOrderSchema.parse(req.body);
-    const userId = req.user?.userId || 'guest'; 
+    const userId = req.user?.userId ?? null;
 
     const order = await this.orderService.placeOrder(userId, payload);
     
@@ -29,6 +29,13 @@ export class OrderController {
     res.status(200).json({ success: true, data: order });
   });
 
+  getOrderTimeline = catchAsync(async (req: Request, res: Response) => {
+    const userId = req.user!.userId;
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const timeline = await this.orderService.getOrderTimeline(orderId, userId);
+    res.status(200).json({ success: true, data: timeline });
+  });
+
   trackGuestOrder = catchAsync(async (req: Request, res: Response) => {
     const { token } = req.params;
     const order = await this.orderService.getOrderByTrackingToken(token as string);
@@ -40,6 +47,13 @@ export class OrderController {
     const payload = AdminUpdateOrderStatusSchema.parse(req.body);
     
     const order = await this.orderService.updateOrderStatus(orderId, payload.status, req.user!.userId, payload.notes);
+    res.status(200).json({ success: true, data: order });
+  });
+
+  adminCancelOrder = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const { reason } = CancelOrderSchema.parse(req.body);
+    const order = await this.orderService.cancelOrder(orderId, req.user!.userId, reason);
     res.status(200).json({ success: true, data: order });
   });
 
@@ -70,6 +84,18 @@ export class OrderController {
     res.status(200).json({ success: true, data: { items: result.items }, meta: { total: result.total } });
   });
 
+  adminGetOrderById = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const order = await this.orderService.getAdminOrderDetails(orderId);
+    res.status(200).json({ success: true, data: order });
+  });
+
+  adminGetOrderTimeline = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const timeline = await this.orderService.getOrderTimeline(orderId, null);
+    res.status(200).json({ success: true, data: timeline });
+  });
+
   adminExportOrders = catchAsync(async (req: Request, res: Response) => {
     const filters = AdminListOrdersSchema.parse(req.query);
     const csv = await this.orderService.exportOrdersCsv(filters);
@@ -77,6 +103,32 @@ export class OrderController {
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=orders_export.csv');
     res.status(200).send(csv);
+  });
+
+  adminGetPackingSlip = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const packingSlip = await this.orderService.getPackingSlip(orderId);
+    res.status(200).json({ success: true, data: packingSlip });
+  });
+
+  adminGetGstInvoice = catchAsync(async (req: Request, res: Response) => {
+    const { orderId } = OrderIdParamSchema.parse(req.params);
+    const invoice = await this.orderService.getGstInvoice(orderId);
+    res.status(200).json({ success: true, data: invoice });
+  });
+
+  adminExportInvoices = catchAsync(async (req: Request, res: Response) => {
+    const filters = BulkInvoiceExportSchema.parse(req.query);
+    const csv = await this.orderService.exportBulkInvoicesCsv(filters);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=bulk_invoices_export.csv');
+    res.status(200).send(csv);
+  });
+
+  adminGetPendingActions = catchAsync(async (_req: Request, res: Response) => {
+    const pendingActions = await this.orderService.getPendingActionsDashboard();
+    res.status(200).json({ success: true, data: pendingActions });
   });
 
   shiprocketWebhook = catchAsync(async (req: Request, res: Response) => {

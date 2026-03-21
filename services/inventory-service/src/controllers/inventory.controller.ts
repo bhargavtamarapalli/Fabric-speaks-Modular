@@ -149,4 +149,24 @@ export class InventoryController {
       data
     });
   });
+
+  getDeadStock = catchAsync(async (req: Request, res: Response) => {
+    const days = req.query.days ? Number(req.query.days) : 30;
+    if (Number.isNaN(days) || days <= 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'days must be a positive number');
+    }
+
+    const data = await this.inventoryService.getDeadStock(days);
+    res.status(200).json({ success: true, data });
+  });
+
+  getDemandPatterns = catchAsync(async (req: Request, res: Response) => {
+    const days = req.query.days ? Number(req.query.days) : 30;
+    if (Number.isNaN(days) || days <= 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'days must be a positive number');
+    }
+
+    const data = await this.inventoryService.getDemandPatterns(days);
+    res.status(200).json({ success: true, data });
+  });
 }

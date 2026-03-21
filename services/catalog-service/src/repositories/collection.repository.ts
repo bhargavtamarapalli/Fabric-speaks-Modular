@@ -3,6 +3,15 @@ import { BaseRepository, ICollectionRepository, Collection } from '@fs/shared';
 export { Collection };
 
 export class CollectionRepository extends BaseRepository implements ICollectionRepository {
+    async findAll(includeInactive = false): Promise<Collection[]> {
+        const result = await this.query(
+            `SELECT * FROM collections
+             WHERE is_deleted = false ${includeInactive ? '' : 'AND is_active = true'}
+             ORDER BY display_order ASC, created_at DESC`
+        );
+        return result.rows.map(row => this.mapToCamelCase<Collection>(row));
+    }
+
     async findBySlug(slug: string): Promise<Collection | null> {
         const result = await this.query(
             'SELECT * FROM collections WHERE slug = $1 AND is_deleted = false',
@@ -12,10 +21,7 @@ export class CollectionRepository extends BaseRepository implements ICollectionR
     }
 
     async findAllActive(): Promise<Collection[]> {
-        const result = await this.query(
-            'SELECT * FROM collections WHERE is_active = true AND is_deleted = false ORDER BY created_at DESC'
-        );
-        return result.rows.map(row => this.mapToCamelCase<Collection>(row));
+        return this.findAll(false);
     }
 
     async findProductsByCollectionId(collectionId: string): Promise<string[]> {
@@ -83,5 +89,28 @@ export class CollectionRepository extends BaseRepository implements ICollectionR
             'DELETE FROM collection_products WHERE collection_id = $1 AND product_id = $2',
             [collectionId, productId]
         );
+    }
+
+    async reorderProducts(collectionId: string, productIds: string[]): Promise<void> {
+        await this.withTransaction(async (client) => {
+            const existing = await client.query(
+                'SELECT product_id FROM collection_products WHERE collection_id = $1',
+                [collectionId]
+            );
+            const existingIds = new Set(existing.rows.map((row: any) => row.product_id));
+
+            if (existingIds.size !== productIds.length || productIds.some((id) => !existingIds.has(id))) {
+                throw new Error('Reorder payload must contain the exact set of collection products');
+            }
+
+            for (let index = 0; index < productIds.length; index += 1) {
+                await client.query(
+                    `UPDATE collection_products
+                     SET display_order = $3
+                     WHERE collection_id = $1 AND product_id = $2`,
+                    [collectionId, productIds[index], index]
+                );
+            }
+        });
     }
 }

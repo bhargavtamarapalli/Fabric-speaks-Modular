@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AppError, ErrorCode } from '@fs/shared/errors';
+import { AppError, ErrorCode, withExternalRetry } from '@fs/shared';
 
 export class CatalogIntegrationService {
     private readonly catalogUrl: string;
@@ -10,9 +10,13 @@ export class CatalogIntegrationService {
 
     async getVariantStockDetails(variantId: string): Promise<{ stock_qty: number; price: number } | null> {
         try {
-            const response = await axios.get(`${this.catalogUrl}/internal/variants/${variantId}`, {
-                timeout: 5000
-            });
+            const response = await withExternalRetry(
+                () => axios.get(`${this.catalogUrl}/internal/variants/${variantId}`, { timeout: 5000 }),
+                {
+                    method: 'GET',
+                    operation: 'catalog.getVariant'
+                }
+            );
             const variant = response.data.data;
             
             if (!variant) return null;

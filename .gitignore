@@ -40,3 +40,21 @@ next-env.d.ts
 # compiled js files in shared
 shared/src/**/*.js
 shared/src/**/*.js.map
+
+# Firebase
+firebase-debug.log
+*.log
+
+# Admin backups and artifacts
+backup_detailed_admin_pages/
+FabricSpeaks_AdminScreens_v1/
+*.zip
+
+# Documentation generated files
+*_VERIFICATION.md
+*_FIX.md
+ADMIN_INTEGRATION_VERIFICATION.md
+DIRECTORY_STRUCTURE_FIX.md
+
+# Environment files - production specific
+apps/web/.env.production

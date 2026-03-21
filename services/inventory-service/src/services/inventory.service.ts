@@ -59,9 +59,22 @@ export class InventoryService {
 
     logger.info(`Stock adjusted for variant ${variantId} to ${newQty} by ${adminUserId}`);
     
-    if (updated.stockQty < updated.thresholdQty) {
-      await this.eventQueue.add('stock.low', {
+    if (updated.stockQty <= 0) {
+      this.enqueueEvent('stock.critical', {
         variantId: updated.variantId,
+        sku: updated.sku,
+        size: updated.size,
+        colour: updated.colour,
+        productName: updated.productName,
+        stockCount: updated.stockQty,
+        threshold: updated.thresholdQty
+      });
+    } else if (updated.stockQty < updated.thresholdQty) {
+      this.enqueueEvent('stock.low', {
+        variantId: updated.variantId,
+        sku: updated.sku,
+        size: updated.size,
+        colour: updated.colour,
         productName: updated.productName,
         stockCount: updated.stockQty,
         threshold: updated.thresholdQty
@@ -105,9 +118,22 @@ export class InventoryService {
                 afterJson: { stockQty: updated.stockQty, reason: validated.reason }
               });
 
-              if (updated.stockQty < updated.thresholdQty) {
-                await this.eventQueue.add('stock.low', {
+              if (updated.stockQty <= 0) {
+                this.enqueueEvent('stock.critical', {
                   variantId: updated.variantId,
+                  sku: updated.sku,
+                  size: updated.size,
+                  colour: updated.colour,
+                  productName: updated.productName,
+                  stockCount: updated.stockQty,
+                  threshold: updated.thresholdQty
+                });
+              } else if (updated.stockQty < updated.thresholdQty) {
+                this.enqueueEvent('stock.low', {
+                  variantId: updated.variantId,
+                  sku: updated.sku,
+                  size: updated.size,
+                  colour: updated.colour,
                   productName: updated.productName,
                   stockCount: updated.stockQty,
                   threshold: updated.thresholdQty
@@ -176,7 +202,7 @@ export class InventoryService {
     // Check if replenished stock triggers events
     const updatedVariant = await this.invRepo.getVariant(arrival.variant_id);
     if (updatedVariant && updatedVariant.stockQty > 0) {
-       await this.eventQueue.add('stock.replenished', {
+       this.enqueueEvent('stock.replenished', {
           variantId: updatedVariant.variantId,
           productName: updatedVariant.productName,
           stockCount: updatedVariant.stockQty
@@ -218,5 +244,19 @@ export class InventoryService {
 
   async getRestockSuggestions(): Promise<VariantStock[]> {
     return this.invRepo.getRestockSuggestions();
+  }
+
+  async getDeadStock(days: number = 30) {
+    return this.invRepo.getDeadStock(days);
+  }
+
+  async getDemandPatterns(days: number = 30) {
+    return this.invRepo.getDemandPatterns(days);
+  }
+
+  private enqueueEvent(name: string, payload: Record<string, unknown>): void {
+    void this.eventQueue.add(name, payload).catch((error) => {
+      logger.warn(`[InventoryService] Failed to enqueue ${name}`, error);
+    });
   }
 }

@@ -1,7 +1,7 @@
 import { apiFetch } from '@/lib/apiClient';
 
 export interface RazorpayOrderPayload {
-  razorpay_order_id: string;
+  razorpayOrderId: string;
   key: string;
   amount: number; // paise
   currency: string;
@@ -10,22 +10,35 @@ export interface RazorpayOrderPayload {
 }
 
 export interface PaymentVerifyPayload {
-  razorpay_payment_id: string;
-  razorpay_order_id: string;
-  razorpay_signature: string;
+  razorpayPaymentId: string;
+  razorpayOrderId: string;
+  razorpaySignature: string;
 }
 
-export async function initiateRazorpay(orderId: string): Promise<RazorpayOrderPayload> {
+export async function initiateRazorpay(orderId: string, signal?: AbortSignal): Promise<RazorpayOrderPayload> {
   return apiFetch<RazorpayOrderPayload>('/payments/razorpay-order', {
     method: 'POST',
     data: { orderId },
+    signal,
   });
 }
 
-export async function verifyPayment(payload: PaymentVerifyPayload): Promise<{ success: boolean }> {
-  return apiFetch<{ success: boolean }>('/payments/verify', { method: 'POST', data: payload });
+export async function verifyPayment(payload: PaymentVerifyPayload, signal?: AbortSignal): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>('/payments/verify', { 
+    method: 'POST', 
+    data: {
+      razorpayPaymentId: payload.razorpayPaymentId,
+      razorpayOrderId: payload.razorpayOrderId,
+      razorpaySignature: payload.razorpaySignature
+    },
+    signal,
+  });
 }
 
-export async function confirmCod(orderId: string): Promise<{ success: boolean }> {
-  return apiFetch<{ success: boolean }>('/payments/cod/confirm', { method: 'POST', data: { orderId } });
+export async function confirmCod(orderId: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>('/payments/cod/confirm', { 
+    method: 'POST', 
+    data: { orderId },
+    signal,
+  });
 }

@@ -1,56 +1,59 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
-import { Shield } from 'lucide-react';
+import { getProfile, updateProfile, UserProfile } from '@/lib/api/customer';
+import { Shield, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-
-interface UserProfile {
-  name: string;
-  email: string;
-  mobile: string;
-}
+import { useToast } from '@/context/ToastContext';
 
 export default function ProfilePage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  useEffect(() => {
-    // Assuming GET /api/v1/customer/profile returns the current user's data
-    apiFetch<UserProfile>('/customer/profile')
-      .then(res => setProfile(res as unknown as UserProfile))
-      .catch(() => {
-        // Fallback to auth context if API not linked yet
-        if (user) {
-          setProfile({
-            name: user.name || '',
-            email: user.email || '',
-            mobile: user.mobile || ''
-          });
-        }
-      })
-      .finally(() => setLoading(false));
+  const fetchProfile = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setLoading(true);
+      const res = await getProfile(signal);
+      setProfile(res);
+    } catch (err: any) {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
+      if (user) {
+        setProfile({
+          name: user.name || '',
+          email: user.email || '',
+          mobile: user.mobile || ''
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchProfile(controller.signal);
+    return () => controller.abort();
+  }, [fetchProfile]);
 
   const handleSave = async () => {
     if (!profile) return;
+    const controller = new AbortController();
     try {
       setSaving(true);
-      await apiFetch('/customer/profile', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: profile.name,
-          email: profile.email
-        })
-      });
+      await updateProfile({
+        name: profile.name,
+        email: profile.email
+      }, controller.signal);
       setEditMode(false);
-      alert('Profile updated successfully');
+      showToast('Profile updated successfully', 'success');
     } catch (err: any) {
-      alert(err.message || 'Failed to update profile');
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
+      showToast(err.message || 'Failed to update profile', 'error');
     } finally {
       setSaving(false);
     }
@@ -79,8 +82,9 @@ export default function ProfilePage() {
 
       <div className="space-y-6">
         <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-[var(--fs-ash)]">Full Name</label>
+          <label htmlFor="full-name" className="text-xs uppercase tracking-widest text-[var(--fs-ash)] cursor-pointer">Full Name</label>
           <input 
+            id="full-name"
             type="text" 
             disabled={!editMode}
             value={profile.name}
@@ -90,8 +94,9 @@ export default function ProfilePage() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-[var(--fs-ash)]">Email Address</label>
+          <label htmlFor="email" className="text-xs uppercase tracking-widest text-[var(--fs-ash)] cursor-pointer">Email Address</label>
           <input 
+            id="email"
             type="email" 
             disabled={!editMode}
             value={profile.email}
@@ -102,12 +107,13 @@ export default function ProfilePage() {
 
         <div className="space-y-2 opacity-70">
           <div className="flex justify-between">
-            <label className="text-xs uppercase tracking-widest text-[var(--fs-ash)]">Mobile Number</label>
+            <label htmlFor="mobile" className="text-xs uppercase tracking-widest text-[var(--fs-ash)] cursor-pointer">Mobile Number</label>
             <span className="text-xs text-amber-500 flex items-center gap-1">
               <Shield className="w-3 h-3" /> Verified
             </span>
           </div>
           <input 
+            id="mobile"
             type="text" 
             disabled 
             value={profile.mobile}
@@ -121,13 +127,14 @@ export default function ProfilePage() {
             <button 
               disabled={saving}
               onClick={handleSave}
-              className="px-6 py-3 uppercase tracking-[0.15em] text-xs font-medium bg-[var(--fs-linen)] text-[var(--fs-void)] border border-[var(--fs-linen)] hover:bg-gray-200 transition disabled:opacity-50"
+              className="px-6 py-3 uppercase tracking-[0.15em] text-xs font-medium bg-[var(--fs-linen)] text-[var(--fs-void)] border border-[var(--fs-linen)] hover:bg-gray-200 transition disabled:opacity-50 flex items-center gap-2"
             >
+              {saving && <Loader2 className="w-3 h-3 animate-spin" />}
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
             <button 
               disabled={saving}
-              onClick={() => setEditMode(false)}
+              onClick={() => { setEditMode(false); fetchProfile(); }}
               className="px-6 py-3 uppercase tracking-[0.15em] text-xs font-medium bg-transparent text-[var(--fs-ash)] border border-[var(--fs-wire)] hover:border-gray-500 hover:text-white transition"
             >
               Cancel

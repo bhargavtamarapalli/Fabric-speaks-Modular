@@ -18,7 +18,7 @@ interface AdminTableProps<T> {
   globalSearchField?: keyof T;
 }
 
-export function AdminTable<T extends Record<string, any>>({
+export function AdminTable<T extends Record<string, unknown>>({
   data,
   columns,
   onExportCsv,
@@ -129,7 +129,7 @@ export function AdminTable<T extends Record<string, any>>({
                 <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
                   {columns.map((col, j) => (
                     <td key={j} className="px-6 py-4">
-                      {typeof col.accessor === 'function' ? col.accessor(row) : row[col.accessor]}
+                      {typeof col.accessor === 'function' ? col.accessor(row) : (row[col.accessor] as any)}
                     </td>
                   ))}
                 </tr>

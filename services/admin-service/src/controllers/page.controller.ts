@@ -5,6 +5,7 @@ import {
   CreatePageSchema, 
   UpdatePageSchema 
 } from '../schemas/page.schemas';
+import { IdParamSchema } from '../schemas/admin.schemas';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class PageController {
@@ -14,6 +15,12 @@ export class PageController {
     const filters = PageListQuerySchema.parse(req.query);
     const result = await this.pageService.listPages(filters);
     res.json({ success: true, data: { items: result.items }, meta: result.meta });
+  });
+
+  getPage = catchAsync(async (req: Request, res: Response) => {
+    const { id } = IdParamSchema.parse(req.params);
+    const result = await this.pageService.getPage(id);
+    res.json({ success: true, data: result });
   });
 
   createPage = catchAsync(async (req: Request, res: Response) => {
@@ -28,14 +35,14 @@ export class PageController {
   });
 
   updatePage = catchAsync(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = IdParamSchema.parse(req.params);
     const dto = UpdatePageSchema.parse(req.body);
     const adminId = req.user?.userId;
     const adminRole = req.user?.role;
     
     if (!adminId || !adminRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
 
-    const result = await this.pageService.updatePage(id!, dto, adminId);
+    const result = await this.pageService.updatePage(id, dto, adminId);
     res.json({ success: true, data: result });
   });
 }

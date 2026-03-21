@@ -51,4 +51,10 @@ router.get('/velocity', requireWriteAccess, inventoryController.getVelocity);
 // INV-10: Restock suggestions
 router.get('/suggestions', requireWriteAccess, inventoryController.getRestockSuggestions);
 
+// INV-11: Dead stock alert
+router.get('/dead-stock', requireWriteAccess, inventoryController.getDeadStock);
+
+// INV-12: Size/colour demand pattern
+router.get('/demand-patterns', requireWriteAccess, inventoryController.getDemandPatterns);
+
 export default router;

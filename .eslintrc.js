@@ -2,10 +2,7 @@ module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
   plugins: ['@typescript-eslint', 'import'],
-  extends: [
-    'eslint:recommended',
-    'plugin:@typescript-eslint/recommended'
-  ],
+  extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended', 'plugin:storybook/recommended'],
   rules: {
     'import/order': [
       'error',
@@ -20,7 +17,7 @@ module.exports = {
         ],
         pathGroups: [
           {
-            pattern: '@fs/shared/**',
+            pattern: '@fs/shared{,/**}',
             group: 'internal',
             position: 'before'
           }

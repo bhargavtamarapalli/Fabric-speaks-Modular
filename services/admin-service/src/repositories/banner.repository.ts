@@ -55,6 +55,20 @@ export class BannerRepository extends BaseRepository {
     return rows;
   }
 
+  async listActiveNow(limit: number = 10): Promise<Banner[]> {
+    const query = `
+      SELECT *
+      FROM banners
+      WHERE is_active = true
+        AND starts_at <= now()
+        AND (ends_at IS NULL OR ends_at >= now())
+      ORDER BY starts_at DESC
+      LIMIT $1
+    `;
+    const { rows } = await this.query(query, [limit]);
+    return rows;
+  }
+
   async findById(id: string): Promise<Banner | null> {
     const { rows } = await this.query('SELECT * FROM banners WHERE id = $1', [id]);
     return rows[0] || null;

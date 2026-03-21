@@ -2,16 +2,22 @@ import { AdminUserRepository } from '../repositories/admin-user.repository';
 import { CustomerRepository } from '../repositories/customer.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { DashboardRepository } from '../repositories/dashboard.repository';
-import { AppError, ErrorCode } from '@fs/shared';
+import { AppError, ErrorCode, getRedisClient, logger } from '@fs/shared';
 import { AdminListQueryDto, AuditLogQueryDto, CreateAdminUserDto } from '../schemas/admin.schemas';
+import { Queue } from 'bullmq';
 
 export class AdminService {
+  private eventQueue: Queue;
+
   constructor(
     private adminUserRepo: AdminUserRepository,
     private customerRepo: CustomerRepository,
     private auditLogRepo: AuditLogRepository,
-    private dashboardRepo: DashboardRepository
-  ) {}
+    private dashboardRepo: DashboardRepository,
+    eventQueue?: Queue
+  ) {
+    this.eventQueue = eventQueue ?? new Queue('platform_events', { connection: getRedisClient() });
+  }
 
   async listAdminUsers(filters: AdminListQueryDto) {
     return this.adminUserRepo.list(filters);
@@ -47,6 +53,13 @@ export class AdminService {
         entityType: 'user',
         entityId: user.id,
         afterJson: { name: user.name, role: user.role }
+      });
+
+      this.enqueueEvent('admin.user_created', {
+        adminId: user.id,
+        adminName: user.name,
+        role: user.role,
+        createdBy: adminId
       });
       
       return user;
@@ -106,29 +119,62 @@ export class AdminService {
     return { deleted: true };
   }
 
+  async resetAdminSession(userId: string, adminId: string, requesterRole: string) {
+    if (requesterRole !== 'superAdmin') {
+      throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Insufficient permissions to reset sessions');
+    }
+
+    const reset = await this.adminUserRepo.resetSession(userId);
+
+    await this.auditLogRepo.insert({
+      adminId,
+      action: 'admin_session_reset',
+      entityType: 'user',
+      entityId: userId,
+      afterJson: { sessionVersion: reset.sessionVersion, revokedAt: reset.revokedAt }
+    });
+
+    return reset;
+  }
+
   async getDashboardMetrics() {
-    const [revenue, trends, topProducts, codStats, failedPayments, funnel, health, abandonedRate] = await Promise.all([
+    const [revenue, trends, topProducts, topFabrics, codStats, failedPayments, funnel, health, abandonedRate, dailyComparison, weeklyComparison, shiprocketIssues] = await Promise.all([
       this.dashboardRepo.getRevenueMetrics(30),
       this.dashboardRepo.getOrderTrends(30),
       this.dashboardRepo.getTopProducts(5),
+      this.dashboardRepo.getTopFabrics(5),
       this.dashboardRepo.getCODStats(),
       this.dashboardRepo.getFailedPaymentsCount(),
       this.dashboardRepo.getConversionFunnel(30),
       this.dashboardRepo.getSystemHealth(),
-      this.dashboardRepo.getAbandonedCartRate()
+      this.dashboardRepo.getAbandonedCartRate(),
+      this.dashboardRepo.getPeriodComparison(1),
+      this.dashboardRepo.getPeriodComparison(7),
+      this.dashboardRepo.getShiprocketIssues(6)
     ]);
     
     return {
       revenue,
       trends,
       topProducts,
+      topFabrics,
       cod: codStats,
       failedPayments,
       funnel,
       health,
       abandonedRate,
-      shiprocketIssues: 0,
+      comparisons: {
+        yesterday: dailyComparison,
+        week: weeklyComparison
+      },
+      shiprocketIssues,
       fraudFlags: codStats.fraud_flagged
     };
+  }
+
+  private enqueueEvent(name: string, payload: Record<string, unknown>): void {
+    void this.eventQueue.add(name, payload).catch((error) => {
+      logger.warn(`[AdminService] Failed to enqueue ${name}`, error);
+    });
   }
 }

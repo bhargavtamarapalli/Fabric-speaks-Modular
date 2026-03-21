@@ -1,25 +1,51 @@
 import { z } from 'zod';
 
 export const OrderEventSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().uuid().optional().nullable(),
   orderId: z.string(),
-  customerPhone: z.string(),
-  totalAmount: z.string().optional(),
+  customerPhone: z.string().optional(),
+  totalAmount: z.union([z.string(), z.number()]).optional(),
   awb: z.string().optional(),
   fabricType: z.string().optional(),
+  paymentMethod: z.string().optional(),
+  newStatus: z.string().optional(),
+  previousStatus: z.string().optional(),
+  notes: z.string().optional(),
+  reason: z.string().optional(),
 });
 
 export const StockEventSchema = z.object({
+  variantId: z.string().optional(),
+  sku: z.string().optional(),
+  size: z.string().optional(),
+  colour: z.string().optional(),
   productName: z.string(),
   stockCount: z.union([z.string(), z.number()]),
+  threshold: z.union([z.string(), z.number()]).optional(),
 });
 
 export const ReturnEventSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().uuid().optional().nullable(),
   orderId: z.string(),
-  customerPhone: z.string(),
+  returnId: z.string().optional(),
+  customerPhone: z.string().optional(),
   pickupDate: z.string().optional(),
   days: z.union([z.string(), z.number()]).optional(),
+  reason: z.string().optional(),
+});
+
+export const AdminEventSchema = z.object({
+  adminId: z.string().uuid().optional(),
+  adminName: z.string().optional(),
+  role: z.string().optional(),
+  createdBy: z.string().uuid().optional(),
+});
+
+export const AdminLoginEventSchema = z.object({
+  adminId: z.string().uuid().optional(),
+  mobile: z.string().optional(),
+  ipAddress: z.string().optional(),
+  attempts: z.union([z.string(), z.number()]).optional(),
 });
 
 export const BroadcastNotificationSchema = z.object({
@@ -32,4 +58,6 @@ export const BroadcastNotificationSchema = z.object({
 export type OrderEvent = z.infer<typeof OrderEventSchema>;
 export type StockEvent = z.infer<typeof StockEventSchema>;
 export type ReturnEvent = z.infer<typeof ReturnEventSchema>;
+export type AdminEvent = z.infer<typeof AdminEventSchema>;
+export type AdminLoginEvent = z.infer<typeof AdminLoginEventSchema>;
 export type BroadcastNotification = z.infer<typeof BroadcastNotificationSchema>;

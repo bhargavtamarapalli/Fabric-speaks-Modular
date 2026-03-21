@@ -2,13 +2,15 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
-import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, IdParamSchema } from '../schemas/catalog.schemas';
+import { PriceChangeService } from '../services/price-change.service';
+import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, UpdateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, ReorderCollectionProductsSchema, IdParamSchema, BulkUpdateVariantsSchema, CreateVariantSchema, UpdateVariantSchema, VariantIdParamSchema, BulkPriceUpdateSchema, SchedulePriceChangeSchema, PriceChangeListQuerySchema } from '../schemas/catalog.schemas';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class CatalogController {
     constructor(
         private readonly catalogService: CatalogService,
-        private readonly bulkUploadService: BulkUploadService
+        private readonly bulkUploadService: BulkUploadService,
+        private readonly priceChangeService: PriceChangeService
     ) {}
 
     listProducts = catchAsync(async (req: Request, res: Response) => {
@@ -27,13 +29,28 @@ export class CatalogController {
         res.json({ success: true, data: result });
     });
 
+    adminListBrands = catchAsync(async (_req: Request, res: Response) => {
+        const result = await this.catalogService.adminListBrands();
+        res.json({ success: true, data: result });
+    });
+
     listCategories = catchAsync(async (req: Request, res: Response) => {
         const result = await this.catalogService.listCategories();
         res.json({ success: true, data: result });
     });
 
+    adminListCategories = catchAsync(async (_req: Request, res: Response) => {
+        const result = await this.catalogService.adminListCategories();
+        res.json({ success: true, data: result });
+    });
+
     getCollection = catchAsync(async (req: Request, res: Response) => {
         const result = await this.catalogService.getCollection(req.params.slug!);
+        res.json({ success: true, data: result });
+    });
+
+    adminListCollections = catchAsync(async (_req: Request, res: Response) => {
+        const result = await this.catalogService.adminListCollections();
         res.json({ success: true, data: result });
     });
 
@@ -53,6 +70,33 @@ export class CatalogController {
         const { id } = IdParamSchema.parse(req.params);
         const dto = UpdateProductSchema.parse(req.body);
         const result = await this.catalogService.updateProduct(id, dto, req.user!.userId);
+        res.json({ success: true, data: result });
+    });
+
+    bulkUpdateVariants = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
+        const dto = BulkUpdateVariantsSchema.parse(req.body);
+        const result = await this.catalogService.bulkUpdateVariants(id, dto.variants, req.user!.userId);
+        res.json({ success: true, data: result });
+    });
+
+    createVariant = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
+        const dto = CreateVariantSchema.parse(req.body);
+        const result = await this.catalogService.createVariant(id, dto, req.user!.userId);
+        res.status(201).json({ success: true, data: result });
+    });
+
+    updateVariant = catchAsync(async (req: Request, res: Response) => {
+        const { variantId } = VariantIdParamSchema.parse(req.params);
+        const dto = UpdateVariantSchema.parse(req.body);
+        const result = await this.catalogService.updateVariant(variantId, dto, req.user!.userId);
+        res.json({ success: true, data: result });
+    });
+
+    deactivateVariant = catchAsync(async (req: Request, res: Response) => {
+        const { variantId } = VariantIdParamSchema.parse(req.params);
+        const result = await this.catalogService.deactivateVariant(variantId, req.user!.userId);
         res.json({ success: true, data: result });
     });
 
@@ -82,6 +126,32 @@ export class CatalogController {
         res.status(200).json({ success: true, data: result });
     });
 
+    bulkPriceUpdate = catchAsync(async (req: Request, res: Response) => {
+        const dto = BulkPriceUpdateSchema.parse(req.body);
+        const result = await this.catalogService.bulkUpdatePrices(dto, req.user!.userId);
+        res.status(200).json({ success: true, data: result });
+    });
+
+    schedulePriceChange = catchAsync(async (req: Request, res: Response) => {
+        const dto = SchedulePriceChangeSchema.parse(req.body);
+        const scheduled = await this.priceChangeService.schedulePriceChange({
+            targetType: dto.targetType,
+            targetIds: dto.targetIds,
+            adjustmentType: dto.adjustmentType,
+            adjustmentValue: dto.adjustmentValue,
+            applyTo: dto.applyTo,
+            scheduledAt: new Date(dto.scheduledAt),
+            createdBy: req.user!.userId
+        }, req.user!.userId);
+        res.status(201).json({ success: true, data: scheduled });
+    });
+
+    listScheduledPriceChanges = catchAsync(async (req: Request, res: Response) => {
+        const query = PriceChangeListQuerySchema.parse(req.query);
+        const items = await this.priceChangeService.listScheduled(query);
+        res.status(200).json({ success: true, data: { items }, meta: query });
+    });
+
     getBulkTemplate = catchAsync(async (req: Request, res: Response) => {
         const template = this.bulkUploadService.getTemplateCsv();
         res.setHeader('Content-Type', 'text/csv');
@@ -93,6 +163,13 @@ export class CatalogController {
         const dto = CreateBrandSchema.parse(req.body);
         const result = await this.catalogService.createBrand(dto, req.user!.userId);
         res.status(201).json({ success: true, data: result });
+    });
+
+    updateBrand = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
+        const dto = UpdateBrandSchema.parse(req.body);
+        const result = await this.catalogService.updateBrand(id, dto, req.user!.userId);
+        res.json({ success: true, data: result });
     });
 
     createCollection = catchAsync(async (req: Request, res: Response) => {
@@ -133,5 +210,12 @@ export class CatalogController {
         const productId = z.string().uuid().parse(req.params.productId);
         const result = await this.catalogService.removeCollectionProduct(id, productId, req.user!.userId);
         res.json({ success: true, data: result });
+    });
+
+    reorderCollectionProducts = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
+        const { productIds } = ReorderCollectionProductsSchema.parse(req.body);
+        await this.catalogService.reorderCollectionProducts(id, productIds, req.user!.userId);
+        res.json({ success: true, data: { collectionId: id, productIds } });
     });
 }

@@ -1,6 +1,6 @@
 import axios, { AxiosError } from "axios";
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data: T;
   error?: {
@@ -17,7 +17,7 @@ export class ApiError extends Error {
 }
 
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "https://api.fabricspeaks.com/api/v1",
   withCredentials: true,
   headers: {
     "Content-Type": "application/json",
@@ -41,11 +41,11 @@ apiClient.interceptors.request.use((config) => {
 
 let isRefreshing = false;
 let failedQueue: Array<{
-  resolve: (value?: any) => void;
-  reject: (reason?: any) => void;
+  resolve: (value?: unknown) => void;
+  reject: (reason?: unknown) => void;
 }> = [];
 
-const processQueue = (error: any, token: string | null = null) => {
+const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
@@ -60,16 +60,19 @@ apiClient.interceptors.response.use(
   (response) => {
     const resData = response.data as ApiResponse;
     if (resData && typeof resData.success === 'boolean' && !resData.success) {
-       throw new ApiError(resData.error?.code || 'UNKNOWN_ERROR', resData.error?.message || 'API request failed');
+      throw new ApiError(resData.error?.code || 'UNKNOWN_ERROR', resData.error?.message || 'API request failed');
     }
-    return resData.data; 
+    return resData.data as any;
   },
   async (error: AxiosError) => {
     const originalRequest = error.config;
-    
-    // @ts-ignore
+
+    // @ts-expect-error - AxiosRequestConfig doesn't include _retry by default.
+    // This is a common pattern for token refresh logic. A proper fix would require
+    // module augmentation to extend AxiosRequestConfig, but that adds complexity.
+    // Alternative: Use a WeakMap to store retry state externally.
     if (error.response?.status === 401 && !originalRequest._retry) {
-      // @ts-ignore
+      // @ts-expect-error - Adding custom property to AxiosRequestConfig
       originalRequest._retry = true;
 
       if (isRefreshing) {
@@ -93,7 +96,7 @@ apiClient.interceptors.response.use(
       } catch (err) {
         processQueue(err, null);
         if (typeof window !== "undefined") {
-           window.dispatchEvent(new Event("unauthorized"));
+          window.dispatchEvent(new Event("unauthorized"));
         }
         return Promise.reject(err);
       } finally {
@@ -102,19 +105,29 @@ apiClient.interceptors.response.use(
     }
 
     if (error.response?.data) {
-       const resData = error.response.data as ApiResponse;
-       if (resData.error) {
-         return Promise.reject(new ApiError(resData.error.code, resData.error.message));
-       }
+      const resData = error.response.data as ApiResponse;
+      if (resData.error) {
+        return Promise.reject(new ApiError(resData.error.code, resData.error.message));
+      }
     }
 
     return Promise.reject(error);
   }
 );
 
-export const apiFetch = async <T>(path: string, options?: any): Promise<T> => {
-  return apiClient.request<any, T>({
+export interface ApiFetchOptions {
+  method?: string;
+  data?: unknown;
+  headers?: Record<string, string>;
+  params?: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+export const apiFetch = async <T>(path: string, options: ApiFetchOptions = {}): Promise<T> => {
+  const { signal, ...rest } = options;
+  return apiClient.request<unknown, T>({
     url: path,
-    ...options,
+    signal,
+    ...rest,
   });
 };

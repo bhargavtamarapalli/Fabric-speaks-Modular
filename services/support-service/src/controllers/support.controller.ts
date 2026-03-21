@@ -2,10 +2,12 @@ import { Request, Response } from 'express';
 import { SupportService } from '../services/support.service';
 import { CustomerViewService } from '../services/customer-view.service';
 import { 
-  CustomerLookupQuerySchema, 
+  CustomerLookupParamSchema, 
   SupportQueueQuerySchema, 
   UpdateQuerySchema,
-  CaseIdParamSchema
+  CaseIdParamSchema,
+  CustomerFlagSchema,
+  CustomerIdParamSchema
 } from '../schemas/support.schemas';
 import { catchAsync, AppError, ErrorCode } from '@fs/shared';
 
@@ -35,7 +37,7 @@ export class SupportController {
   });
 
   getCustomerLookup = catchAsync(async (req: Request, res: Response) => {
-    const { mobile } = CustomerLookupQuerySchema.parse(req.params);
+    const { mobile } = CustomerLookupParamSchema.parse(req.params);
     const result = await this.customerViewService.getCustomer360ByMobile(mobile);
     res.json({ success: true, data: result });
   });
@@ -47,5 +49,13 @@ export class SupportController {
 
     const result = await this.supportService.addNote(caseId, dto.note, req.user!.userId);
     res.status(201).json({ success: true, data: result });
+  });
+
+  updateCustomerFlag = catchAsync(async (req: Request, res: Response) => {
+    const { userId } = CustomerIdParamSchema.parse(req.params);
+    const dto = CustomerFlagSchema.parse(req.body);
+
+    const result = await this.supportService.upsertCustomerFlag(userId, dto.flagType, dto.note ?? null, req.user!.userId);
+    res.status(200).json({ success: true, data: result });
   });
 }

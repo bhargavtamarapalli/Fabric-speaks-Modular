@@ -9,7 +9,7 @@ export class BulkUploadService {
         private readonly auditLogRepo: AuditLogRepository
     ) {}
 
-    async queueUpload(csvData: string, adminId: string): Promise<{ success: number; failed: number; errors: any[]; jobId: string | null }> {
+    async queueUpload(csvData: string, adminId: string): Promise<{ success: number; failed: number; errors?: any[]; jobId: string | null }> {
         const lines = csvData.split('\n').map(l => l.trim()).filter(l => l !== '');
         if (lines.length === 0) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Empty CSV file');
 
@@ -80,7 +80,6 @@ export class BulkUploadService {
         return { 
             success: parsedRows.length, 
             failed: 0, 
-            errors: [], 
             jobId: job.id as string
         };
     }

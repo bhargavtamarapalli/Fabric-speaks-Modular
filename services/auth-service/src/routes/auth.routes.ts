@@ -3,6 +3,7 @@ import { AuthController } from '../controllers/auth.controller';
 import { AuthService } from '../services/auth.service';
 import { UserRepository } from '../repositories/user.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { AdminLoginAttemptRepository } from '../repositories/admin-login-attempt.repository';
 import { getDbPool } from '@fs/shared';
 import { otpRateLimiter } from '../middleware/rateLimiter';
 import { requireAuth, csrfProtection } from '@fs/shared';
@@ -13,7 +14,8 @@ const router = Router();
 const db = getDbPool();
 const userRepo = new UserRepository(db);
 const auditLogRepo = new AuditLogRepository(db);
-const authService = new AuthService(userRepo, auditLogRepo);
+const adminLoginRepo = new AdminLoginAttemptRepository(db);
+const authService = new AuthService(userRepo, auditLogRepo, adminLoginRepo);
 const authController = new AuthController(authService);
 
 // Health Check
@@ -30,5 +32,7 @@ router.use(csrfProtection);
 
 router.get('/me', authController.me);
 router.delete('/delete-account', authController.deleteAccount);
+// Admin login failure tracking (requires authentication to prevent abuse)
+router.post('/admin/login/failed', otpRateLimiter, authController.recordAdminLoginFailure);
 
 export { router as authRouter };
