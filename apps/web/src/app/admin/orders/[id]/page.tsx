@@ -115,7 +115,7 @@ export default function OrderDetailPage() {
         form={cancelForm}
         onFormChange={patch => {
           setCancelForm(prev => ({ ...prev, ...patch }));
-          if (patch.reason && cancelErrors.reason) {
+          if (patch.reason && cancelErrors['reason']) {
             setCancelErrors(prev => ({ ...prev, reason: '' }));
           }
         }}

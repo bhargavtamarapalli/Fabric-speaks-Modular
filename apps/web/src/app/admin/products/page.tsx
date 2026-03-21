@@ -7,13 +7,18 @@ import {
   PageHeader,
   ActionButton,
   ErrorBanner,
-  ProductsGridSkeleton,
   ConfirmModal,
 } from '@/components/admin/shared';
 
+import dynamic from 'next/dynamic';
 import { useProducts } from './_hooks/useProducts';
 import { ProductFilters } from './_components/ProductFilters';
-import { ProductCard } from './_components/ProductCard';
+import { ProductsGridSkeleton } from '@/components/admin/shared';
+
+const ProductsDataGrid = dynamic(
+  () => import('./_components/ProductsDataGrid').then(mod => mod.ProductsDataGrid),
+  { loading: () => <ProductsGridSkeleton count={8} /> }
+);
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -32,20 +37,24 @@ export default function ProductsPage() {
     load,
   } = useProducts({ search: '', fabric: 'All', status: 'All' });
 
+  const handleAddProduct = React.useCallback(() => {
+    router.push('/admin/products/new');
+  }, [router]);
+
   return (
     <div>
       <PageHeader
         title="Products"
         subtitle={`${products.length} products`}
         action={
-          <ActionButton onClick={() => router.push('/admin/products/new')}>
+          <ActionButton onClick={handleAddProduct}>
             + Add product
           </ActionButton>
         }
       />
 
       {error && (
-        <div style={{ marginBottom: '12px' }}>
+        <div style={{ marginBottom: THEME.spacing.md }}>
           <ErrorBanner message={error} onRetry={load} />
         </div>
       )}
@@ -55,27 +64,13 @@ export default function ProductsPage() {
         onFilterChange={updateFilters} 
       />
 
-      {loading ? (
-        <ProductsGridSkeleton count={8} />
-      ) : products.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', border: `1px solid ${THEME.colors.border2}`, borderRadius: '50%' }} />
-          <div style={{ color: THEME.colors.ash, fontFamily: THEME.fonts.ui }}>No products found</div>
-          <ActionButton onClick={() => router.push('/admin/products/new')}>Add first product</ActionButton>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
-          {products.map(p => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              isHovered={hoverId === p.id}
-              onHover={setHoverId}
-              onRemove={setDeleteId}
-            />
-          ))}
-        </div>
-      )}
+      <ProductsDataGrid
+        products={products}
+        loading={loading}
+        hoverId={hoverId}
+        onHover={setHoverId}
+        onRemove={setDeleteId}
+      />
 
       <ConfirmModal
         open={!!deleteId}

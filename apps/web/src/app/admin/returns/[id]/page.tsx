@@ -20,6 +20,7 @@ import {
   formatDateTime,
   useToast,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const RETURN_BADGE: Record<string, string> = {
   RETURN_REQUESTED: 'pending',
@@ -62,7 +63,7 @@ export default function ReturnDetailPage() {
       setTimeline(timeRes);
       setRefund(refundRes);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load return');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }

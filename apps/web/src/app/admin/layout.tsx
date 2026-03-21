@@ -11,6 +11,21 @@ import { useRouter, usePathname } from 'next/navigation';
 import { THEME } from '@/lib/admin/theme';
 import type { AdminRole } from '@/lib/admin/types';
 import { AdminAuthProvider, useAdminAuth } from '@/context/AdminAuthContext';
+import { useMemo } from 'react';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const ROLE_NAME: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  INVENTORY_MANAGER: 'Inventory Mgr',
+  SUPPORT_AGENT: 'Support Agent',
+};
+
+const ROLE_COLOR: Record<AdminRole, string> = {
+  SUPER_ADMIN: THEME.colors.linen,
+  INVENTORY_MANAGER: THEME.colors.info,
+  SUPPORT_AGENT: THEME.colors.success,
+};
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
@@ -104,21 +119,17 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const visibleNav = NAV_ITEMS.filter(item => item.roles.includes(role ?? 'SUPER_ADMIN'));
+  const visibleNav = useMemo(() => 
+    NAV_ITEMS.filter(item => item.roles.includes(role ?? 'SUPER_ADMIN')),
+    [role]
+  );
 
-  const roleName: Record<AdminRole, string> = {
-    SUPER_ADMIN: 'Super Admin',
-    INVENTORY_MANAGER: 'Inventory Mgr',
-    SUPPORT_AGENT: 'Support Agent',
-  };
-
-  const roleColor: Record<AdminRole, string> = {
-    SUPER_ADMIN: THEME.colors.linen,
-    INVENTORY_MANAGER: THEME.colors.info,
-    SUPPORT_AGENT: THEME.colors.success,
-  };
-
-  const sidebarWidth = isMobile ? (mobileOpen ? '240px' : '0') : (collapsed ? '54px' : THEME.layout.sidebarWidth);
+  const sidebarWidth = useMemo(() => 
+    isMobile 
+      ? (mobileOpen ? '240px' : '0') 
+      : (collapsed ? '54px' : THEME.layout.sidebarWidth),
+    [isMobile, mobileOpen, collapsed]
+  );
 
   return (
     <div style={{
@@ -221,15 +232,15 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <span style={{
               display: 'inline-block',
               marginTop: '5px',
-              background: `rgba(${roleColor[role].replace('#', '').match(/.{2}/g)!.map(h => parseInt(h, 16)).join(',')}, 0.1)`,
-              border: `1px solid rgba(${roleColor[role].replace('#', '').match(/.{2}/g)!.map(h => parseInt(h, 16)).join(',')}, 0.2)`,
-              color: roleColor[role],
+              background: `rgba(${ROLE_COLOR[role].replace('#', '').match(/.{2}/g)!.map(h => parseInt(h, 16)).join(',')}, 0.1)`,
+              border: `1px solid rgba(${ROLE_COLOR[role].replace('#', '').match(/.{2}/g)!.map(h => parseInt(h, 16)).join(',')}, 0.2)`,
+              color: ROLE_COLOR[role],
               fontSize: THEME.fontSizes.xs,
               padding: '2px 8px',
               borderRadius: THEME.radius.sm,
               letterSpacing: '0.05em',
             }}>
-              {roleName[role]}
+              {ROLE_NAME[role]}
             </span>
           </div>
         )}

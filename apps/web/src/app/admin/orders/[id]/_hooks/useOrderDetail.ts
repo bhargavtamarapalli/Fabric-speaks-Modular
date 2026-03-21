@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { ordersApi } from '@/lib/admin/api';
 import type { Order, OrderTimeline } from '@/lib/admin/types';
 import { useToast, formatCurrency } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 export const CANCEL_INITIAL = {
   reason: '',
@@ -39,7 +40,7 @@ export function useOrderDetail(orderId: string | undefined) {
       setOrder(orderRes);
       setTimeline(timelineRes);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load order');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -74,7 +75,7 @@ export function useOrderDetail(orderId: string | undefined) {
       setCancelErrors({});
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed to cancel order', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setCancelLoading(false);
     }
@@ -138,7 +139,7 @@ export function useOrderDetail(orderId: string | undefined) {
       win.focus();
       win.print();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed to fetch packing slip', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setPrintLoading(false);
     }

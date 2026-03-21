@@ -10,6 +10,7 @@ import {
   Drawer, FormField, TextInput, Textarea, Select, MonoText, useToast,
   formatDate,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const STATUS_BADGE: Record<ExpectedStockStatus, string> = {
   ORDERED:     'pending',
@@ -50,7 +51,7 @@ export default function ExpectedStockPage() {
       setLoading(true);
       setItems(await inventoryApi.getExpected());
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load expected stock');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }

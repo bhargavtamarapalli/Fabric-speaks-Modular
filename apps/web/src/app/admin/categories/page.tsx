@@ -6,6 +6,7 @@ import { THEME } from '@/lib/admin/theme';
 import { categoriesApi } from '@/lib/admin/api';
 import type { Category } from '@/lib/admin/types';
 import { PageHeader, Badge, DataTable, ActionButton, ErrorBanner, Drawer, FormField, TextInput, Select, ConfirmModal, useToast } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 export default function CategoriesPage() {
   const { showToast, ToastComponent } = useToast();
@@ -19,7 +20,7 @@ export default function CategoriesPage() {
 
   const load = useCallback(async () => {
     try { setError(null); setLoading(true); setCats(await categoriesApi.list()); }
-    catch (e: any) { setError(e.message ?? 'Failed'); }
+    catch (e: any) { setError(mapError(e)); }
     finally { setLoading(false); }
   }, []);
 
@@ -52,7 +53,7 @@ export default function CategoriesPage() {
       setForm({ name: '', parentId: '' });
       setErrors({});
       load();
-    } catch (e: any) { showToast(e.message ?? 'Failed', 'error'); }
+    } catch (e: any) { showToast(mapError(e), 'error'); }
     finally { setSaving(false); }
   };
 

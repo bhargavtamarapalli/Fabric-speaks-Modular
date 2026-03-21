@@ -12,6 +12,7 @@ import {
   Select, MonoText, ConfirmModal, useToast,
   formatCurrency, formatDate,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 interface CouponForm {
   code:          string;
@@ -50,7 +51,7 @@ export default function CouponsPage() {
       const res = await couponsApi.list();
       setCoupons(res);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load coupons');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -107,7 +108,7 @@ export default function CouponsPage() {
       setErrors({});
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Create failed', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setSaving(false);
     }
@@ -121,7 +122,7 @@ export default function CouponsPage() {
       setDeactivateId(null);
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed', 'error');
+      showToast(mapError(e), 'error');
     }
   };
 

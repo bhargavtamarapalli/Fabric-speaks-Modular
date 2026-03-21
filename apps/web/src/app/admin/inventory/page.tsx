@@ -12,6 +12,7 @@ import {
   ActionButton, ErrorBanner, Loader, Drawer, FormField,
   TextInput, Textarea, Select, MonoText, useToast,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const PRESET_REASONS = [
   'Stock count correction',
@@ -46,7 +47,7 @@ export default function InventoryPage() {
       const res = await inventoryApi.list({ status: filter || undefined, search: search || undefined });
       setItems(res);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load inventory');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -99,7 +100,7 @@ export default function InventoryPage() {
       setAdjReason('');
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Adjustment failed', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setAdjLoading(false);
     }

@@ -12,6 +12,7 @@ import {
   ActionButton, ErrorBanner, MonoText, useToast,
   formatDateTime,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const STATUS_FILTERS = [
   { label: 'All',               value: '' },
@@ -51,7 +52,7 @@ export default function ReturnsPage() {
       const res = await returnsApi.list({ status: filter || undefined });
       setReturns(res.items);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load returns');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }

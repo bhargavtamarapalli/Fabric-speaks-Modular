@@ -10,6 +10,7 @@ import {
   PageHeader, SectionCard, Badge, DataTable, FilterChip, SearchInput,
   ActionButton, ErrorBanner, Loader, MonoText, useToast,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 export default function InventoryHealthPage() {
   const router = useRouter();
@@ -27,7 +28,7 @@ export default function InventoryHealthPage() {
       setLoading(true);
       setHealth(await inventoryApi.getHealth());
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load stock health');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }

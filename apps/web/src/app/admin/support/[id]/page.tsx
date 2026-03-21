@@ -18,6 +18,7 @@ import {
   Textarea,
   useToast,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const STATUS_BADGE: Record<string, string> = {
   OPEN: 'open',
@@ -58,7 +59,7 @@ export default function SupportDetailPage() {
       setSupportCase(res);
       setStatus(res.status);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load support case');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -74,7 +75,7 @@ export default function SupportDetailPage() {
       showToast('Status updated', 'success');
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed to update status', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setStatusSaving(false);
     }
@@ -95,7 +96,7 @@ export default function SupportDetailPage() {
       showToast('Note added', 'success');
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed to add note', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setNoteSaving(false);
     }

@@ -5,40 +5,52 @@
 // All components use THEME values only. Zero hardcoded colours.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, memo, useMemo } from 'react';
+import { List } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { THEME, css, type BadgeType } from '../../../lib/admin/theme';
+export { THEME, css, type BadgeType };
 import { mapError } from '@/lib/admin/errors';
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
 
+/**
+ * A simple badge/tag component for status and labels.
+ */
 interface BadgeProps {
   type: BadgeType;
   label?: string;
   children?: React.ReactNode;
 }
 
-export function Badge({ type, label, children }: BadgeProps) {
+export const Badge = memo(function Badge({ type, label, children }: BadgeProps) {
   const style = THEME.badgeStyles[type] ?? THEME.badgeStyles.draft;
   return (
-    <span style={{
-      ...style,
-      display: 'inline-flex',
-      alignItems: 'center',
-      padding: '2px 7px',
-      borderRadius: THEME.radius.sm,
-      fontSize: THEME.fontSizes.xs,
-      letterSpacing: '0.03em',
-      fontFamily: THEME.fonts.ui,
-      fontWeight: 500,
-      whiteSpace: 'nowrap',
-    }}>
+    <span 
+      role="status"
+      style={{
+        ...style,
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: THEME.radius.sm,
+        fontSize: THEME.fontSizes.xs,
+        letterSpacing: '0.04em',
+        fontFamily: THEME.fonts.ui,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
       {label ?? children}
     </span>
   );
-}
+});
 
 // ─── MetricCard ───────────────────────────────────────────────────────────────
 
+/**
+ * A card for displaying high-level metrics with optional delta indicators.
+ */
 interface MetricCardProps {
   label: string;
   value: string | number;
@@ -48,7 +60,7 @@ interface MetricCardProps {
   onClick?: () => void;
 }
 
-export function MetricCard({ label, value, delta, deltaLabel, accent, onClick }: MetricCardProps) {
+export const MetricCard = memo(function MetricCard({ label, value, delta, deltaLabel, accent, onClick }: MetricCardProps) {
   const accentColor = {
     linen: THEME.colors.linen,
     error: THEME.colors.error,
@@ -63,48 +75,67 @@ export function MetricCard({ label, value, delta, deltaLabel, accent, onClick }:
   return (
     <div
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      aria-label={onClick ? `${label}: ${value}. Click for details.` : undefined}
       style={{
         background: THEME.colors.surface3,
         border: `1px solid ${borderColor}`,
         borderRadius: THEME.radius.lg,
-        padding: '12px 14px',
+        padding: `${THEME.spacing.md} ${THEME.spacing.lg}`,
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'background 0.12s',
+        transition: 'all 0.15s ease',
       }}
+      className={onClick ? 'fs-card-hover fs-focus' : ''}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      } : undefined}
     >
-      <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: THEME.fonts.ui }}>{label}</div>
-      <div style={{ fontSize: THEME.fontSizes.xl, color: accentColor ?? THEME.colors.ivory, margin: '6px 0 4px', fontFamily: THEME.fonts.display }}>{value}</div>
+      <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, fontFamily: THEME.fonts.ui }}>{label}</div>
+      <div style={{ fontSize: THEME.fontSizes.xl, color: accentColor ?? THEME.colors.ivory, margin: `${THEME.spacing.xs} 0`, fontFamily: THEME.fonts.display }}>{value}</div>
       {delta !== undefined && (
-        <div style={{ fontSize: THEME.fontSizes.sm, color: delta >= 0 ? THEME.colors.success : THEME.colors.error, fontFamily: THEME.fonts.ui }}>
-          {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)}% {deltaLabel ?? 'vs yesterday'}
+        <div 
+          aria-label={`${delta >= 0 ? 'Increase' : 'Decrease'} of ${Math.abs(delta)}% ${deltaLabel ?? 'vs yesterday'}`}
+          style={{ fontSize: THEME.fontSizes.sm, color: delta >= 0 ? THEME.colors.success : THEME.colors.error, fontFamily: THEME.fonts.ui, fontWeight: 500 }}
+        >
+          {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)}% <span style={{ color: THEME.colors.muted, fontWeight: 400 }}>{deltaLabel ?? 'vs yesterday'}</span>
         </div>
       )}
     </div>
   );
-}
+});
 
 // ─── PageHeader ───────────────────────────────────────────────────────────────
 
+/**
+ * Standard page header with title, optional subtitle, and primary action.
+ */
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
 }
 
-export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
+export const PageHeader = memo(function PageHeader({ title, subtitle, action }: PageHeaderProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: THEME.spacing.lg }}>
       <div>
         <h1 style={{ fontSize: THEME.fontSizes.lg, color: THEME.colors.ivory, fontFamily: THEME.fonts.display, fontWeight: 'normal', margin: 0 }}>{title}</h1>
-        {subtitle && <p style={{ fontSize: THEME.fontSizes.sm, color: THEME.colors.ash, margin: '3px 0 0', fontFamily: THEME.fonts.ui }}>{subtitle}</p>}
+        {subtitle && <p style={{ fontSize: THEME.fontSizes.sm, color: THEME.colors.ash, margin: `${THEME.spacing.xs} 0 0`, fontFamily: THEME.fonts.ui }}>{subtitle}</p>}
       </div>
-      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
+      {action && <div style={{ flexShrink: 0, marginLeft: THEME.spacing.md }}>{action}</div>}
     </div>
   );
-}
+});
 
 // ─── SectionCard ──────────────────────────────────────────────────────────────
 
+/**
+ * A container card for sections of content.
+ */
 interface SectionCardProps {
   title?: string;
   children: React.ReactNode;
@@ -115,8 +146,8 @@ interface SectionCardProps {
   accent?: boolean;
 }
 
-export function SectionCard({ title, children, action, footer, fullBleed, noPadding, accent }: SectionCardProps) {
-  const contentPadding = fullBleed || noPadding ? 0 : '14px';
+export const SectionCard = memo(function SectionCard({ title, children, action, footer, fullBleed, noPadding, accent }: SectionCardProps) {
+  const contentPadding = fullBleed || noPadding ? 0 : THEME.spacing.lg;
  
   return (
     <div style={{
@@ -125,22 +156,25 @@ export function SectionCard({ title, children, action, footer, fullBleed, noPadd
     }}>
       {(title || action) && (
         <div style={css.sectionHeader}>
-          <span style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontWeight: 500 }}>{title}</span>
+          <span style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontWeight: 600 }}>{title}</span>
           {action}
         </div>
       )}
       <div style={{ padding: contentPadding }}>{children}</div>
       {footer && (
-        <div style={{ padding: '10px 14px', borderTop: `1px solid ${THEME.colors.border}`, background: 'rgba(255,255,255,0.02)' }}>
+        <div style={{ padding: `${THEME.spacing.md} ${THEME.spacing.lg}`, borderTop: `1px solid ${THEME.colors.border}`, background: 'rgba(255,255,255,0.02)' }}>
           {footer}
         </div>
       )}
     </div>
   );
-}
+});
 
 // ─── PendingWidget ────────────────────────────────────────────────────────────
 
+/**
+ * A specialized widget for showing pending counts and recent items.
+ */
 interface PendingWidgetProps {
   label: string;
   count: number;
@@ -148,24 +182,33 @@ interface PendingWidgetProps {
   onClick: () => void;
 }
 
-export function PendingWidget({ label, count, rows, onClick }: PendingWidgetProps) {
+export const PendingWidget = memo(function PendingWidget({ label, count, rows, onClick }: PendingWidgetProps) {
   return (
     <div
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       style={{
         background: THEME.colors.surface3,
         border: `1px solid ${THEME.colors.border}`,
         borderRadius: THEME.radius.lg,
-        padding: '12px 14px',
+        padding: `${THEME.spacing.md} ${THEME.spacing.lg}`,
         cursor: 'pointer',
-        transition: 'background 0.12s',
+        transition: 'all 0.15s ease',
       }}
+      className="fs-card-hover fs-focus"
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-        <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: THEME.fonts.ui }}>{label}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: THEME.spacing.sm }}>
+        <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, fontFamily: THEME.fonts.ui }}>{label}</div>
         <Badge type="pending">{count}</Badge>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: THEME.spacing.xs }}>
         {rows.map((row, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: THEME.fontSizes.sm, color: THEME.colors.ash, fontFamily: THEME.fonts.ui }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>{row.left}</span>
@@ -175,7 +218,7 @@ export function PendingWidget({ label, count, rows, onClick }: PendingWidgetProp
       </div>
     </div>
   );
-}
+});
 
 // ─── FilterChip ───────────────────────────────────────────────────────────────
 
@@ -186,32 +229,35 @@ interface FilterChipProps {
   onClick: () => void;
 }
 
-export function FilterChip({ label, active, count, onClick }: FilterChipProps) {
+export const FilterChip = memo(function FilterChip({ label, active, count, onClick }: FilterChipProps) {
   return (
     <button
       onClick={onClick}
+      className="fs-focus"
+      aria-pressed={active}
       style={{
-        background: active ? 'rgba(201,169,110,0.12)' : 'transparent',
+        background: active ? 'rgba(201,169,110,0.15)' : 'transparent',
         border: `1px solid ${active ? THEME.colors.linen : THEME.colors.border2}`,
         color: active ? THEME.colors.linen : THEME.colors.ash,
-        padding: '4px 10px',
+        padding: '5px 12px',
         borderRadius: THEME.radius.pill,
         fontSize: THEME.fontSizes.xs,
         cursor: 'pointer',
         fontFamily: THEME.fonts.ui,
         display: 'flex',
         alignItems: 'center',
-        gap: '6px',
-        transition: 'all 0.1s',
+        gap: THEME.spacing.sm,
+        transition: 'all 0.15s ease',
+        fontWeight: active ? 600 : 500,
       }}
     >
       {label}
       {count !== undefined && (
-        <span style={{ opacity: 0.6, fontSize: '10px' }}>{count}</span>
+        <span aria-label={`${count} items`} style={{ opacity: 0.7, fontSize: '10px', fontWeight: 400 }}>{count}</span>
       )}
     </button>
   );
-}
+});
 
 // ─── SearchInput ──────────────────────────────────────────────────────────────
 
@@ -221,25 +267,33 @@ interface SearchInputProps {
   onChange: (val: string) => void;
 }
 
-export function SearchInput({ placeholder, value, onChange }: SearchInputProps) {
+export const SearchInput = memo(function SearchInput({ placeholder, value, onChange }: SearchInputProps) {
   return (
     <div style={{ position: 'relative', width: '240px' }}>
-      <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: THEME.colors.muted, fontSize: '14px' }}>🔍</span>
+      <span 
+        aria-hidden="true"
+        style={{ position: 'absolute', left: THEME.spacing.sm, top: '50%', transform: 'translateY(-50%)', color: THEME.colors.muted, fontSize: '14px' }}
+      >
+        🔍
+      </span>
       <input
         type="text"
         placeholder={placeholder ?? 'Search...'}
         value={value}
+        className="fs-focus"
+        aria-label={placeholder ?? 'Search items'}
         onChange={(e) => onChange(e.target.value)}
         style={{
           ...css.input,
-          paddingLeft: '32px',
+          paddingLeft: '34px',
           background: THEME.colors.surface2,
           border: `1px solid ${THEME.colors.border}`,
+          borderRadius: THEME.radius.lg,
         }}
       />
     </div>
   );
-}
+});
 
 // ─── DataTable ────────────────────────────────────────────────────────────────
 
@@ -259,17 +313,136 @@ interface DataTableProps<T> {
   empty?: string;
 }
 
-export function DataTable<T>({ columns, data, loading, onRowClick, rowKey = 'id' as keyof T, empty = "No items found." }: DataTableProps<T>) {
+/**
+ * Optimized row component for DataTable to prevent unnecessary re-renders.
+ */
+const DataTableRow = memo(function DataTableRow({ 
+  row, 
+  columns, 
+  onRowClick, 
+  isVirtual
+}: { row: any; columns: Column<any>[]; onRowClick?: (row: any) => void; isVirtual?: boolean }) {
+  const Component = isVirtual ? 'div' : 'tr';
+  const CellComponent = isVirtual ? 'div' : 'td';
+
+  return (
+    <Component
+      onClick={() => onRowClick?.(row)}
+      onKeyDown={onRowClick ? (e: any) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onRowClick(row);
+        }
+      } : undefined}
+      tabIndex={onRowClick ? 0 : undefined}
+      style={{
+        cursor: onRowClick ? 'pointer' : 'default',
+        transition: 'background 0.1s',
+        display: isVirtual ? 'flex' : undefined,
+        alignItems: isVirtual ? 'center' : undefined,
+      }}
+      className={`fs-table-row ${onRowClick ? 'fs-focus' : ''}`}
+      role="row"
+    >
+      {columns.map((col) => (
+        <CellComponent 
+          key={col.key as string} 
+          style={{
+            ...css.tableCell,
+            width: col.width,
+            flexGrow: (isVirtual && !col.width) ? 1 : 0,
+            flexShrink: 0,
+          }}
+          role="cell"
+        >
+          {col.render ? col.render(row) : (row[col.key] as any)}
+        </CellComponent>
+      ))}
+    </Component>
+  );
+});
+
+const VirtualizedDataTableRow = memo(function VirtualizedDataTableRow({ 
+  index, 
+  style, 
+  ariaAttributes,
+  items,
+  columns,
+  onRowClick
+}: { index: number; style: any; ariaAttributes: any; items: any[]; columns: any[]; onRowClick?: (row: any) => void }) {
+  const row = items[index];
+  return (
+    <div style={style} {...ariaAttributes}>
+      <DataTableRow
+        row={row}
+        columns={columns}
+        onRowClick={onRowClick}
+        isVirtual
+      />
+    </div>
+  );
+});
+
+/**
+ * A standard data table for admin lists.
+ */
+export const DataTable = memo(function DataTable<T>({ 
+  columns, 
+  data, 
+  loading, 
+  onRowClick, 
+  rowKey = 'id' as keyof T, 
+  empty = "No items found." 
+}: DataTableProps<T>) {
   if (loading) return <DataTableSkeleton />;
-  if (!data?.length) return <div style={{ padding: '40px', textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{empty}</div>;
+  if (!data?.length) return <div style={{ padding: THEME.spacing.xxl, textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{empty}</div>;
+
+  const isVirtualized = data.length > 100;
+
+  if (isVirtualized) {
+    return (
+      <div style={{ height: '500px', width: '100%', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', borderBottom: `1px solid ${THEME.colors.border}`, paddingBottom: THEME.spacing.sm, marginBottom: THEME.spacing.sm }}>
+          {columns.map(col => (
+            <div key={col.key as string} style={{ ...css.tableHeader, width: col.width, flexGrow: col.width ? 0 : 1, flexShrink: 0 }}>
+              {col.label}
+            </div>
+          ))}
+        </div>
+        <div style={{ flex: 1 }}>
+          <AutoSizer
+            renderProp={({ height, width }) => (
+              <List
+                style={{ height: height ?? 500, width: width ?? '100%' }}
+                rowCount={data.length}
+                rowHeight={64}
+                rowComponent={VirtualizedDataTableRow as any}
+                rowProps={{
+                  items: data,
+                  columns,
+                  onRowClick
+                }}
+              />
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table role="grid" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr>
+          <tr role="row">
             {columns.map((col) => (
-              <th key={col.key as string} style={{ ...css.tableHeader, width: col.width }}>{col.label}</th>
+              <th 
+                key={col.key as string} 
+                role="columnheader"
+                style={{ ...css.tableHeader, width: col.width }}
+              >
+                {col.label}
+              </th>
             ))}
           </tr>
         </thead>
@@ -280,72 +453,84 @@ export function DataTable<T>({ columns, data, loading, onRowClick, rowKey = 'id'
               : (row[rowKey] as unknown as string) || `row-${idx}`;
 
             return (
-              <tr
+              <DataTableRow
                 key={key}
-                onClick={() => onRowClick?.(row)}
-                style={{
-                  cursor: onRowClick ? 'pointer' : 'default',
-                  transition: 'background 0.1s',
-                }}
-                className="fs-table-row"
-              >
-                {columns.map((col) => (
-                  <td key={col.key as string} style={css.tableCell}>
-                    {col.render ? col.render(row) : (row[col.key as keyof T] as any)}
-                  </td>
-                ))}
-              </tr>
+                row={row}
+                columns={columns}
+                onRowClick={onRowClick}
+              />
             );
           })}
         </tbody>
       </table>
-      <style>{`
-        .fs-table-row:hover { background: rgba(255,255,255,0.02); }
+      <style jsx global>{`
+        .fs-table-row:hover { background: rgba(255,255,255,0.03); }
+        .fs-focus:focus-visible { 
+          outline: none; 
+          box-shadow: 0 0 0 2px rgba(201,169,110,0.45) !important;
+          border-color: #C9A96E !important;
+          z-index: 10;
+          position: relative;
+        }
+        @keyframes fs-spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
-}
+}) as <T>(props: DataTableProps<T>) => JSX.Element;
 
 // ─── ActionButton ─────────────────────────────────────────────────────────────
 
+/**
+ * Standard button component with variants and loading state.
+ */
 interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'ghost' | 'danger';
   loading?: boolean;
   fullWidth?: boolean;
 }
 
-export function ActionButton({ variant = 'primary', loading, fullWidth, children, ...props }: ActionButtonProps) {
+export const ActionButton = memo(function ActionButton({ variant = 'primary', loading, fullWidth, children, ...props }: ActionButtonProps) {
   const baseStyle = variant === 'danger' ? css.dangerBtn : variant === 'ghost' ? css.ghostBtn : css.actionBtn;
   return (
     <button
       {...props}
       disabled={loading || props.disabled}
+      className="fs-focus"
+      aria-busy={loading}
       style={{
         ...baseStyle,
-        opacity: (loading || props.disabled) ? 0.5 : 1,
+        opacity: (loading || props.disabled) ? 0.6 : 1,
         display: (fullWidth || props.style?.display) ? 'flex' : 'inline-flex',
         width: fullWidth ? '100%' : props.style?.width,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: '8px',
+        gap: THEME.spacing.sm,
         ... (props.style || {}),
       }}
     >
-      {loading && <span className="fs-spin-mini">⟳</span>}
+      {loading && <span className="fs-spin-mini" aria-hidden="true" style={{ animation: 'fs-spin 0.8s linear infinite' }}>⟳</span>}
       {children}
-      <style>{`
-        .fs-spin-mini { animation: fs-spin 0.8s linear infinite; display: inline-block; }
-      `}</style>
     </button>
   );
-}
+});
 
 // ─── Toggle ───────────────────────────────────────────────────────────────────
 
-export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+export const Toggle = memo(function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <div
       onClick={() => onChange(!checked)}
+      className="fs-focus"
+      tabIndex={0}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onChange(!checked);
+        }
+      }}
       style={{
         width: '32px',
         height: '18px',
@@ -358,20 +543,27 @@ export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: 
         alignItems: 'center',
       }}
     >
-      <div style={{
-        width: '14px',
-        height: '14px',
-        background: '#fff',
-        borderRadius: '50%',
-        transform: checked ? 'translateX(14px)' : 'translateX(0)',
-        transition: 'transform 0.2s',
-      }} />
+      <div 
+        aria-hidden="true"
+        style={{
+          width: '14px',
+          height: '14px',
+          background: '#fff',
+          borderRadius: '50%',
+          transform: checked ? 'translateX(14px)' : 'translateX(0)',
+          transition: 'transform 0.2s',
+        }} 
+      />
     </div>
   );
-}
+});
 
 // ─── FormField ────────────────────────────────────────────────────────────────
 
+/**
+ * Wrapper for form fields that adds labels, errors, and helper text.
+ * Uses aria-describedby for accessibility.
+ */
 interface FormFieldProps {
   label: string;
   error?: string;
@@ -381,9 +573,9 @@ interface FormFieldProps {
   errorId?: string;
 }
 
-export function FormField({ label, error, helper, required, children, errorId }: FormFieldProps) {
+export const FormField = memo(function FormField({ label, error, helper, required, children, errorId }: FormFieldProps) {
   const generatedId = React.useId();
-  const effectiveErrorId = errorId || generatedId;
+  const effectiveErrorId = errorId || `err-${generatedId}`;
   const hasError = !!error;
 
   // Enhance children with error indicator if it's a component that can handle it
@@ -393,57 +585,107 @@ export function FormField({ label, error, helper, required, children, errorId }:
       'aria-describedby'?: string;
       hasError?: boolean;
     }>, {
-      'aria-invalid': hasError ? 'true' : undefined,
-      'aria-describedby': hasError ? effectiveErrorId : undefined,
+      'aria-invalid': hasError ? 'true' : 'false',
+      'aria-describedby': hasError ? effectiveErrorId : (helper ? `help-${generatedId}` : undefined),
       hasError,
     })
     : children;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: THEME.spacing.xs }}>
       <label
         style={{
           fontSize: THEME.fontSizes.sm,
           color: hasError ? THEME.colors.error : THEME.colors.ash,
           fontFamily: THEME.fonts.ui,
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
       >
-        {label}
-        {required && <span style={{ color: THEME.colors.error, marginLeft: '3px' }}>*</span>}
+        <span>
+          {label}
+          {required && <span style={{ color: THEME.colors.error, marginLeft: '4px' }} aria-hidden="true">*</span>}
+        </span>
       </label>
+      
       {childWithProps}
-      {helper && !error && <span style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{helper}</span>}
-      {error && <span id={effectiveErrorId} role="alert" style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.error, fontFamily: THEME.fonts.ui }}>{mapError(error)}</span>}
+      
+      {helper && !error && (
+        <span 
+          id={`help-${generatedId}`}
+          style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui, marginTop: '2px' }}
+        >
+          {helper}
+        </span>
+      )}
+      
+      <div 
+        style={{ 
+          minHeight: '18px', 
+          overflow: 'hidden',
+          transition: 'all 0.2s ease-in-out',
+          marginTop: hasError ? '2px' : '-4px',
+          opacity: hasError ? 1 : 0,
+        }}
+      >
+        {error && (
+          <span 
+            id={effectiveErrorId} 
+            role="alert" 
+            style={{ 
+              fontSize: '11px', 
+              color: THEME.colors.error, 
+              fontFamily: THEME.fonts.ui,
+              display: 'block',
+              fontWeight: 500,
+            }}
+          >
+            {mapError(error)}
+          </span>
+        )}
+      </div>
     </div>
   );
-}
+});
 
 // ─── TextInput ────────────────────────────────────────────────────────────────
 
+/**
+ * Standard text input with optional prefix/suffix.
+ */
 interface TextInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   prefix?: string;
   suffix?: string;
   hasError?: boolean;
 }
 
-export function TextInput({ prefix, suffix, style: _style, hasError, ...props }: TextInputProps) {
+export const TextInput = memo(function TextInput({ prefix, suffix, style: _style, hasError, ...props }: TextInputProps) {
   const inputStyle = {
     ...css.input,
     border: hasError ? `1px solid ${THEME.colors.error}` : undefined,
-    background: hasError ? 'rgba(184,76,60,0.05)' : css.input.background,
+    background: hasError ? 'rgba(224,85,69,0.05)' : css.input.background,
   };
 
   if (prefix || suffix) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', background: hasError ? 'rgba(184,76,60,0.05)' : THEME.colors.bg, border: hasError ? `1px solid ${THEME.colors.error}` : `1px solid ${THEME.colors.border2}`, borderRadius: THEME.radius.md, overflow: 'hidden' }}>
-        {prefix && <span style={{ padding: '0 8px', color: THEME.colors.muted, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui, borderRight: `1px solid ${THEME.colors.ghost}`, height: '100%', display: 'flex', alignItems: 'center' }}>{prefix}</span>}
-        <input {...props} style={inputStyle} />
-        {suffix && <span style={{ padding: '0 8px', color: THEME.colors.muted, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>{suffix}</span>}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        background: hasError ? 'rgba(224,85,69,0.05)' : THEME.colors.bg, 
+        border: `1px solid ${hasError ? THEME.colors.error : THEME.colors.border2}`, 
+        borderRadius: THEME.radius.md, 
+        overflow: 'hidden' 
+      }}>
+        {prefix && <span style={{ padding: `0 ${THEME.spacing.sm}`, color: THEME.colors.muted, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui, borderRight: `1px solid ${THEME.colors.ghost}`, height: '100%', display: 'flex', alignItems: 'center' }}>{prefix}</span>}
+        <input {...props} className="fs-focus" style={inputStyle} />
+        {suffix && <span style={{ padding: `0 ${THEME.spacing.sm}`, color: THEME.colors.muted, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui, borderLeft: `1px solid ${THEME.colors.ghost}`, height: '100%', display: 'flex', alignItems: 'center' }}>{suffix}</span>}
       </div>
     );
   }
-  return <input {...props} style={inputStyle} />;
-}
+  return <input {...props} className="fs-focus" style={inputStyle} />;
+});
 
 // ─── Textarea ─────────────────────────────────────────────────────────────────
 
@@ -451,21 +693,22 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
   hasError?: boolean;
 }
 
-export function Textarea({ hasError, ...props }: TextareaProps) {
+export const Textarea = memo(function Textarea({ hasError, ...props }: TextareaProps) {
   return (
     <textarea
       {...props}
+      className="fs-focus"
       style={{
         ...css.input,
         resize: 'vertical',
         minHeight: '80px',
         lineHeight: '1.5',
         border: hasError ? `1px solid ${THEME.colors.error}` : undefined,
-        background: hasError ? 'rgba(184,76,60,0.05)' : css.input.background,
+        background: hasError ? 'rgba(224,85,69,0.05)' : css.input.background,
       }}
     />
   );
-}
+});
 
 // ─── Select ───────────────────────────────────────────────────────────────────
 
@@ -473,10 +716,11 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   hasError?: boolean;
 }
 
-export function Select({ hasError, ...props }: SelectProps) {
+export const Select = memo(function Select({ hasError, ...props }: SelectProps) {
   return (
     <select
       {...props}
+      className="fs-focus"
       style={{
         ...css.input,
         appearance: 'none',
@@ -486,11 +730,11 @@ export function Select({ hasError, ...props }: SelectProps) {
         paddingRight: '28px',
         cursor: 'pointer',
         border: hasError ? `1px solid ${THEME.colors.error}` : undefined,
-        background: hasError ? 'rgba(184,76,60,0.05)' : css.input.background,
+        background: hasError ? 'rgba(224,85,69,0.05)' : css.input.background,
       }}
     />
   );
-}
+});
 
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
@@ -502,7 +746,11 @@ interface DrawerProps {
   width?: string;
 }
 
-export function Drawer({ open, onClose, title, children, width = '400px' }: DrawerProps) {
+/**
+ * Side-drawer component (Sidebar overlay) for forms and details.
+ * Implements focus trapping for accessibility.
+ */
+export const Drawer = memo(function Drawer({ open, onClose, title, children, width = '400px' }: DrawerProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const previousActiveRef = React.useRef<HTMLElement | null>(null);
 
@@ -591,14 +839,21 @@ export function Drawer({ open, onClose, title, children, width = '400px' }: Draw
         tabIndex={-1}
       >
         <div style={{ ...css.sectionHeader, flexShrink: 0 }}>
-          <span id="drawer-title" style={{ fontSize: THEME.fontSizes.md, color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontWeight: 500 }}>{title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: THEME.colors.ash, cursor: 'pointer', fontSize: '18px', lineHeight: 1 }} aria-label="Close drawer">×</button>
+          <span id="drawer-title" style={{ fontSize: THEME.fontSizes.md, color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontWeight: 600 }}>{title}</span>
+          <button 
+            onClick={onClose} 
+            className="fs-focus"
+            style={{ background: 'none', border: 'none', color: THEME.colors.ash, cursor: 'pointer', fontSize: '20px', lineHeight: 1, padding: THEME.spacing.xs, borderRadius: THEME.radius.sm }} 
+            aria-label="Close drawer"
+          >
+            ×
+          </button>
         </div>
-        <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>{children}</div>
+        <div style={{ flex: 1, overflow: 'auto', padding: THEME.spacing.lg }}>{children}</div>
       </div>
     </div>
   );
-}
+});
 
 // ─── ConfirmModal ─────────────────────────────────────────────────────────────
 
@@ -613,20 +868,66 @@ interface ConfirmModalProps {
   loading?: boolean;
 }
 
-export function ConfirmModal({ open, title, message, onConfirm, onCancel, confirmLabel = 'Confirm', danger, loading }: ConfirmModalProps) {
+/**
+ * Centered confirmation modal for destructive or important actions.
+ */
+export const ConfirmModal = memo(function ConfirmModal({ open, title, message, onConfirm, onCancel, confirmLabel = 'Confirm', danger, loading }: ConfirmModalProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
+  const previousActiveRef = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
-    if (open) {
-      panelRef.current?.focus();
+    if (!open) return;
+
+    // Store previously focused element
+    previousActiveRef.current = document.activeElement as HTMLElement;
+
+    // Focus first focusable element in modal
+    const focusableElements = panelRef.current?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements?.[0];
+    firstElement?.focus();
+
+    // Get all focusable elements for tab cycling
+    const focusableArray = Array.from(focusableElements ?? []);
+    const firstFocusable = focusableArray[0];
+    const lastFocusable = focusableArray[focusableArray.length - 1];
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onCancel();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      // Trap focus within modal
+      if (e.shiftKey) {
+        if (document.activeElement === firstFocusable) {
+          e.preventDefault();
+          lastFocusable?.focus();
+        }
+      } else {
+        if (document.activeElement === lastFocusable) {
+          e.preventDefault();
+          firstFocusable?.focus();
+        }
+      }
     }
-  }, [open]);
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      // Restore focus to previously active element
+      previousActiveRef.current?.focus();
+    };
+  }, [open, onCancel]);
 
   if (!open) return null;
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div onClick={onCancel} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(2px)' }} />
+      <div onClick={onCancel} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(2px)' }} aria-hidden="true" />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -645,7 +946,7 @@ export function ConfirmModal({ open, title, message, onConfirm, onCancel, confir
           <h3 id="modal-title" style={{ fontSize: THEME.fontSizes.md, color: THEME.colors.ivory, fontFamily: THEME.fonts.display, margin: '0 0 10px' }}>{title}</h3>
           <p style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.ash, fontFamily: THEME.fonts.ui, lineHeight: 1.5, margin: 0 }}>{message}</p>
         </div>
-        <div style={{ padding: '12px 20px', background: 'rgba(255,255,255,0.02)', borderTop: `1px solid ${THEME.colors.border}`, display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+        <div style={{ padding: '12px 20px', background: 'rgba(255,255,255,0.02)', borderTop: `1px solid ${THEME.colors.border}`, display: 'flex', justifyContent: 'flex-end', gap: THEME.spacing.sm }}>
           <ActionButton variant="ghost" onClick={onCancel}>Cancel</ActionButton>
           <ActionButton variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading}>
             {confirmLabel}
@@ -654,47 +955,60 @@ export function ConfirmModal({ open, title, message, onConfirm, onCancel, confir
       </div>
     </div>
   );
-}
+});
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 
-function Toast({ message, type, onClose }: { message: string | any; type: 'success' | 'error' | 'info'; onClose: () => void }) {
+const Toast = memo(function Toast({ message, type, onClose }: { message: string | any; type: 'success' | 'error' | 'info'; onClose: () => void }) {
   const colors = {
     success: { bg: 'rgba(45,106,79,0.1)', border: 'rgba(45,106,79,0.3)', color: THEME.colors.success },
-    error: { bg: 'rgba(184,76,60,0.1)', border: 'rgba(184,76,60,0.3)', color: THEME.colors.error },
+    error: { bg: 'rgba(224,85,69,0.1)', border: 'rgba(224,85,69,0.3)', color: THEME.colors.error },
     info: { bg: 'rgba(88,166,255,0.1)', border: 'rgba(88,166,255,0.3)', color: THEME.colors.info },
   };
 
   return (
-    <div style={{
-      position: 'fixed',
-      bottom: '20px',
-      right: '20px',
-      zIndex: 200,
-      background: THEME.colors.bg,
-      border: `1px solid ${THEME.colors.border}`,
-      borderRadius: THEME.radius.lg,
-      padding: '12px 16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px',
-      minWidth: '280px',
-      maxWidth: '400px',
-      boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-    }}>
+    <div 
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed',
+        bottom: '20px',
+        right: '20px',
+        zIndex: 200,
+        background: THEME.colors.bg,
+        border: `1px solid ${THEME.colors.border}`,
+        borderRadius: THEME.radius.lg,
+        padding: '12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        minWidth: '280px',
+        maxWidth: '400px',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+      }}
+    >
       <span style={{ color: colors[type].color, fontSize: '14px' }}>
         {type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}
       </span>
       <span style={{ flex: 1, fontSize: THEME.fontSizes.base, color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>
         {type === 'error' ? mapError(message) : message}
       </span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', color: THEME.colors.ash, cursor: 'pointer', fontSize: '16px' }}>×</button>
+      <button 
+        onClick={onClose} 
+        aria-label="Close notification"
+        style={{ background: 'none', border: 'none', color: THEME.colors.ash, cursor: 'pointer', fontSize: '16px' }}
+      >
+        ×
+      </button>
     </div>
   );
-}
+});
 
 // ─── useToast hook ────────────────────────────────────────────────────────────
 
+/**
+ * Hook to manage and display toast notifications.
+ */
 export function useToast() {
   const [toast, setToast] = useState<{ message: string | any; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -703,35 +1017,48 @@ export function useToast() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const ToastComponent = toast
+  const ToastComponent = useMemo(() => toast
     ? <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-    : null;
+    : null, [toast]);
 
-  return { showToast, ToastComponent };
+  return useMemo(() => ({ showToast, ToastComponent }), [showToast, ToastComponent]);
 }
 
 // ─── ErrorBanner ──────────────────────────────────────────────────────────────
 
-export function ErrorBanner({ message, onRetry }: { message: string | any; onRetry?: () => void }) {
+export const ErrorBanner = memo(function ErrorBanner({ message, onRetry }: { message: string | any; onRetry?: () => void }) {
   return (
-    <div style={{ background: 'rgba(184,76,60,0.08)', border: `1px solid rgba(184,76,60,0.2)`, borderRadius: THEME.radius.lg, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-      <span style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.error, fontFamily: THEME.fonts.ui }}>
+    <div style={{ 
+      background: 'rgba(224,85,69,0.08)', 
+      border: `1px solid rgba(224,85,69,0.25)`, 
+      borderRadius: THEME.radius.lg, 
+      padding: `${THEME.spacing.md} ${THEME.spacing.lg}`, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'space-between', 
+      gap: THEME.spacing.md 
+    }}>
+      <span style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.error, fontFamily: THEME.fonts.ui, fontWeight: 500 }}>
         {mapError(message)}
       </span>
-      {onRetry && <ActionButton variant="ghost" onClick={onRetry}>Retry</ActionButton>}
+      {onRetry && (
+        <ActionButton variant="ghost" onClick={onRetry} style={{ padding: '4px 12px', fontSize: THEME.fontSizes.sm }}>
+          Retry
+        </ActionButton>
+      )}
     </div>
   );
-}
+});
 
 // ─── MonoText ─────────────────────────────────────────────────────────────────
 
-export function MonoText({ children, color }: { children: React.ReactNode; color?: string }) {
+export const MonoText = memo(function MonoText({ children, color }: { children: React.ReactNode; color?: string }) {
   return (
     <span style={{ fontFamily: THEME.fonts.mono, fontSize: THEME.fontSizes.sm, color: color ?? THEME.colors.linen }}>
       {children}
     </span>
   );
-}
+});
 
 // ─── Timeline ─────────────────────────────────────────────────────────────────
 
@@ -742,7 +1069,7 @@ interface TimelineEvent {
   note?: string | null;
 }
 
-export function Timeline({ events }: { events: TimelineEvent[] }) {
+export const Timeline = memo(function Timeline({ events }: { events: TimelineEvent[] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {events.map((evt, i) => (
@@ -765,11 +1092,11 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
       ))}
     </div>
   );
-}
+});
 
 // ─── Spinner / Loader ─────────────────────────────────────────────────────────
 
-export function Loader({ size = 24 }: { size?: number }) {
+export const Loader = memo(function Loader({ size = 24 }: { size?: number }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
       <div style={{
@@ -783,7 +1110,7 @@ export function Loader({ size = 24 }: { size?: number }) {
       <style>{`@keyframes fs-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
-}
+});
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -795,7 +1122,7 @@ interface SkeletonProps {
   style?: React.CSSProperties;
 }
 
-export function Skeleton({ variant = 'text', width, height, lines = 1, style }: SkeletonProps) {
+export const Skeleton = memo(function Skeleton({ variant = 'text', width, height, lines = 1, style }: SkeletonProps) {
   const baseStyle = {
     background: `linear-gradient(90deg, ${THEME.colors.surface2} 25%, ${THEME.colors.ghost} 50%, ${THEME.colors.surface2} 75%)`,
     backgroundSize: '200% 100%',
@@ -843,11 +1170,11 @@ export function Skeleton({ variant = 'text', width, height, lines = 1, style }: 
       `}</style>
     </>
   );
-}
+});
 
 // ─── MetricCardSkeleton ───────────────────────────────────────────────────────
 
-export function MetricCardSkeleton() {
+export const MetricCardSkeleton = memo(function MetricCardSkeleton() {
   return (
     <div style={{
       background: THEME.colors.surface3,
@@ -860,11 +1187,11 @@ export function MetricCardSkeleton() {
       <Skeleton width="50%" height="12px" />
     </div>
   );
-}
+});
 
 // ─── MetricsGridSkeleton ──────────────────────────────────────────────────────
 
-export function MetricsGridSkeleton() {
+export const MetricsGridSkeleton = memo(function MetricsGridSkeleton() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '16px' }}>
       {Array.from({ length: 4 }).map((_, i) => (
@@ -872,11 +1199,11 @@ export function MetricsGridSkeleton() {
       ))}
     </div>
   );
-}
+});
 
 // ─── DataTableSkeleton ────────────────────────────────────────────────────────
 
-export function DataTableSkeleton({ rows = 5 }: { rows?: number }) {
+export const DataTableSkeleton = memo(function DataTableSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div style={{ border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
       <div style={{ padding: '12px 14px', borderBottom: `1px solid ${THEME.colors.border}`, display: 'flex', gap: '20px' }}>
@@ -895,11 +1222,11 @@ export function DataTableSkeleton({ rows = 5 }: { rows?: number }) {
       ))}
     </div>
   );
-}
+});
 
 // ─── ProductCardSkeleton ──────────────────────────────────────────────────────
 
-export function ProductCardSkeleton() {
+export const ProductCardSkeleton = memo(function ProductCardSkeleton() {
   return (
     <div style={{ background: THEME.colors.surface3, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
       <Skeleton variant="rectangular" height="150px" />
@@ -910,11 +1237,11 @@ export function ProductCardSkeleton() {
       </div>
     </div>
   );
-}
+});
 
 // ─── ProductsGridSkeleton ─────────────────────────────────────────────────────
 
-export function ProductsGridSkeleton({ count = 6 }: { count?: number }) {
+export const ProductsGridSkeleton = memo(function ProductsGridSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
       {Array.from({ length: count }).map((_, i) => (
@@ -922,9 +1249,9 @@ export function ProductsGridSkeleton({ count = 6 }: { count?: number }) {
       ))}
     </div>
   );
-}
+});
 
-export function DetailsSkeleton() {
+export const DetailsSkeleton = memo(function DetailsSkeleton() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '20px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -943,7 +1270,7 @@ export function DetailsSkeleton() {
       </div>
     </div>
   );
-}
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import { THEME } from '@/lib/admin/theme';
 import { productsApi, brandsApi, categoriesApi } from '@/lib/admin/api';
 import type { Brand, Category, Variant } from '@/lib/admin/types';
+import Image from 'next/image';
 import {
   PageHeader, SectionCard, ActionButton, FormField, TextInput,
   Textarea, Select, Toggle, useToast, ErrorBanner, MonoText,
-  formatCurrency,
+  formatCurrency, 
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const SIZES   = ['0.5m','1m','1.5m','2m','2.5m','3m','5m','10m'];
 const COLOURS = ['White','Off-white','Ecru','Beige','Grey','Black','Navy','Olive','Rust','Indigo'];
@@ -179,7 +181,7 @@ export default function NewProductPage() {
       await productsApi.create({ ...form, gsmWeight: parseInt(form.gsmWeight,10), brandName: brands.find(b=>b.id===form.brandId)?.name??'', categoryName: categories.find(c=>c.id===form.categoryId)?.name??'', variants, images: imageUrls });
       showToast('Product created', 'success');
       router.push('/admin/products');
-    } catch (e: any) { showToast(e.message ?? 'Save failed', 'error'); }
+    } catch (e: any) { showToast(mapError(e), 'error'); }
     finally { setSaving(false); }
   };
 
@@ -304,8 +306,14 @@ export default function NewProductPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
               {imagePreviews.map((src,i) => (
                 <div key={i} style={{ aspectRatio: '1', borderRadius: THEME.radius.md, overflow: 'hidden', border: `1px solid ${THEME.colors.border}`, position: 'relative' }}>
-                  <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button onClick={() => { setImagePreviews(p=>p.filter((_,j)=>j!==i)); setImageFiles(p=>p.filter((_,j)=>j!==i)); }} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 12 }}>×</button>
+                  <Image
+                    src={src}
+                    alt=""
+                    fill
+                    unoptimized
+                    style={{ objectFit: 'cover' }}
+                  />
+                  <button onClick={() => { setImagePreviews(p=>p.filter((_,j)=>j!==i)); setImageFiles(p=>p.filter((_,j)=>j!==i)); }} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 12, zIndex: 1 }}>×</button>
                 </div>
               ))}
               {imagePreviews.length < 6 && (

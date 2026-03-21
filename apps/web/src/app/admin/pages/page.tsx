@@ -10,6 +10,7 @@ import {
   Drawer, FormField, TextInput, Textarea, Toggle, useToast,
   formatDateTime,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 export default function ContentPagesAdminPage() {
   const { showToast, ToastComponent } = useToast();
@@ -29,7 +30,7 @@ export default function ContentPagesAdminPage() {
       setLoading(true);
       setPages(await contentApi.list());
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load pages');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -88,7 +89,7 @@ export default function ContentPagesAdminPage() {
       setErrors({});
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Save failed', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setSaving(false);
     }
@@ -105,7 +106,7 @@ export default function ContentPagesAdminPage() {
       }
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed', 'error');
+      showToast(mapError(e), 'error');
     }
   };
 

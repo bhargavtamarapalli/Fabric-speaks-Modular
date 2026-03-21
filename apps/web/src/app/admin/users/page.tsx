@@ -11,6 +11,7 @@ import {
   Drawer, FormField, TextInput, Select, ConfirmModal, useToast,
   formatDateTime,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 const ROLE_LABELS: Record<AdminRole, string> = {
   SUPER_ADMIN:       'Super Admin',
@@ -36,7 +37,7 @@ export default function UsersPage() {
       setLoading(true);
       setUsers(await adminUsersApi.list());
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load users');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -72,7 +73,7 @@ export default function UsersPage() {
       setErrors({});
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Create failed', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setSaving(false);
     }
@@ -86,7 +87,7 @@ export default function UsersPage() {
       setDeactId(null);
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Failed', 'error');
+      showToast(mapError(e), 'error');
     }
   };
 

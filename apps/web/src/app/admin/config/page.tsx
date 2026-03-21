@@ -10,6 +10,7 @@ import {
   PageHeader, SectionCard, FormField, TextInput, Textarea,
   ActionButton, Toggle, ErrorBanner, Loader, ConfirmModal, useToast,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 type IdentityForm = {
   storeName:  string;
@@ -96,7 +97,7 @@ export default function ConfigPage() {
       setNotifs({ adminWhatsapp: s.adminWhatsapp, inventoryManagerWhatsapp: s.inventoryManagerWhatsapp, preferences: s.notificationPreferences });
       setAdvanced({ razorpayLiveMode: s.razorpayLiveMode });
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load settings');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -187,7 +188,7 @@ export default function ConfigPage() {
       showToast('Settings saved', 'success');
       setDirty(false);
     } catch (e: any) {
-      showToast(e.message ?? 'Save failed', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setSaving(false);
     }

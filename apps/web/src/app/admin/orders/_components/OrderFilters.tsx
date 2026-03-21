@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { FilterChip, SearchInput } from '@/components/admin/shared';
 import type { OrdersFilters } from '../_hooks/useOrders';
 
@@ -19,10 +19,14 @@ interface OrderFiltersProps {
   onFilterChange: (patch: Partial<OrdersFilters>) => void;
 }
 
-export function OrderFilters({ filters, onFilterChange }: OrderFiltersProps) {
+export const OrderFilters = memo(function OrderFilters({ filters, onFilterChange }: OrderFiltersProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '12px' }}>
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+      <div 
+        role="group" 
+        aria-label="Order status filters"
+        style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}
+      >
         {STATUS_FILTERS.map(f => (
           <FilterChip
             key={f.value}
@@ -41,4 +45,5 @@ export function OrderFilters({ filters, onFilterChange }: OrderFiltersProps) {
       </div>
     </div>
   );
-}
+});
+

@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { THEME, css } from '@/lib/admin/theme';
 import type { Product } from '@/lib/admin/types';
-import { Badge, formatCurrency } from '@/components/admin/shared';
+import { Badge, formatCurrency, ActionButton } from '@/components/admin/shared';
 
 interface ProductCardProps {
   product: Product;
@@ -20,20 +21,44 @@ function StockBadge({ product }: { product: Product }) {
   return <Badge type="healthy">In stock</Badge>;
 }
 
-export function ProductCard({ product, isHovered, onHover, onRemove }: ProductCardProps) {
+export const ProductCard = memo(function ProductCard({ product, isHovered, onHover, onRemove }: ProductCardProps) {
   const router = useRouter();
 
-  const minPrice = Math.min(...product.variants.map(v => v.price));
-  const maxPrice = Math.max(...product.variants.map(v => v.price));
-  
-  const priceRange = minPrice === maxPrice 
-    ? formatCurrency(minPrice) 
-    : `${formatCurrency(minPrice)} – ${formatCurrency(maxPrice)}`;
+  const { minPrice, maxPrice, priceRange } = React.useMemo(() => {
+    const prices = product.variants.map(v => v.price);
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const range = min === max 
+      ? formatCurrency(min) 
+      : `${formatCurrency(min)} – ${formatCurrency(max)}`;
+    return { minPrice: min, maxPrice: max, priceRange: range };
+  }, [product.variants]);
+
+  const handleEdit = React.useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/admin/products/${product.id}`);
+  }, [router, product.id]);
+
+  const handleRemove = React.useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onRemove(product.id);
+  }, [onRemove, product.id]);
 
   return (
     <div
       onMouseEnter={() => onHover(product.id)}
       onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(product.id)}
+      onBlur={(e) => {
+        // Only hide if focus moved outside the card
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          onHover(null);
+        }
+      }}
+      tabIndex={0}
+      role="article"
+      aria-label={`Product: ${product.name}, price range: ${priceRange}`}
+      className="fs-focus"
       style={{
         background:   THEME.colors.surface3,
         border:       `1px solid ${isHovered ? THEME.colors.border2 : THEME.colors.border}`,
@@ -42,8 +67,16 @@ export function ProductCard({ product, isHovered, onHover, onRemove }: ProductCa
         transition:   'border-color 0.12s, transform 0.12s',
         transform:    isHovered ? 'translateY(-1px)' : 'none',
         cursor:       'pointer',
+        position:     'relative',
+        outline:      'none',
       }}
       onClick={() => router.push(`/admin/products/${product.id}`)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          router.push(`/admin/products/${product.id}`);
+        }
+      }}
     >
       {/* Image Container */}
       <div style={{ 
@@ -56,8 +89,13 @@ export function ProductCard({ product, isHovered, onHover, onRemove }: ProductCa
         position: 'relative' 
       }}>
         {product.images[0] ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={product.images[0]} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <Image 
+            src={product.images[0]} 
+            alt={product.name} 
+            fill
+            sizes="220px"
+            style={{ objectFit: 'cover' }}
+          />
         ) : (
           <div style={{ color: THEME.colors.ghost, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui }}>No image</div>
         )}
@@ -72,22 +110,27 @@ export function ProductCard({ product, isHovered, onHover, onRemove }: ProductCa
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center', 
-              gap: '8px' 
+              gap: '8px',
+              zIndex: 20
             }}
             onClick={e => e.stopPropagation()}
           >
-            <button
-              onClick={e => { e.stopPropagation(); router.push(`/admin/products/${product.id}`); }}
-              style={{ ...css.ghostBtn, fontSize: THEME.fontSizes.xs }}
+            <ActionButton
+              onClick={handleEdit}
+              variant="ghost"
+              style={{ fontSize: THEME.fontSizes.xs, padding: '4px 8px' }}
+              aria-label={`Edit ${product.name}`}
             >
               Edit
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); onRemove(product.id); }}
-              style={{ ...css.dangerBtn, fontSize: THEME.fontSizes.xs }}
+            </ActionButton>
+            <ActionButton
+              onClick={handleRemove}
+              variant="danger"
+              style={{ fontSize: THEME.fontSizes.xs, padding: '4px 8px' }}
+              aria-label={`Remove ${product.name}`}
             >
               Remove
-            </button>
+            </ActionButton>
           </div>
         )}
       </div>
@@ -129,4 +172,5 @@ export function ProductCard({ product, isHovered, onHover, onRemove }: ProductCa
       </div>
     </div>
   );
-}
+});
+

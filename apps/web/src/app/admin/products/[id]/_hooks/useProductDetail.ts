@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { productsApi } from '@/lib/admin/api';
 import type { Product } from '@/lib/admin/types';
 import { useToast } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 export type VariantEdit = {
   variantId: string;
@@ -25,13 +26,20 @@ export function useProductDetail(productId: string | undefined) {
   const [edits, setEdits] = useState<VariantEdit[]>([]);
   const [errors, setErrors] = useState<Record<string, VariantErrors>>({});
   const [saving, setSaving] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
     if (!productId) return;
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+
     try {
       setError(null);
       setLoading(true);
       const res = await productsApi.getById(productId);
+      if (!res.isActive) {
+        setError('This product is currently deactivated/deleted.');
+      }
       setProduct(res);
       setEdits(res.variants.map(v => ({
         variantId: v.id,
@@ -41,13 +49,18 @@ export function useProductDetail(productId: string | undefined) {
         colourImageUrl: v.colourImageUrl ?? '',
       })));
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load product');
+      if (e.name !== 'AbortError') {
+        setError(mapError(e));
+      }
     } finally {
       setLoading(false);
     }
   }, [productId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { 
+    load(); 
+    return () => abortControllerRef.current?.abort();
+  }, [load]);
 
   const updateEdit = useCallback((variantId: string, patch: Partial<VariantEdit>) => {
     setEdits(prev => prev.map(v => v.variantId === variantId ? { ...v, ...patch } : v));
@@ -95,7 +108,7 @@ export function useProductDetail(productId: string | undefined) {
       setDrawerOpen(false);
       load();
     } catch (e: any) {
-      showToast(e.message ?? 'Bulk update failed', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setSaving(false);
     }

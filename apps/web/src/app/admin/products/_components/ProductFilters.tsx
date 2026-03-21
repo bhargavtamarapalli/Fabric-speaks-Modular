@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { FilterChip, SearchInput } from '@/components/admin/shared';
 import type { ProductsFilters } from '../_hooks/useProducts';
 
@@ -12,10 +12,14 @@ interface ProductFiltersProps {
   onFilterChange: (patch: Partial<ProductsFilters>) => void;
 }
 
-export function ProductFilters({ filters, onFilterChange }: ProductFiltersProps) {
+export const ProductFilters = memo(function ProductFilters({ filters, onFilterChange }: ProductFiltersProps) {
   return (
     <div style={{ display: 'flex', gap: '16px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
-      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+      <div 
+        role="group" 
+        aria-label="Fabric filters"
+        style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}
+      >
         {FABRIC_FILTERS.map(f => (
           <FilterChip 
             key={f} 
@@ -25,7 +29,11 @@ export function ProductFilters({ filters, onFilterChange }: ProductFiltersProps)
           />
         ))}
       </div>
-      <div style={{ display: 'flex', gap: '5px' }}>
+      <div 
+        role="group" 
+        aria-label="Status filters"
+        style={{ display: 'flex', gap: '5px' }}
+      >
         {STATUS_FILTERS.map(s => (
           <FilterChip 
             key={s} 
@@ -44,4 +52,5 @@ export function ProductFilters({ filters, onFilterChange }: ProductFiltersProps)
       </div>
     </div>
   );
-}
+});
+

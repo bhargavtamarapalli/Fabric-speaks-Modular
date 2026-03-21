@@ -13,6 +13,7 @@ import {
   TextInput, Timeline, MonoText, useToast,
   formatDateTime, formatCurrency, maskMobile,
 } from '@/components/admin/shared';
+import { mapError } from '@/lib/admin/errors';
 
 export default function SupportPage() {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function SupportPage() {
       const res = await supportApi.list({ status: filter || undefined });
       setCases(res);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load support queue');
+      setError(mapError(e));
     } finally {
       setLoading(false);
     }
@@ -54,7 +55,7 @@ export default function SupportPage() {
       const res = await supportApi.lookupCustomer(lookupMobile.trim());
       setCustomer(res);
     } catch (e: any) {
-      showToast(e.message ?? 'Customer not found', 'error');
+      showToast(mapError(e), 'error');
     } finally {
       setLookupLoading(false);
     }
@@ -68,7 +69,7 @@ export default function SupportPage() {
       setNewTag('');
       showToast('Tag added', 'success');
     } catch (e: any) {
-      showToast(e.message ?? 'Failed to add tag', 'error');
+      showToast(mapError(e), 'error');
     }
   };
 
@@ -79,7 +80,7 @@ export default function SupportPage() {
       showToast('Note added', 'success');
       setNewNote('');
     } catch (e: any) {
-      showToast(e.message ?? 'Failed to add note', 'error');
+      showToast(mapError(e), 'error');
     }
   };
 
