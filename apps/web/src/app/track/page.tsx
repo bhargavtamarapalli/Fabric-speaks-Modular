@@ -87,8 +87,8 @@ export default function GuestTrackPage() {
         {order && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ background: 'var(--fs-surface)', border: '1px solid var(--fs-wire)', borderRadius: 2, padding: 32, marginTop: 24 }}>
             <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--fs-wire)' }}>
-              <p style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 16, color: 'var(--fs-linen)', marginBottom: 4 }}>{order.order_number}</p>
-              <p style={{ fontSize: 13, color: 'var(--fs-ash)' }}>{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+              <p style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 16, color: 'var(--fs-linen)', marginBottom: 4 }}>{order.orderNumber}</p>
+              <p style={{ fontSize: 13, color: 'var(--fs-ash)' }}>{new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
             </div>
             <OrderStatusTimeline currentStatus={order.status} />
           </motion.div>

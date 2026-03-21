@@ -1,95 +1,96 @@
 'use client';
+// app/admin/categories/page.tsx
 
-import { useEffect, useState } from 'react';
-import { InventoryAllowed } from '@/components/admin/WithRoleGuard';
-import { AdminTable } from '@/components/admin/AdminTable';
-import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
-import { Plus } from 'lucide-react';
-import { useConfirmationModal } from '@/components/admin/ConfirmationModal';
+import React, { useEffect, useState, useCallback } from 'react';
+import { THEME } from '@/lib/admin/theme';
+import { categoriesApi } from '@/lib/admin/api';
+import type { Category } from '@/lib/admin/types';
+import { PageHeader, Badge, DataTable, ActionButton, ErrorBanner, Drawer, FormField, TextInput, Select, ConfirmModal, useToast } from '@/components/admin/shared';
 
-interface Category {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-}
+export default function CategoriesPage() {
+  const { showToast, ToastComponent } = useToast();
+  const [cats,     setCats]     = useState<Category[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form,     setForm]     = useState({ name: '', parentId: '' });
+  const [errors,   setErrors]   = useState<Partial<Record<'name', string>>>({});
+  const [saving,   setSaving]   = useState(false);
 
-export default function AdminCategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { requestConfirmation } = useConfirmationModal();
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const res = await apiFetch<{ items: Category[] }>('GET', '/api/v1/catalog/admin/categories', undefined, { withCredentials: true });
-      setCategories(res.items || (res as any));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
+  const load = useCallback(async () => {
+    try { setError(null); setLoading(true); setCats(await categoriesApi.list()); }
+    catch (e: any) { setError(e.message ?? 'Failed'); }
+    finally { setLoading(false); }
   }, []);
 
-  const handleCreate = async () => {
-    const name = prompt('Enter Category Name:');
-    if (!name) return;
-    
-    const confirmed = await requestConfirmation({
-      title: 'Create Category',
-      message: `Creating new system category: ${name}. This taxonomy will be immediately visible for product assignments.`,
-      confirmLabel: 'Create'
-    });
+  useEffect(() => { load(); }, [load]);
 
-    if (confirmed) {
-      try {
-        await apiFetch('POST', '/api/v1/catalog/admin/categories', {
-          name, 
-          slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          description: `Category for ${name}`
-        }, { withCredentials: true });
-        loadData();
-      } catch (err: any) {
-        alert(err.message || 'Creation failed');
-      }
+  const updateField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+    setForm(p => ({ ...p, [key]: value }));
+    if (key === 'name') {
+      setErrors(prev => (prev.name ? { ...prev, name: '' } : prev));
     }
   };
 
-  if (loading) return <div className="py-20 flex justify-center"><SpiderLoader size="md" /></div>;
+  const validate = () => {
+    const next: Partial<Record<'name', string>> = {};
+    if (!form.name.trim()) next.name = 'Category name is required';
+    return next;
+  };
+
+  const handleCreate = async () => {
+    const validationErrors = validate();
+    if (Object.values(validationErrors).some(Boolean)) {
+      setErrors(validationErrors);
+      return;
+    }
+    try {
+      setSaving(true);
+      await categoriesApi.create({ name: form.name, slug: form.name.toLowerCase().replace(/\s+/g, '-'), parentId: form.parentId || null, isActive: true });
+      showToast('Category created', 'success');
+      setShowForm(false);
+      setForm({ name: '', parentId: '' });
+      setErrors({});
+      load();
+    } catch (e: any) { showToast(e.message ?? 'Failed', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const columns = [
+    { key: 'name', label: 'Name', render: (c: Category) => <span style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>{c.name}</span> },
+    { key: 'parent', label: 'Parent', render: (c: Category) => <span style={{ color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{cats.find(x => x.id === c.parentId)?.name ?? '—'}</span> },
+    { key: 'slug', label: 'Slug', render: (c: Category) => <span style={{ fontFamily: THEME.fonts.mono, fontSize: THEME.fontSizes.sm, color: THEME.colors.ash }}>{c.slug}</span> },
+    { key: 'status', label: 'Status', width: '90px', render: (c: Category) => <Badge type={c.isActive ? 'active' : 'inactive'}>{c.isActive ? 'Active' : 'Inactive'}</Badge> },
+    { key: 'edit', label: '', width: '60px', render: (c: Category) => <button onClick={e => e.stopPropagation()} style={{ background: 'none', border: 'none', color: THEME.colors.linen, fontSize: THEME.fontSizes.sm, cursor: 'pointer', fontFamily: THEME.fonts.ui }}>Edit</button> },
+  ];
 
   return (
-    <InventoryAllowed>
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-serif text-[var(--fs-linen)]">Taxonomy & Categories</h1>
-            <p className="text-gray-400 text-sm mt-1">Manage global product classification layers.</p>
-          </div>
-          <button 
-            onClick={handleCreate}
-            className="px-4 py-2 bg-[var(--fs-linen)] text-[var(--fs-void)] hover:bg-gray-200 text-sm rounded flex items-center gap-2 font-medium transition"
-          >
-            <Plus className="w-4 h-4" /> New Category
-          </button>
-        </div>
-
-        <AdminTable
-          data={categories}
-          globalSearchField="name"
-          searchPlaceholder="Search taxonomies..."
-          columns={[
-            { header: 'ID', accessor: 'id' },
-            { header: 'Name', accessor: 'name', sortable: true },
-            { header: 'URL Slug', accessor: 'slug' },
-            { header: 'Description', accessor: (row) => row.description || '-' },
-          ]}
-        />
+    <div>
+      <PageHeader title="Categories" subtitle={`${cats.length} categories`} action={<ActionButton onClick={() => { setForm({ name: '', parentId: '' }); setErrors({}); setShowForm(true); }}>+ Add category</ActionButton>} />
+      {error && <div style={{ marginBottom: '12px' }}><ErrorBanner message={error} onRetry={load} /></div>}
+      <div style={{ background: THEME.colors.surface3, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
+        <DataTable columns={columns} data={cats} loading={loading} />
       </div>
-    </InventoryAllowed>
+      <Drawer open={showForm} onClose={() => { setShowForm(false); setErrors({}); }} title="Add category">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <FormField label="Category name" required error={errors.name} errorId="category-name-error">
+            <TextInput
+              value={form.name}
+              onChange={e => updateField('name', e.target.value)}
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'category-name-error' : undefined}
+            />
+          </FormField>
+          <FormField label="Parent category" helper="Leave blank for top-level">
+            <Select value={form.parentId} onChange={e => updateField('parentId', e.target.value)}>
+              <option value="">None (top-level)</option>
+              {cats.filter(c => !c.parentId).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </FormField>
+          <ActionButton onClick={handleCreate} loading={saving} fullWidth>Create category</ActionButton>
+        </div>
+      </Drawer>
+      {ToastComponent}
+    </div>
   );
 }

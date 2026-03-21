@@ -289,11 +289,13 @@ export class VariantRepository extends BaseRepository implements IVariantReposit
             ? `GREATEST(ROUND(${baseExpression} * (1 + $${valueParamIndex} / 100.0), 2), 0)`
             : `GREATEST(${baseExpression} + $${valueParamIndex}, 0)`;
 
+        // Convert JOIN clause to PostgreSQL FROM syntax
+        const fromClause = joinClause ? `FROM ${joinClause}` : '';
         const query = `
             UPDATE variants v
             SET ${targetColumn} = ${priceExpression},
                 updated_at = now()
-            ${joinClause}
+            ${fromClause}
             WHERE ${whereClause}
         `;
 

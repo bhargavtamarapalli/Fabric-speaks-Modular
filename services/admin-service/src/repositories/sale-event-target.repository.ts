@@ -90,7 +90,7 @@ export class SaleEventTargetRepository extends BaseRepository {
     const filter = whereClause ? `${baseFilter} AND ${whereClause}` : baseFilter;
 
     const priceExpression = discountType === 'PERCENT'
-      ? `ROUND(v.base_price * (1 - $${params.length + 1} / 100.0), 2)`
+      ? `GREATEST(ROUND(v.base_price * (1 - $${params.length + 1} / 100.0), 2), 0)`
       : `GREATEST(v.base_price - $${params.length + 1}, 0)`;
 
     const query = `

@@ -130,8 +130,6 @@ export async function withRetry<T>(
       await sleep(delayMs);
     }
   }
-
-  throw new Error('Retry attempts exhausted');
 }
 
 export async function withExternalRetry<T>(
@@ -163,16 +161,37 @@ export async function fetchJsonWithRetry<T>(
   return withExternalRetry(async () => {
     const response = await fetch(input, init);
     let data: any = null;
+    let parseError: Error | null = null;
     try {
       data = await response.json();
-    } catch {
-      data = null;
+    } catch (e) {
+      parseError = e instanceof Error ? e : new Error(String(e));
     }
 
     if (!response.ok) {
       const error: any = new Error(`HTTP ${response.status}`);
       error.status = response.status;
       error.data = data;
+      if (parseError) {
+        error.parseError = parseError;
+      }
+      throw error;
+    }
+
+    // If response is OK but body failed to parse as JSON (e.g. empty 204 or 201),
+    // return null data instead of throwing if content-length is 0.
+    if (parseError && response.ok) {
+      const contentType = response.headers.get('content-type');
+      const contentLength = response.headers.get('content-length');
+      const isActuallyEmpty = response.status === 204 || contentLength === '0' || !contentType?.includes('application/json');
+
+      if (isActuallyEmpty) {
+        return { data: null as any as T, response };
+      }
+
+      const error = new Error(`Failed to parse JSON response: ${parseError.message}`);
+      (error as any).status = response.status;
+      (error as any).parseError = parseError;
       throw error;
     }
 

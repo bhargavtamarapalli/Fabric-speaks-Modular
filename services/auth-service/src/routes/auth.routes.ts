@@ -24,7 +24,6 @@ router.get('/health', (_req, res) => { res.json({ status: 'ok', service: 'auth-s
 // Public Routes
 router.post('/customer/login-otp', otpRateLimiter, authController.loginOtp);
 router.post('/customer/login-verify', otpRateLimiter, authController.verifyFirebaseToken);
-router.post('/admin/login/failed', authController.recordAdminLoginFailure);
 router.post('/logout', authController.logout);
 
 // Protected Routes
@@ -33,5 +32,7 @@ router.use(csrfProtection);
 
 router.get('/me', authController.me);
 router.delete('/delete-account', authController.deleteAccount);
+// Admin login failure tracking (requires authentication to prevent abuse)
+router.post('/admin/login/failed', otpRateLimiter, authController.recordAdminLoginFailure);
 
 export { router as authRouter };

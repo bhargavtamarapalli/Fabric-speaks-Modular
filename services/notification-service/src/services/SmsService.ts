@@ -6,6 +6,12 @@ export interface SmsPayload {
   body: string;
 }
 
+// Mask phone number for logging (show only last 4 digits)
+function maskPhoneNumber(phone: string): string {
+  if (phone.length <= 4) return '*'.repeat(phone.length);
+  return '*'.repeat(phone.length - 4) + phone.slice(-4);
+}
+
 export class SmsService {
   private accountSid: string;
   private authToken: string;
@@ -19,7 +25,19 @@ export class SmsService {
 
   async sendSms(payload: SmsPayload): Promise<any> {
     if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_PHONE_NUMBER) {
-      logger.warn(`SMS configuration missing. Returning mock success for ${payload.to}`);
+      const maskedPhone = maskPhoneNumber(payload.to);
+      const env_name = process.env.NODE_ENV || 'development';
+      
+      if (env_name === 'production' || env_name === 'staging') {
+        const error = new Error(
+          `SMS service not configured in ${env_name} environment. Cannot send SMS to ${maskedPhone}.`
+        );
+        logger.error({ maskedPhone, env: env_name }, error.message);
+        throw error;
+      }
+      
+      // In development/test, return mock success
+      logger.warn(`SMS configuration missing in ${env_name}. Returning mock success for ${maskedPhone}`);
       return {
         provider: 'mock-sms',
         sid: `mock-sms-${Date.now()}`
@@ -34,6 +52,7 @@ export class SmsService {
     params.append('From', this.fromNumber);
     params.append('Body', payload.body);
 
+    const maskedPhone = maskPhoneNumber(payload.to);
     try {
       const { data } = await fetchJsonWithRetry<any>(
         url,
@@ -47,15 +66,15 @@ export class SmsService {
         },
         {
           method: 'POST',
-          idempotent: true,
-          retryOnNetworkError: true,
+          idempotent: false,
+          retryOnNetworkError: false,
           operation: 'sms.send'
         }
       );
-      logger.info(`SMS message sent to ${payload.to}`);
+      logger.info(`SMS message sent to ${maskedPhone}`);
       return data;
     } catch (error) {
-      logger.error(`Failed to send SMS to ${payload.to} after retries`, error);
+      logger.error({ maskedPhone }, `Failed to send SMS after retries`, error);
       throw error;
     }
   }

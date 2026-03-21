@@ -1,98 +1,127 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { NavBar } from '@/components/organisms/NavBar';
 import { MagneticButton } from '@/components/atoms/MagneticButton';
-import { ChevronRight, Minus, Plus, Trash2, MapPin, Tag } from 'lucide-react';
+import { Minus, Plus, Trash2, MapPin, Tag, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// Mock Cart Item Data
-const DUMMY_CART_ITEMS = [
-  {
-    id: 'cart_1',
-    product: {
-      slug: 'heavy-linen-canvas',
-      name: 'Structured Heavy Linen Canvas Jacket',
-      brand: 'Fabric Speaks',
-      price: 4500,
-      sale_price: 3900,
-      thumbnail: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&q=80&w=300'
-    },
-    variant: {
-      size: 'L',
-      color: 'Unbleached Flax'
-    },
-    quantity: 1
-  },
-  {
-    id: 'cart_2',
-    product: {
-      slug: 'raw-silk-noil',
-      name: 'Raw Silk Noil Evening Coat',
-      brand: 'Heritage',
-      price: 6200,
-      thumbnail: 'https://images.unsplash.com/photo-1596484552834-6a58f850e0a1?auto=format&fit=crop&q=80&w=300'
-    },
-    variant: {
-      size: 'M',
-      color: 'Void Black'
-    },
-    quantity: 2
-  }
-];
+import { getCart, updateCartItemQuantity, removeFromCart, applyCoupon as apiApplyCoupon, removeCoupon as apiRemoveCoupon, Cart } from '@/lib/api/cart';
+import { checkPincode, PincodeCheckResult } from '@/lib/api/pincode';
 
 export default function CartPage() {
   const { showToast } = useToast();
-  const [items, setItems] = useState(DUMMY_CART_ITEMS);
+  const [cart, setCart] = useState<Cart | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [pincode, setPincode] = useState('');
-  const [pincodeResult, setPincodeResult] = useState<{deliverable?: boolean, est?: string, cod?: boolean} | null>(null);
+  const [pincodeResult, setPincodeResult] = useState<PincodeCheckResult | null>(null);
+  const [pincodeLoading, setPincodeLoading] = useState(false);
   const [couponCode, setCouponCode] = useState('');
-  const [discount, setDiscount] = useState(0);
+  const [couponLoading, setCouponLoading] = useState(false);
 
-  const calculateSubtotal = () => {
-    return items.reduce((sum, item) => sum + (item.product.sale_price || item.product.price) * item.quantity, 0);
-  };
+  const fetchCart = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await getCart();
+      setCart(res);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load cart');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const updateQuantity = (id: string, delta: number) => {
-    setItems(items.map(item => {
-      if (item.id === id) {
-        const newQ = Math.max(1, item.quantity + delta);
-        return { ...item, quantity: newQ };
-      }
-      return item;
-    }));
-  };
+  useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
 
-  const removeItem = (id: string) => {
-    setItems(items.filter(item => item.id !== id));
-  };
-
-  const checkPincode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if(pincode.length === 6) {
-      // Mock API call
-      setTimeout(() => {
-        setPincodeResult({ deliverable: true, est: '3-5 Days', cod: true });
-      }, 500);
+  const handleUpdateQuantity = async (itemId: string, newQuantity: number) => {
+    if (newQuantity < 1) return;
+    try {
+      const res = await updateCartItemQuantity(itemId, newQuantity);
+      setCart(res);
+    } catch (err: any) {
+      showToast(err.message || "Failed to update quantity", "error");
     }
   };
 
-  const applyCoupon = (e: React.FormEvent) => {
+  const handleRemoveItem = async (itemId: string) => {
+    try {
+      const res = await removeFromCart(itemId);
+      setCart(res);
+      showToast("Item removed from cart", "success");
+    } catch (err: any) {
+      showToast(err.message || "Failed to remove item", "error");
+    }
+  };
+
+  const handleCheckPincode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(couponCode.toUpperCase() === 'WELCOME10') {
-      const sub = calculateSubtotal();
-      setDiscount(sub * 0.1);
+    if (pincode.length !== 6) {
+      showToast("Please enter a valid 6-digit pincode", "error");
+      return;
+    }
+    try {
+      setPincodeLoading(true);
+      const res = await checkPincode(pincode);
+      setPincodeResult(res);
+    } catch (err: any) {
+      showToast(err.message || "Failed to check pincode", "error");
+    } finally {
+      setPincodeLoading(false);
+    }
+  };
+
+  const handleApplyCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!couponCode.trim()) return;
+    try {
+      setCouponLoading(true);
+      const res = await apiApplyCoupon(couponCode);
+      setCart(res);
       showToast("Coupon applied successfully!", "success");
-    } else {
-      showToast("Invalid coupon code", "error");
-      setDiscount(0);
+    } catch (err: any) {
+      showToast(err.message || "Invalid coupon code", "error");
+    } finally {
+      setCouponLoading(false);
     }
   };
 
-  const subtotal = calculateSubtotal();
-  const shipping = subtotal > 5000 ? 0 : 250;
-  const total = subtotal - discount + shipping;
+  const handleRemoveCoupon = async () => {
+    try {
+      setCouponLoading(true);
+      const res = await apiRemoveCoupon();
+      setCart(res);
+      setCouponCode('');
+      showToast("Coupon removed", "success");
+    } catch (err: any) {
+      showToast(err.message || "Failed to remove coupon", "error");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[var(--fs-surface)] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-[var(--fs-linen)]" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[var(--fs-surface)] flex flex-col items-center justify-center p-4 text-center">
+        <h2 className="text-2xl font-serif text-[var(--fs-ivory)] mb-4">Something went wrong</h2>
+        <p className="text-[var(--fs-ash)] mb-8 max-w-md">{error}</p>
+        <MagneticButton onClick={fetchCart}>Retry</MagneticButton>
+      </div>
+    );
+  }
+
+  const items = cart?.items || [];
 
   return (
     <div className="min-h-screen bg-[var(--fs-surface)] flex flex-col pt-24 pb-32 lg:pb-12">
@@ -123,27 +152,25 @@ export default function CartPage() {
                     exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
                     className="flex gap-4 p-4 bg-[var(--fs-surface-2)] border border-[var(--fs-wire)]"
                   >
-                    {/* Item Image */}
-                    <Link href={`/products/${item.product.slug}`} className="w-24 h-32 md:w-32 md:h-40 flex-shrink-0 bg-black relative">
-                      <img src={item.product.thumbnail} alt={item.product.name} className="absolute inset-0 w-full h-full object-cover" />
+                    <Link href={`/products/${item.productSlug}`} className="w-24 h-32 md:w-32 md:h-40 flex-shrink-0 bg-black relative">
+                      <img src={item.thumbnailUrl} alt={item.productName} className="absolute inset-0 w-full h-full object-cover" />
                     </Link>
 
-                    {/* Item Details */}
                     <div className="flex-1 flex flex-col justify-between py-1">
                       <div className="flex justify-between items-start">
                         <div>
                           <p className="font-sans text-[11px] uppercase tracking-widest text-[var(--fs-ash)] mb-1">
-                            {item.product.brand}
+                            {item.brandName}
                           </p>
-                          <Link href={`/products/${item.product.slug}`} className="font-sans text-[14px] md:text-[16px] text-[var(--fs-ivory)] hover:text-[var(--fs-linen)] transition-colors line-clamp-2">
-                            {item.product.name}
+                          <Link href={`/products/${item.productSlug}`} className="font-sans text-[14px] md:text-[16px] text-[var(--fs-ivory)] hover:text-[var(--fs-linen)] transition-colors line-clamp-2">
+                            {item.productName}
                           </Link>
                           <p className="font-mono text-[12px] text-[var(--fs-ash)] mt-2">
-                            Size: {item.variant.size} | Color: {item.variant.color}
+                            Size: {item.size} | Color: {item.colour}
                           </p>
                         </div>
                         <button 
-                          onClick={() => removeItem(item.id)}
+                          onClick={() => handleRemoveItem(item.id)}
                           className="p-1 text-[var(--fs-ash)] hover:text-[var(--fs-error)] transition-colors"
                         >
                           <Trash2 size={16} />
@@ -152,12 +179,12 @@ export default function CartPage() {
 
                       <div className="flex justify-between items-center mt-4">
                         <div className="flex items-center border border-[var(--fs-wire)] rounded-full">
-                          <button onClick={() => updateQuantity(item.id, -1)} className="px-3 py-1.5 text-[var(--fs-ash)] hover:text-[var(--fs-linen)]"><Minus size={14} /></button>
+                          <button onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} className="px-3 py-1.5 text-[var(--fs-ash)] hover:text-[var(--fs-linen)]"><Minus size={14} /></button>
                           <span className="font-mono text-[13px] text-[var(--fs-ivory)] w-6 text-center">{item.quantity}</span>
-                          <button onClick={() => updateQuantity(item.id, 1)} className="px-3 py-1.5 text-[var(--fs-ash)] hover:text-[var(--fs-linen)]"><Plus size={14} /></button>
+                          <button onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} className="px-3 py-1.5 text-[var(--fs-ash)] hover:text-[var(--fs-linen)]"><Plus size={14} /></button>
                         </div>
                         <div className="font-mono text-[14px] text-[var(--fs-linen)]">
-                          ₹{((item.product.sale_price || item.product.price) * item.quantity).toLocaleString()}
+                          ₹{((item.isSaleActive && item.salePrice ? item.salePrice : item.price) * item.quantity).toLocaleString('en-IN')}
                         </div>
                       </div>
                     </div>
@@ -166,15 +193,15 @@ export default function CartPage() {
               </AnimatePresence>
             </div>
 
-            {/* Right Col: Summary & Tools */}
+            {/* Right Col: Summary */}
             <div className="lg:w-2/5 flex flex-col gap-8">
               
-              {/* Pincode Checker */}
+              {/* Pincode */}
               <div className="bg-[var(--fs-surface-2)] p-6 border border-[var(--fs-wire)]">
                 <h3 className="font-sans text-[13px] uppercase tracking-widest text-[var(--fs-ivory)] mb-4 flex items-center gap-2">
                   <MapPin size={16} /> Delivery Options
                 </h3>
-                <form onSubmit={checkPincode} className="flex gap-2">
+                <form onSubmit={handleCheckPincode} className="flex gap-2">
                   <input 
                     type="text" 
                     placeholder="Enter Pincode" 
@@ -183,17 +210,22 @@ export default function CartPage() {
                     onChange={(e) => setPincode(e.target.value)}
                     className="flex-1 bg-transparent border-b border-[var(--fs-wire)] font-mono text-[14px] text-[var(--fs-ivory)] focus:border-[var(--fs-linen)] outline-none py-2 px-1 transition-colors"
                   />
-                  <button type="submit" className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
-                    Check
+                  <button type="submit" disabled={pincodeLoading} className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
+                    {pincodeLoading ? '...' : 'Check'}
                   </button>
                 </form>
                 {pincodeResult && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 p-3 bg-black/20 border border-[var(--fs-wire)]">
-                    <p className="font-sans text-[13px] text-[var(--fs-success)] flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--fs-success)] inline-block"/> Delivery Available
+                    <p className={`font-sans text-[13px] flex items-center gap-2 ${pincodeResult.isServiceable ? 'text-[var(--fs-success)]' : 'text-[var(--fs-error)]'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full inline-block ${pincodeResult.isServiceable ? 'bg-[var(--fs-success)]' : 'bg-[var(--fs-error)]'}`}/> 
+                      {pincodeResult.isServiceable ? 'Delivery Available' : 'Not Serviceable'}
                     </p>
-                    <p className="font-sans text-[12px] text-[var(--fs-ash)] mt-1">Est. Arrival: {pincodeResult.est}</p>
-                    <p className="font-sans text-[12px] text-[var(--fs-ash)] mt-1">COD: <span className={pincodeResult.cod ? 'text-[var(--fs-ivory)]' : 'text-[var(--fs-error)]'}>{pincodeResult.cod ? 'Eligible' : 'Not Eligible'}</span></p>
+                    {pincodeResult.isServiceable && (
+                      <>
+                        <p className="font-sans text-[12px] text-[var(--fs-ash)] mt-1">Est. Arrival: {pincodeResult.estimatedDays} Days</p>
+                        <p className="font-sans text-[12px] text-[var(--fs-ash)] mt-1">COD: <span className={pincodeResult.codAvailable ? 'text-[var(--fs-ivory)]' : 'text-[var(--fs-error)]'}>{pincodeResult.codAvailable ? 'Eligible' : 'Not Eligible'}</span></p>
+                      </>
+                    )}
                   </motion.div>
                 )}
               </div>
@@ -203,7 +235,7 @@ export default function CartPage() {
                 <h3 className="font-sans text-[13px] uppercase tracking-widest text-[var(--fs-ivory)] mb-4 flex items-center gap-2">
                   <Tag size={16} /> Apply Coupon
                 </h3>
-                <form onSubmit={applyCoupon} className="flex gap-2">
+                <form onSubmit={handleApplyCoupon} className="flex gap-2">
                   <input 
                     type="text" 
                     placeholder="Coupon Code" 
@@ -211,18 +243,20 @@ export default function CartPage() {
                     onChange={(e) => setCouponCode(e.target.value)}
                     className="flex-1 bg-transparent border-b border-[var(--fs-wire)] font-mono text-[14px] text-[var(--fs-ivory)] focus:border-[var(--fs-linen)] outline-none py-2 px-1 uppercase transition-colors"
                   />
-                  <button type="submit" className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
-                    Apply
+                  <button type="submit" disabled={couponLoading} className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
+                    {couponLoading ? '...' : 'Apply'}
                   </button>
                 </form>
-                {discount > 0 && (
-                  <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="font-mono text-[12px] text-[var(--fs-success)] mt-2">
-                    - ₹{discount.toLocaleString()} applied!
-                  </motion.p>
+                {cart && cart.discount > 0 && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-between items-center mt-2">
+                    <p className="font-mono text-[12px] text-[var(--fs-success)]">
+                      Discount applied!
+                    </p>
+                    <button onClick={handleRemoveCoupon} className="text-[10px] text-[var(--fs-ash)] underline uppercase">Remove</button>
+                  </motion.div>
                 )}
               </div>
 
-              {/* Order Summary */}
               <div className="bg-[var(--fs-surface-2)] p-6 border border-[var(--fs-wire)]">
                 <h3 className="font-sans text-[13px] uppercase tracking-widest text-[var(--fs-ivory)] mb-6">
                   Order Summary
@@ -230,28 +264,30 @@ export default function CartPage() {
                 <div className="flex flex-col gap-4 font-mono text-[14px] text-[var(--fs-ash)] mb-6">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
-                    <span>₹{subtotal.toLocaleString()}</span>
+                    <span>₹{cart?.subtotal.toLocaleString('en-IN')}</span>
                   </div>
-                  {discount > 0 && (
+                  {cart && cart.discount > 0 && (
                     <div className="flex justify-between text-[var(--fs-success)]">
                       <span>Discount</span>
-                      <span>- ₹{discount.toLocaleString()}</span>
+                      <span>- ₹{cart.discount.toLocaleString('en-IN')}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span>Estimated Shipping</span>
-                    <span>{shipping === 0 ? 'FREE' : '₹' + shipping}</span>
+                    <span>{cart?.shipping === 0 ? 'FREE' : '₹' + cart?.shipping}</span>
                   </div>
                 </div>
                 <div className="flex justify-between font-mono text-[18px] text-[var(--fs-linen)] border-t border-[var(--fs-wire)] pt-4 mb-8">
                   <span>Total</span>
-                  <span>₹{total.toLocaleString()}</span>
+                  <span>₹{cart?.total.toLocaleString('en-IN')}</span>
                 </div>
 
                 <div className="hidden lg:block w-full">
-                  <MagneticButton className="w-full">
-                    Proceed to Checkout
-                  </MagneticButton>
+                  <Link href="/checkout">
+                    <MagneticButton className="w-full">
+                      Proceed to Checkout
+                    </MagneticButton>
+                  </Link>
                 </div>
               </div>
             </div>
@@ -259,16 +295,18 @@ export default function CartPage() {
         )}
       </main>
 
-      {/* Sticky Mobile Checkout CTA */}
+      {/* Mobile CTA */}
       {items.length > 0 && (
         <div className="lg:hidden fixed bottom-0 left-0 w-full bg-[var(--fs-surface)]/90 backdrop-blur-md border-t border-[var(--fs-wire)] p-4 z-40 flex justify-between items-center gap-4">
           <div className="flex flex-col">
             <span className="font-mono text-[11px] text-[var(--fs-ash)]">Total</span>
-            <span className="font-mono text-[16px] text-[var(--fs-linen)]">₹{total.toLocaleString()}</span>
+            <span className="font-mono text-[16px] text-[var(--fs-linen)]">₹{cart?.total.toLocaleString('en-IN')}</span>
           </div>
-          <MagneticButton className="flex-1 py-4 text-[13px]">
-            Checkout
-          </MagneticButton>
+          <Link href="/checkout" className="flex-1">
+            <MagneticButton className="w-full py-4 text-[13px]">
+              Checkout
+            </MagneticButton>
+          </Link>
         </div>
       )}
     </div>

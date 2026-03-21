@@ -394,11 +394,31 @@ export class DashboardRepository extends BaseRepository {
   async getSalePerformance(
     startsAt: Date,
     endsAt: Date,
-    joinClause: string = '',
-    filterClause: string = '',
+    scope?: { type: 'fabric_type' | 'product_type' | 'collection'; ids: string[] },
     params: unknown[] = []
   ): Promise<SalePerformance> {
-    const scopeFilter = filterClause ? `AND ${filterClause}` : '';
+    // Build safe joins and filters based on scope type
+    let joins = '';
+    let filters = '';
+
+    if (scope && scope.ids.length > 0) {
+      const placeholders = scope.ids.map((_, i) => `$${i + 3}`).join(', ');
+      params = [...scope.ids];
+
+      switch (scope.type) {
+        case 'fabric_type':
+          filters = `AND p.fabric_type IN (${placeholders})`;
+          break;
+        case 'product_type':
+          filters = `AND p.product_type IN (${placeholders})`;
+          break;
+        case 'collection':
+          joins = 'JOIN collection_products cp ON cp.product_id = p.id';
+          filters = `AND cp.collection_id IN (${placeholders})`;
+          break;
+      }
+    }
+
     const query = `
       SELECT
         COUNT(DISTINCT o.id) as orders,
@@ -407,11 +427,11 @@ export class DashboardRepository extends BaseRepository {
       FROM orders o
       JOIN order_items oi ON oi.order_id = o.id
       JOIN products p ON p.id = oi.product_id
-      ${joinClause}
+      ${joins}
       WHERE o.created_at >= $1 AND o.created_at <= $2
         AND p.is_deleted = false
         AND p.is_active = true
-        ${scopeFilter}
+        ${filters}
     `;
     const { rows } = await this.query(query, [startsAt, endsAt, ...params]);
     const orders = parseInt(rows[0]?.orders ?? 0, 10);
@@ -426,12 +446,32 @@ export class DashboardRepository extends BaseRepository {
 
   async getLiveSaleMonitor(
     windowMinutes: number = 30,
-    joinClause: string = '',
-    filterClause: string = '',
-    params: unknown[] = [],
+    scope?: { type: 'fabric_type' | 'product_type' | 'collection'; ids: string[] },
     saleOnly: boolean = false
   ): Promise<LiveSaleMonitor> {
-    const scopeFilter = filterClause ? `AND ${filterClause}` : '';
+    // Build safe joins and filters based on scope type
+    let joins = '';
+    let filters = '';
+    const params: unknown[] = [windowMinutes];
+
+    if (scope && scope.ids.length > 0) {
+      const placeholders = scope.ids.map((_, i) => `$${i + 2}`).join(', ');
+      params.push(...scope.ids);
+
+      switch (scope.type) {
+        case 'fabric_type':
+          filters = `AND p.fabric_type IN (${placeholders})`;
+          break;
+        case 'product_type':
+          filters = `AND p.product_type IN (${placeholders})`;
+          break;
+        case 'collection':
+          joins = 'JOIN collection_products cp ON cp.product_id = p.id';
+          filters = `AND cp.collection_id IN (${placeholders})`;
+          break;
+      }
+    }
+
     const saleFilter = saleOnly ? 'AND v.sale_active = true' : '';
     const query = `
       SELECT
@@ -441,14 +481,14 @@ export class DashboardRepository extends BaseRepository {
       JOIN order_items oi ON oi.order_id = o.id
       JOIN products p ON p.id = oi.product_id
       JOIN variants v ON v.id = oi.variant_id
-      ${joinClause}
+      ${joins}
       WHERE o.created_at >= now() - interval '1 minute' * $1
         AND p.is_deleted = false
         AND p.is_active = true
         ${saleFilter}
-        ${scopeFilter}
+        ${filters}
     `;
-    const { rows } = await this.query(query, [windowMinutes, ...params]);
+    const { rows } = await this.query(query, params);
     const orders = parseInt(rows[0]?.orders ?? 0, 10);
     const revenue = Number(rows[0]?.revenue ?? 0);
     return {

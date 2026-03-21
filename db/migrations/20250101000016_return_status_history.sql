@@ -6,11 +6,11 @@
 
 CREATE TABLE IF NOT EXISTS return_status_history (
   id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-  return_id       UUID         NOT NULL REFERENCES return_requests(id),
+  return_id       UUID         NOT NULL REFERENCES return_requests(id) ON DELETE CASCADE,
   status          return_status NOT NULL,
   previous_status return_status,
   actor_type      VARCHAR(20)  NOT NULL DEFAULT 'system',
-  actor_id        UUID         REFERENCES users(id),
+  actor_id        UUID         REFERENCES users(id) ON DELETE SET NULL,
   note            TEXT,
   metadata        JSONB,
   created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()

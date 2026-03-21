@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import ProfilePage from '../../app/account/profile/page';
+import ProfilePage from '../../src/app/account/profile/page';
 import * as apiClient from '@/lib/apiClient';
 
 let mockUser: any = { name: 'Test User', email: 'test@example.com', mobile: '9999999999' };

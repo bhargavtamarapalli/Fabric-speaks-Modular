@@ -81,14 +81,14 @@ export default function ReturnPortalPage() {
     </div>
   );
 
-  const returnableItems = order?.items.filter(i => i.is_returnable) ?? [];
+  const returnableItems = order?.items.filter(i => i.isReturnable) ?? [];
 
   return (
     <motion.div initial={{ clipPath: 'inset(100% 0 0 0)' }} animate={{ clipPath: 'inset(0% 0 0 0)' }} transition={{ duration: 0.6, ease: [0.76, 0, 0.24, 1] }}
       style={{ minHeight: '100vh', background: 'var(--fs-void)', padding: 24 }}>
       <div style={{ maxWidth: 600, margin: '0 auto' }}>
         <h1 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 28, color: 'var(--fs-ivory)', marginBottom: 8 }}>Return Portal</h1>
-        <p style={{ fontSize: 13, color: 'var(--fs-ash)', marginBottom: 32, fontFamily: 'var(--font-dm-mono)' }}>{order?.order_number}</p>
+        <p style={{ fontSize: 13, color: 'var(--fs-ash)', marginBottom: 32, fontFamily: 'var(--font-dm-mono)' }}>{order?.orderNumber}</p>
         <CheckoutStepper steps={STEPS} currentStep={step} />
 
         <AnimatePresence mode="wait" custom={dir}>
@@ -109,11 +109,11 @@ export default function ReturnPortalPage() {
                         {selectedItems.includes(item.id) && '✓'}
                       </motion.div>
                       <div style={{ width: 56, height: 72, background: 'var(--fs-wire)', borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
-                        {item.image_url && <img src={item.image_url} alt={item.product_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                        {item.imageUrl && <img src={item.imageUrl} alt={item.productName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                       </div>
                       <div>
-                        <p style={{ fontSize: 15, color: 'var(--fs-ivory)', marginBottom: 4 }}>{item.product_name}</p>
-                        <p style={{ fontSize: 13, color: 'var(--fs-ash)' }}>{item.variant_label} · Qty {item.qty}</p>
+                        <p style={{ fontSize: 15, color: 'var(--fs-ivory)', marginBottom: 4 }}>{item.productName}</p>
+                        <p style={{ fontSize: 13, color: 'var(--fs-ash)' }}>{item.variantLabel} · Qty {item.quantity}</p>
                       </div>
                     </motion.div>
                   ))
@@ -133,7 +133,7 @@ export default function ReturnPortalPage() {
                   const item = order?.items.find(i => i.id === itemId);
                   return item ? (
                     <div key={itemId} style={{ marginBottom: 24 }}>
-                      <p style={{ fontSize: 14, color: 'var(--fs-ivory)', marginBottom: 12 }}>{item.product_name}</p>
+                      <p style={{ fontSize: 14, color: 'var(--fs-ivory)', marginBottom: 12 }}>{item.productName}</p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {RETURN_REASONS.map(reason => (
                           <motion.button key={reason} onClick={() => setReasons(r => ({ ...r, [itemId]: reason }))} whileTap={{ scale: 0.98 }}
@@ -187,7 +187,7 @@ export default function ReturnPortalPage() {
                     const item = order?.items.find(i => i.id === id);
                     return item ? (
                       <div key={id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 14 }}>
-                        <span style={{ color: 'var(--fs-ivory)' }}>{item.product_name}</span>
+                        <span style={{ color: 'var(--fs-ivory)' }}>{item.productName}</span>
                         <span style={{ color: 'var(--fs-ash)' }}>{reasons[id]}</span>
                       </div>
                     ) : null;

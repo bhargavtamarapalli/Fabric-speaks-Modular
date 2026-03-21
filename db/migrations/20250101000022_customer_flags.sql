@@ -1,12 +1,12 @@
 -- Customer flags for support agents (VIP/FRAUD notes)
 CREATE TABLE IF NOT EXISTS customer_flags (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   flag_type   VARCHAR(20) NOT NULL,
   note        TEXT,
   is_active   BOOLEAN NOT NULL DEFAULT true,
-  created_by  UUID REFERENCES users(id),
-  updated_by  UUID REFERENCES users(id),
+  created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

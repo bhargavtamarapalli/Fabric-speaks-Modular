@@ -27,7 +27,7 @@ describe('WithRoleGuard', () => {
     mockLoading = true;
     mockUser = null;
     const { container } = render(
-      <WithRoleGuard allowedRoles={['superAdmin']}>
+      <WithRoleGuard allowedRoles={['SUPER_ADMIN']}>
         <ProtectedContent />
       </WithRoleGuard>
     );
@@ -40,7 +40,7 @@ describe('WithRoleGuard', () => {
     mockLoading = false;
     mockUser = null;
     render(
-      <WithRoleGuard allowedRoles={['superAdmin']}>
+      <WithRoleGuard allowedRoles={['SUPER_ADMIN']}>
         <ProtectedContent />
       </WithRoleGuard>
     );
@@ -50,9 +50,9 @@ describe('WithRoleGuard', () => {
 
   it('redirects to unauthorized if user role is insufficient', () => {
     mockLoading = false;
-    mockUser = { role: 'customer' }; // Only customer
+    mockUser = { role: 'CUSTOMER' }; // Only customer
     render(
-      <WithRoleGuard allowedRoles={['superAdmin', 'inventoryManager']}>
+      <WithRoleGuard allowedRoles={['SUPER_ADMIN', 'INVENTORY_MANAGER']}>
         <ProtectedContent />
       </WithRoleGuard>
     );
@@ -62,9 +62,9 @@ describe('WithRoleGuard', () => {
 
   it('renders content perfectly if user role intersects allowedRoles', () => {
     mockLoading = false;
-    mockUser = { role: 'inventoryManager' };
+    mockUser = { role: 'INVENTORY_MANAGER' };
     render(
-      <WithRoleGuard allowedRoles={['superAdmin', 'inventoryManager']}>
+      <WithRoleGuard allowedRoles={['SUPER_ADMIN', 'INVENTORY_MANAGER']}>
         <ProtectedContent />
       </WithRoleGuard>
     );

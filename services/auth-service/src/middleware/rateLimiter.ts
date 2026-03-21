@@ -1,22 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import { getRedisClient } from '@fs/shared';
-import { ErrorCode } from '@fs/shared';
-import { AUTH_CONSTANTS } from '../config/constants';
+import { AppError, ErrorCode } from '@fs/shared';
 
 /**
  * Rate Limiting for OTP Generation
  * RULE: Max 3 requests per mobile per 10 minutes
  * RULE: Max 5 requests per IP per 10 minutes
+ * 
+ * Configuration: These values can be overridden via environment variables:
+ * - OTP_MOBILE_LIMIT: Max OTP requests per mobile number (default: 3)
+ * - OTP_IP_LIMIT: Max OTP requests per IP address (default: 5)
+ * - OTP_WINDOW_SECONDS: Rate limit window in seconds (default: 600)
  */
 export async function otpRateLimiter(req: Request, res: Response, next: NextFunction) {
   try {
     const redis = getRedisClient();
     const mobile = req.body.mobile || '';
     const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    
-    const MOBILE_LIMIT = AUTH_CONSTANTS.MOBILE_LIMIT;
-    const IP_LIMIT = AUTH_CONSTANTS.IP_LIMIT;
-    const WINDOW_SECONDS = AUTH_CONSTANTS.RATE_LIMIT_WINDOW_SECONDS;
+
+    // Allow configuration via environment variables with sensible defaults
+    const MOBILE_LIMIT = parseInt(process.env.OTP_MOBILE_LIMIT || '3', 10);
+    const IP_LIMIT = parseInt(process.env.OTP_IP_LIMIT || '5', 10);
+    const WINDOW_SECONDS = parseInt(process.env.OTP_WINDOW_SECONDS || '600', 10);
 
     // Check mobile-based rate limit
     const mobileKey = `otp_rate:${mobile}`;

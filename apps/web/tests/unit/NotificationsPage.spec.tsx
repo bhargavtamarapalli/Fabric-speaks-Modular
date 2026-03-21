@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import NotificationsPage from '../../app/account/notifications/page';
+import NotificationsPage from '../../src/app/account/notifications/page';
 import * as apiClient from '@/lib/apiClient';
 
 vi.mock('@/lib/apiClient', () => ({

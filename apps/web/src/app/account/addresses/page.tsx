@@ -1,21 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
+import { getAddresses, deleteAddress, setDefaultAddress, Address } from '@/lib/api/addresses';
 import { Plus, Trash2, MapPin, CheckCircle } from 'lucide-react';
-
-interface Address {
-  id: string;
-  type: 'HOME' | 'WORK' | 'OTHER';
-  recipientName: string;
-  street: string;
-  city: string;
-  state: string;
-  pincode: string;
-  isDefault: boolean;
-}
+import { useToast } from '@/context/ToastContext';
 
 const containerVars = {
   hidden: {},
@@ -30,39 +20,47 @@ const itemVars = {
 export default function AddressesPage() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await apiFetch<{ items: Address[] }>('/customer/addresses');
-      setAddresses(res.items || (res as any));
-    } catch (err) {
-      console.error(err);
+      const res = await getAddresses();
+      setAddresses(res);
+    } catch (err: any) {
+      showToast(err.message || "Failed to load addresses", "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleSetDefault = async (id: string) => {
     try {
-      await apiFetch(`/customer/addresses/${id}/default`, { method: 'PATCH' });
-      loadData(); // Re-fetch to update the UI
+      await setDefaultAddress(id);
+      showToast("Default address updated", "success");
+      await loadData();
     } catch (err: any) {
-      alert(err.message || 'Failed to update default address');
+      showToast(err.message || 'Failed to update default address', 'error');
     }
   };
 
   const handleDelete = async (id: string, isDefault: boolean) => {
-    if (isDefault) return alert('Cannot delete default address.');
+    if (isDefault) {
+        showToast('Cannot delete default address.', 'error');
+        return;
+    }
+    if (!confirm("Are you sure you want to remove this address?")) return;
+
     try {
-      await apiFetch(`/customer/addresses/${id}`, { method: 'DELETE' });
-      setAddresses(addresses.filter(a => a.id !== id));
+      await deleteAddress(id);
+      setAddresses(prev => prev.filter(a => a.id !== id));
+      showToast("Address removed", "success");
     } catch (err: any) {
-      alert(err.message || 'Failed to delete address');
+      showToast(err.message || 'Failed to delete address', 'error');
     }
   };
 
@@ -73,8 +71,9 @@ export default function AddressesPage() {
           <h2 className="text-2xl font-serif text-[var(--fs-linen)]">Saved Addresses</h2>
           <p className="text-sm text-gray-400 mt-1">Manage delivery locations for faster checkout.</p>
         </div>
+        {/* Placeholder for real add address logic */}
         <button 
-          onClick={() => alert('Opening address creation modal (omitted for brevity)')}
+          onClick={() => showToast('Feature coming soon: Address creation drawer.', 'info')}
           className="flex items-center gap-2 px-4 py-2 uppercase tracking-widest text-xs font-medium bg-[var(--fs-linen)] text-[var(--fs-void)] hover:bg-gray-200 transition"
         >
           <Plus className="w-4 h-4" /> Add New
@@ -85,7 +84,7 @@ export default function AddressesPage() {
         <div className="py-20 flex justify-center"><SpiderLoader size="md" /></div>
       ) : addresses.length === 0 ? (
         <div className="py-12 border border-dashed border-[var(--fs-wire)] rounded flex flex-col items-center justify-center text-center">
-          <MapPin className="w-8 h-8 text-[var(--fs-ash)] mb-3" />
+          <MapPin className="w-12 h-12 text-[var(--fs-ash)] mb-3" />
           <p className="text-[var(--fs-ash)]">You have no saved addresses yet.</p>
         </div>
       ) : (
@@ -109,10 +108,10 @@ export default function AddressesPage() {
                 </div>
               )}
               <div>
-                <div className="text-xs uppercase tracking-widest text-[var(--fs-ash)] mb-1">{addr.type}</div>
-                <h3 className="text-lg font-medium text-[var(--fs-ivory)]">{addr.recipientName}</h3>
+                <div className="text-xs uppercase tracking-widest text-[var(--fs-ash)] mb-1">{addr.label}</div>
+                <h3 className="text-lg font-medium text-[var(--fs-ivory)]">{addr.fullName}</h3>
                 <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-                  {addr.street}<br />
+                  {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
                   {addr.city}, {addr.state} - {addr.pincode}
                 </p>
               </div>
@@ -125,14 +124,12 @@ export default function AddressesPage() {
                     Set as Default
                   </button>
                 )}
-                {!addr.isDefault && (
-                  <button 
-                    onClick={() => handleDelete(addr.id, addr.isDefault)}
-                    className="text-xs uppercase tracking-widest text-red-500 hover:text-red-400 transition ml-auto flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3 h-3" /> Remove
-                  </button>
-                )}
+                <button 
+                  onClick={() => handleDelete(addr.id, addr.isDefault)}
+                  className="text-xs uppercase tracking-widest text-red-500 hover:text-red-400 transition ml-auto flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" /> Remove
+                </button>
               </div>
             </motion.div>
           ))}

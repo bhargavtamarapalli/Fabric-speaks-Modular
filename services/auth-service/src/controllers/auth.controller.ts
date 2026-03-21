@@ -67,8 +67,24 @@ export class AuthController {
     });
 
     recordAdminLoginFailure = catchAsync(async (req: Request, res: Response) => {
+        // Parse and validate IP address from headers
+        let ipAddress: string | null = null;
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        
+        if (typeof xForwardedFor === 'string') {
+            // Split on comma and take the first (original client) IP
+            const ips = xForwardedFor.split(',').map(ip => ip.trim());
+            if (ips.length > 0 && ips[0]) {
+                ipAddress = ips[0];
+            }
+        } else if (Array.isArray(xForwardedFor) && xForwardedFor.length > 0) {
+            // Handle array form from some proxies
+            ipAddress = xForwardedFor[0];
+        } else if (req.ip) {
+            ipAddress = req.ip;
+        }
+
         const dto = AdminLoginFailureSchema.parse(req.body);
-        const ipAddress = req.ip || req.headers['x-forwarded-for']?.toString() || null;
         const result = await this.authService.recordAdminLoginFailure(dto.mobile, ipAddress, dto.reason);
         return res.status(200).json({ success: true, data: result });
     });

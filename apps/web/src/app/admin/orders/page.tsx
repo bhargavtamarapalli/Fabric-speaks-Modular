@@ -1,86 +1,167 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { SupportAllowed } from '@/components/admin/WithRoleGuard';
-import { AdminTable } from '@/components/admin/AdminTable';
-import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
-import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { THEME } from '@/lib/admin/theme';
+import { ordersApi } from '@/lib/admin/api';
+import {
+  PageHeader,
+  Badge,
+  DataTable,
+  ActionButton,
+  ErrorBanner,
+  MonoText,
+  formatCurrency,
+  formatDateTime,
+} from '@/components/admin/shared';
 
-interface AdminOrder {
-  id: string;
-  displayId: string;
-  customerMobile: string;
-  status: string;
-  totalAmount: number;
-  createdAt: string;
-  paymentMethod: string;
-  paymentStatus: string;
-}
+import { useOrders } from './_hooks/useOrders';
+import { OrderFilters } from './_components/OrderFilters';
+import { BulkActions } from './_components/BulkActions';
 
-export default function OrderManagementPage() {
-  const [orders, setOrders] = useState<AdminOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+const STATUS_BADGE: Record<string, string> = {
+  PENDING_PAYMENT: 'pending',
+  CONFIRMED:       'confirmed',
+  PROCESSING:      'processing',
+  SHIPPED:         'shipped',
+  DELIVERED:       'delivered',
+  CANCELLED:       'cancelled',
+};
 
-  useEffect(() => {
-    // Calling the internal admin order fetch endpoint
-    apiFetch<AdminOrder[]>('GET', '/api/v1/orders/admin', undefined, { withCredentials: true })
-      .then(setOrders)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+export default function OrdersPage() {
+  const router = useRouter();
+  const {
+    orders,
+    total,
+    loading,
+    error,
+    filters,
+    updateFilters,
+    selected,
+    toggleSelect,
+    clearSelection,
+    bulkLoading,
+    handleBulkShiprocket,
+    load,
+  } = useOrders();
 
-  if (loading) return <div className="py-20 flex justify-center"><SpiderLoader size="md" /></div>;
+  const columns = useMemo(() => [
+    {
+      key:    'select',
+      label:  '',
+      width:  '36px',
+      render: (o: any) => (
+        <input
+          type="checkbox"
+          checked={selected.includes(o.id)}
+          onChange={() => toggleSelect(o.id)}
+          onClick={e => e.stopPropagation()}
+          style={{ accentColor: THEME.colors.linen, cursor: 'pointer' }}
+        />
+      ),
+    },
+    {
+      key:    'orderNumber',
+      label:  'Order',
+      width:  '110px',
+      render: (o: any) => <MonoText>{o.orderNumber}</MonoText>,
+    },
+    {
+      key:    'customer',
+      label:  'Customer',
+      render: (o: any) => (
+        <div>
+          <div style={{ color: THEME.colors.ivory, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>{o.customer.name}</div>
+          <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.mono }}>{o.customer.mobile}</div>
+        </div>
+      ),
+    },
+    {
+      key:    'fabric',
+      label:  'Fabric',
+      width:  '90px',
+      render: (o: any) => (
+        <span style={{ color: THEME.colors.ash, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>
+          {o.items[0]?.fabricType ?? '—'}
+        </span>
+      ),
+    },
+    {
+      key:    'total',
+      label:  'Amount',
+      width:  '90px',
+      render: (o: any) => (
+        <span style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>{formatCurrency(o.total)}</span>
+      ),
+    },
+    {
+      key:    'status',
+      label:  'Status',
+      width:  '140px',
+      render: (o: any) => (
+        <Badge type={(STATUS_BADGE[o.status] ?? 'draft') as any}>
+          {o.status.replace(/_/g, ' ')}
+        </Badge>
+      ),
+    },
+    {
+      key:    'time',
+      label:  'Time',
+      width:  '130px',
+      render: (o: any) => (
+        <span style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.mono }}>
+          {formatDateTime(o.createdAt)}
+        </span>
+      ),
+    },
+  ], [selected, toggleSelect]);
 
   return (
-    <SupportAllowed>
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-serif text-[var(--fs-linen)]">Order Management</h1>
-            <p className="text-gray-400 text-sm mt-1">View and manage all customer orders.</p>
-          </div>
-        </div>
+    <div>
+      <PageHeader
+        title="Orders"
+        subtitle={`${total} orders`}
+        action={
+          <ActionButton 
+            onClick={() => window.open(ordersApi.exportCsv(), '_blank')} 
+            variant="ghost"
+          >
+            Export CSV
+          </ActionButton>
+        }
+      />
 
-        <AdminTable
+      {error && (
+        <div style={{ marginBottom: '12px' }}>
+          <ErrorBanner message={error} onRetry={load} />
+        </div>
+      )}
+
+      <OrderFilters 
+        filters={filters} 
+        onFilterChange={updateFilters} 
+      />
+
+      <BulkActions
+        selectedCount={selected.length}
+        onBulkShiprocket={handleBulkShiprocket}
+        onClearSelection={clearSelection}
+        loading={bulkLoading}
+      />
+
+      <div style={{ 
+        background: THEME.colors.surface3, 
+        border: `1px solid ${THEME.colors.border}`, 
+        borderRadius: THEME.radius.lg, 
+        overflow: 'hidden' 
+      }}>
+        <DataTable
+          columns={columns}
           data={orders}
-          globalSearchField="displayId"
-          searchPlaceholder="Search by FS Order ID..."
-          exportFilename="fs_orders_export.csv"
-          columns={[
-            { header: 'Order ID', accessor: 'displayId', sortable: true },
-            { header: 'Date', accessor: (row) => new Date(row.createdAt).toLocaleDateString(), sortable: true },
-            { header: 'Customer', accessor: 'customerMobile' },
-            { header: 'Amount', accessor: (row) => `₹${row.totalAmount}`, sortable: true },
-            { 
-              header: 'Status', 
-              accessor: (row) => (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
-                  row.status === 'DELIVERED' ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900' :
-                  row.status === 'CANCELLED' ? 'bg-red-950/30 text-red-400 border-red-900' :
-                  'bg-blue-950/30 text-blue-400 border-blue-900'
-                }`}>
-                  {row.status}
-                </span>
-              ),
-              sortable: true
-            },
-            { header: 'Payment', accessor: (row) => `${row.paymentMethod} (${row.paymentStatus})` },
-            {
-              header: 'Action',
-              accessor: (row) => (
-                <Link 
-                  href={`/admin/orders/${row.id}`} 
-                  className="text-gray-400 hover:text-[var(--fs-linen)] flex items-center gap-1 text-sm transition"
-                >
-                  View <ExternalLink className="w-3 h-3" />
-                </Link>
-              )
-            }
-          ]}
+          loading={loading}
+          onRowClick={o => router.push(`/admin/orders/${o.id}`)}
         />
       </div>
-    </SupportAllowed>
+    </div>
   );
 }

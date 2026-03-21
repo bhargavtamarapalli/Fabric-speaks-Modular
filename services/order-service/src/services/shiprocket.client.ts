@@ -98,10 +98,12 @@ export class ShiprocketClient {
   }
 
   private async getAccessToken(): Promise<string> {
+    // If API key is provided, use it directly
     if (this.apiKey) {
       return this.apiKey;
     }
 
+    // Otherwise, use email/password authentication with token caching
     if (this.authToken && this.authTokenExpiry && Date.now() < this.authTokenExpiry) {
       return this.authToken;
     }
@@ -128,6 +130,7 @@ export class ShiprocketClient {
       }
 
       this.authToken = String(token);
+      // Token valid for 9 days (Shiprocket tokens typically last 10 days)
       this.authTokenExpiry = Date.now() + (9 * 24 * 60 * 60 * 1000);
       return this.authToken;
     } catch (error) {

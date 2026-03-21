@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Serif_Display, DM_Sans, DM_Mono } from "next/font/google";
 import "./globals.css";
 import { PwaRegistry } from "@/components/organisms/PwaRegistry";
@@ -26,12 +26,15 @@ export const metadata: Metadata = {
   title: "Fabric Speaks",
   description: "Fabric-first apparel",
   manifest: "/manifest.json",
-  themeColor: "#0D7377",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Fabric Speaks",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0D7377",
 };
 
 export default function RootLayout({

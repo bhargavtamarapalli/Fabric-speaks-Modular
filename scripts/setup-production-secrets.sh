@@ -32,7 +32,8 @@ create_secret "DATABASE_URL" "$DB_URL"
 read -p "Enter Upstash REDIS_URL (rediss://): " REDIS_URL
 create_secret "REDIS_URL" "$REDIS_URL"
 
-read -p "Enter APP_JWT_SECRET: " JWT_SEC
+read -sp "Enter APP_JWT_SECRET (input hidden): " JWT_SEC
+echo
 create_secret "APP_JWT_SECRET" "$JWT_SEC"
 
 echo "--------------------------------------------------------"

@@ -53,25 +53,29 @@ export class BroadcastCampaignRepository extends BaseRepository {
       query += ` AND status = $${params.length}`;
     }
     query += ' ORDER BY created_at DESC';
-    if (filters.limit) {
+
+    // FIX: Use parameterized placeholders ($N) instead of interpolating values directly
+    // This prevents SQL injection vulnerabilities when limit/offset come from user input
+    if (filters.limit !== undefined) {
       params.push(filters.limit);
       query += ` LIMIT $${params.length}`;
     }
-    if (filters.offset) {
+    if (filters.offset !== undefined) {
       params.push(filters.offset);
       query += ` OFFSET $${params.length}`;
     }
+
     const { rows } = await this.query(query, params);
     return rows.map((row) => this.mapRow(row));
   }
 
-  async findById(id: string) {
+  async findById(id: string): Promise<BroadcastCampaign | null> {
     const { rows } = await this.query('SELECT * FROM broadcast_campaigns WHERE id = $1', [id]);
     if (!rows.length) return null;
     return this.mapRow(rows[0]);
   }
 
-  async updateStatus(id: string, status: CampaignStatus, sentAt?: Date | null) {
+  async updateStatus(id: string, status: CampaignStatus, sentAt?: Date | null): Promise<void> {
     const query = `
       UPDATE broadcast_campaigns
       SET status = $2,
@@ -81,7 +85,7 @@ export class BroadcastCampaignRepository extends BaseRepository {
     await this.query(query, [id, status, sentAt ?? null]);
   }
 
-  async ensureAnalyticsRow(campaignId: string) {
+  async ensureAnalyticsRow(campaignId: string): Promise<void> {
     await this.query(
       `INSERT INTO broadcast_analytics (campaign_id)
        VALUES ($1)
@@ -90,9 +94,9 @@ export class BroadcastCampaignRepository extends BaseRepository {
     );
   }
 
-  async updateAnalytics(campaignId: string, data: { sent?: number; delivered?: number; read?: number; clicked?: number; converted?: number; capped?: number }) {
+  async updateAnalytics(campaignId: string, data: { sent?: number; delivered?: number; read?: number; clicked?: number; converted?: number; capped?: number }): Promise<void> {
     const sets: string[] = [];
-    const params: any[] = [campaignId];
+    const params: unknown[] = [campaignId];
 
     Object.entries(data).forEach(([key, value]) => {
       if (value === undefined) return;
@@ -111,19 +115,20 @@ export class BroadcastCampaignRepository extends BaseRepository {
     await this.query(query, params);
   }
 
-  private mapRow(row: any): BroadcastCampaign {
+  private mapRow(row: unknown): BroadcastCampaign {
+    const r = row as Record<string, unknown>;
     return {
-      id: String(row.id),
-      templateId: row.template_id,
-      audienceFilter: row.audience_filter_json ?? {},
-      messagePreview: row.message_preview,
-      templateComponents: row.template_components ?? [],
-      scheduledAt: row.scheduled_at ? new Date(row.scheduled_at) : null,
-      sentAt: row.sent_at ? new Date(row.sent_at) : null,
-      status: row.status,
-      sentBy: row.sent_by,
-      channel: row.channel ?? 'whatsapp',
-      createdAt: row.created_at ? new Date(row.created_at) : new Date()
+      id: String(r.id),
+      templateId: String(r.template_id),
+      audienceFilter: (r.audience_filter_json as Record<string, unknown>) ?? {},
+      messagePreview: String(r.message_preview ?? ''),
+      templateComponents: (r.template_components as unknown[]) ?? [],
+      scheduledAt: r.scheduled_at ? new Date(r.scheduled_at as string) : null,
+      sentAt: r.sent_at ? new Date(r.sent_at as string) : null,
+      status: String(r.status) as CampaignStatus,
+      sentBy: String(r.sent_by),
+      channel: String(r.channel ?? 'whatsapp'),
+      createdAt: r.created_at ? new Date(r.created_at as string) : new Date()
     };
   }
 }

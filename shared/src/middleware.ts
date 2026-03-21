@@ -91,7 +91,16 @@ export const attachAuthUser = async (req: Request, _res: Response, next: NextFun
       mobile: payload.mobile
     };
   } catch (error) {
-    // Ignore invalid tokens to keep public routes accessible.
+    // Ignore expected JWT errors to keep public routes accessible
+    const isJwtError = error instanceof Error && 
+      (error.name === 'JsonWebTokenError' || 
+       error.name === 'TokenExpiredError' ||
+       error.message.includes('jwt'));
+    
+    if (!isJwtError) {
+      // Log unexpected errors for observability
+      logger?.error({ error }, 'Unexpected error in JWT verification middleware');
+    }
   }
 
   next();

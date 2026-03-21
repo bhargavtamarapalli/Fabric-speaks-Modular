@@ -1,108 +1,106 @@
 'use client';
+// app/admin/collections/page.tsx
 
-import { useEffect, useState } from 'react';
-import { InventoryAllowed } from '@/components/admin/WithRoleGuard';
-import { AdminTable } from '@/components/admin/AdminTable';
-import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
-import { Plus, GripVertical } from 'lucide-react';
-import { useConfirmationModal } from '@/components/admin/ConfirmationModal';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { THEME } from '@/lib/admin/theme';
+import { collectionsApi } from '@/lib/admin/api';
+import type { Collection } from '@/lib/admin/types';
+import { PageHeader, Badge, DataTable, ActionButton, FilterChip, ErrorBanner, Drawer, FormField, TextInput, Textarea, useToast } from '@/components/admin/shared';
 
-interface Collection {
-  id: string;
-  name: string;
-  slug: string;
-  isActive: boolean;
-  priority: number;
-}
+export default function CollectionsPage() {
+  const router = useRouter();
+  const { showToast, ToastComponent } = useToast();
+  const [cols,     setCols]     = useState<Collection[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
+  const [filter,   setFilter]   = useState('all');
+  const [showForm, setShowForm] = useState(false);
+  const [form,     setForm]     = useState({ name: '', description: '' });
+  const [errors,   setErrors]   = useState<Partial<Record<'name', string>>>({});
+  const [saving,   setSaving]   = useState(false);
 
-export default function AdminCollectionsPage() {
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { requestConfirmation } = useConfirmationModal();
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const res = await apiFetch<{ items: Collection[] }>('GET', '/api/v1/catalog/admin/collections', undefined, { withCredentials: true });
-      setCollections(res.items || (res as any));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
+  const load = useCallback(async () => {
+    try { setError(null); setLoading(true); setCols(await collectionsApi.list()); }
+    catch (e: any) { setError(e.message ?? 'Failed'); }
+    finally { setLoading(false); }
   }, []);
 
-  const handleCreate = async () => {
-    const name = prompt('Collection Title:');
-    if (!name) return;
-    
-    const confirmed = await requestConfirmation({
-      title: 'Draft Collection',
-      message: `Create a draft curation titled '${name}'?`,
-      confirmLabel: 'Create Outline'
-    });
+  useEffect(() => { load(); }, [load]);
 
-    if (confirmed) {
-      try {
-        await apiFetch('POST', '/api/v1/catalog/admin/collections', {
-          name, 
-          slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          isActive: false,
-          priority: 0
-        }, { withCredentials: true });
-        loadData();
-      } catch (err: any) {
-        alert(err.message || 'Creation failed');
-      }
+  const updateField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+    setForm(p => ({ ...p, [key]: value }));
+    if (key === 'name') {
+      setErrors(prev => (prev.name ? { ...prev, name: '' } : prev));
     }
   };
 
-  if (loading) return <div className="py-20 flex justify-center"><SpiderLoader size="md" /></div>;
+  const validate = () => {
+    const next: Partial<Record<'name', string>> = {};
+    if (!form.name.trim()) next.name = 'Collection name is required';
+    return next;
+  };
+
+  const handleCreate = async () => {
+    const validationErrors = validate();
+    if (Object.values(validationErrors).some(Boolean)) {
+      setErrors(validationErrors);
+      return;
+    }
+    try {
+      setSaving(true);
+      await collectionsApi.create({ name: form.name, slug: form.name.toLowerCase().replace(/\s+/g, '-'), description: form.description, imageUrl: null, isActive: false });
+      showToast('Collection created', 'success');
+      setShowForm(false);
+      setForm({ name: '', description: '' });
+      setErrors({});
+      load();
+    } catch (e: any) { showToast(e.message ?? 'Failed', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const filtered = cols.filter(c => filter === 'all' || (filter === 'active' && c.isActive) || (filter === 'draft' && !c.isActive));
+
+  const columns = [
+    { key: 'name', label: 'Collection', render: (c: Collection) => (
+      <div>
+        <div style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>{c.name}</div>
+        <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, marginTop: '1px' }}>{c.description?.slice(0, 60)}...</div>
+      </div>
+    )},
+    { key: 'products', label: 'Products', width: '90px', render: (c: Collection) => <span style={{ color: THEME.colors.ash, fontFamily: THEME.fonts.ui }}>{c.productCount}</span> },
+    { key: 'status', label: 'Status', width: '90px', render: (c: Collection) => <Badge type={c.isActive ? 'active' : 'draft'}>{c.isActive ? 'Live' : 'Draft'}</Badge> },
+    { key: 'edit', label: '', width: '60px', render: (c: Collection) => <button onClick={e => { e.stopPropagation(); router.push(`/admin/collections/${c.id}`); }} style={{ background: 'none', border: 'none', color: THEME.colors.linen, fontSize: THEME.fontSizes.sm, cursor: 'pointer', fontFamily: THEME.fonts.ui }}>Edit</button> },
+  ];
 
   return (
-    <InventoryAllowed>
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-serif text-[var(--fs-linen)]">Curated Collections</h1>
-            <p className="text-gray-400 text-sm mt-1">Group products into editorial drops and rank them.</p>
-          </div>
-          <button 
-            onClick={handleCreate}
-            className="px-4 py-2 bg-[var(--fs-linen)] text-[var(--fs-void)] hover:bg-gray-200 text-sm rounded flex items-center gap-2 font-medium transition"
-          >
-            <Plus className="w-4 h-4" /> Outline Collection
-          </button>
-        </div>
-
-        <AdminTable
-          data={collections}
-          globalSearchField="name"
-          searchPlaceholder="Search curations..."
-          columns={[
-            { header: 'Drag', accessor: () => <GripVertical className="w-4 h-4 text-gray-600 cursor-move" /> },
-            { header: 'Priority Layer', accessor: 'priority', sortable: true },
-            { header: 'Collection Name', accessor: 'name', sortable: true },
-            { header: 'Slug Path', accessor: (row) => `/collections/${row.slug}` },
-            { 
-              header: 'Status', 
-              accessor: (row) => (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
-                  row.isActive ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900' : 'bg-gray-800 text-gray-400 border-gray-700'
-                }`}>
-                  {row.isActive ? 'Published' : 'Draft Outline'}
-                </span>
-              ),
-              sortable: true
-            },
-          ]}
-        />
+    <div>
+      <PageHeader title="Collections" subtitle={`${cols.length} collections`} action={<ActionButton onClick={() => { setForm({ name: '', description: '' }); setErrors({}); setShowForm(true); }}>+ Create collection</ActionButton>} />
+      {error && <div style={{ marginBottom: '12px' }}><ErrorBanner message={error} onRetry={load} /></div>}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+        {[{l:'All',v:'all'},{l:'Live',v:'active'},{l:'Draft',v:'draft'}].map(f => <FilterChip key={f.v} label={f.l} active={filter===f.v} onClick={()=>setFilter(f.v)} />)}
       </div>
-    </InventoryAllowed>
+      <div style={{ background: THEME.colors.surface3, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
+        <DataTable columns={columns} data={filtered} loading={loading} onRowClick={c => router.push(`/admin/collections/${c.id}`)} />
+      </div>
+      <Drawer open={showForm} onClose={() => { setShowForm(false); setErrors({}); }} title="Create collection">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <FormField label="Collection name" required error={errors.name} errorId="collection-name-error">
+            <TextInput
+              value={form.name}
+              onChange={e => updateField('name', e.target.value)}
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'collection-name-error' : undefined}
+            />
+          </FormField>
+          <FormField label="Description">
+            <Textarea value={form.description} onChange={e => updateField('description', e.target.value)} rows={3} />
+          </FormField>
+          <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>Collection will be created as Draft. Add products then publish.</div>
+          <ActionButton onClick={handleCreate} loading={saving} fullWidth>Create collection</ActionButton>
+        </div>
+      </Drawer>
+      {ToastComponent}
+    </div>
   );
 }

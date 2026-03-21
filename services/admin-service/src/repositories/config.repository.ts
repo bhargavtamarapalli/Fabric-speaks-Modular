@@ -25,6 +25,11 @@ export class ConfigRepository extends BaseRepository {
     }
 
     async updateNavItems(items: any[]): Promise<void> {
+        // Validate that items array is non-empty before deleting
+        if (!items || items.length === 0) {
+            throw new Error('Cannot update nav items with an empty array - this would delete all navigation items');
+        }
+        
         await this.withTransaction(async (client) => {
             await client.query('DELETE FROM nav_items');
 

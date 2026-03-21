@@ -8,8 +8,8 @@ CREATE TYPE IF NOT EXISTS support_query_priority AS ENUM ('P0', 'P1', 'P2');
 
 CREATE TABLE IF NOT EXISTS support_queries (
   id               UUID                   PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          UUID                   REFERENCES users(id),
-  order_id         UUID                   REFERENCES orders(id),
+  user_id          UUID                   REFERENCES users(id) ON DELETE SET NULL,
+  order_id         UUID                   REFERENCES orders(id) ON DELETE SET NULL,
   type             VARCHAR(50)            NOT NULL,
   summary          TEXT,
   priority         support_query_priority NOT NULL DEFAULT 'P2',
@@ -28,10 +28,25 @@ CREATE INDEX IF NOT EXISTS support_queries_user_idx
 CREATE TABLE IF NOT EXISTS support_query_notes (
   id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   query_id   UUID        NOT NULL REFERENCES support_queries(id) ON DELETE CASCADE,
-  admin_id   UUID        NOT NULL REFERENCES users(id),
+  admin_id   UUID        REFERENCES users(id) ON DELETE SET NULL,
   text       TEXT        NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS support_query_notes_query_idx
   ON support_query_notes(query_id, created_at ASC);
+
+-- Trigger function to automatically update updated_at on support_queries
+CREATE OR REPLACE FUNCTION update_support_queries_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to run the function before updates
+CREATE TRIGGER update_support_queries_updated_at
+BEFORE UPDATE ON support_queries
+FOR EACH ROW
+EXECUTE FUNCTION update_support_queries_updated_at();

@@ -94,10 +94,17 @@ export class NotificationSettingsService {
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        return JSON.parse(cached) as NotificationSettings;
+        const parsed = JSON.parse(cached);
+        // Validate the structure to ensure it matches NotificationSettings
+        if (parsed && typeof parsed === 'object' && 'adminWhatsapp' in parsed && 'preferences' in parsed) {
+          return parsed as NotificationSettings;
+        }
+        // If validation fails, treat as cache miss and fall through to fetch fresh
+        logger.warn('Invalid cached notification settings format, clearing cache');
+        await redis.del(cacheKey);
       }
     } catch (error) {
-      logger.warn('Failed to read notification settings from Redis cache.', error);
+      logger.warn('Failed to read/parse notification settings from Redis cache.', error);
     }
 
     const settings = await this.settingsRepo.getMultiple(SETTINGS_KEYS);

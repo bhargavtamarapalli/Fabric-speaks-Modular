@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -7,17 +7,32 @@ import { StatusBadge } from '@/components/atoms/StatusBadge';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import { OrderStatusTimeline } from '@/components/molecules/OrderStatusTimeline';
 import { getOrder, cancelOrder, Order } from '@/lib/api/orders';
+import { useToast } from '@/context/ToastContext';
+import { Loader2 } from 'lucide-react';
 
 export default function OrderDetailPage() {
   const { orderId } = useParams() as { orderId: string };
+  const { showToast } = useToast();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelSheet, setShowCancelSheet] = useState(false);
 
+  const fetchOrder = useCallback(async () => {
+    try {
+        setLoading(true);
+        const res = await getOrder(orderId);
+        setOrder(res);
+    } catch (err: any) {
+        showToast(err.message || "Failed to load order details", "error");
+    } finally {
+        setLoading(false);
+    }
+  }, [orderId, showToast]);
+
   useEffect(() => {
-    getOrder(orderId).then(setOrder).finally(() => setLoading(false));
-  }, [orderId]);
+    fetchOrder();
+  }, [fetchOrder]);
 
   const canCancel = order?.status === 'PLACED' || order?.status === 'CONFIRMED';
   const canReturn = order?.status === 'DELIVERED';
@@ -29,107 +44,134 @@ export default function OrderDetailPage() {
       const updated = await cancelOrder(order.id);
       setOrder(updated);
       setShowCancelSheet(false);
-    } finally { setCancelling(false); }
+      showToast("Order cancelled successfully", "success");
+    } catch (err: any) {
+        showToast(err.message || "Failed to cancel order", "error");
+    } finally { 
+        setCancelling(false); 
+    }
   }
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: 'var(--fs-void)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div className="min-h-screen flex items-center justify-center">
       <SpiderLoader size="lg" />
     </div>
   );
 
   if (!order) return (
-    <div style={{ minHeight: '100vh', background: 'var(--fs-void)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <p style={{ color: 'var(--fs-ash)', fontFamily: 'var(--font-dm-serif)', fontSize: 24 }}>Order not found.</p>
+    <div className="min-h-screen flex items-center justify-center">
+      <p className="text-[var(--fs-ash)] font-serif text-2xl">Order not found.</p>
     </div>
   );
 
   return (
-    <motion.div
-      initial={{ clipPath: 'inset(100% 0 0 0)' }}
-      animate={{ clipPath: 'inset(0% 0 0 0)' }}
-      transition={{ duration: 0.6, ease: [0.76, 0, 0.24, 1] }}
-      style={{ minHeight: '100vh', background: 'var(--fs-void)', padding: 24, paddingBottom: 80 }}
-    >
-      <div style={{ maxWidth: 680, margin: '0 auto' }}>
-        <Link href="/account/orders" style={{ color: 'var(--fs-ash)', fontSize: 13, textDecoration: 'none', display: 'inline-block', marginBottom: 20 }}>← My Orders</Link>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
-          <div>
-            <p style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 14, color: 'var(--fs-linen)' }}>{order.order_number}</p>
-            <p style={{ fontSize: 13, color: 'var(--fs-ash)' }}>{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          </div>
-          <StatusBadge status={order.status} />
+    <div className="max-w-2xl mx-auto py-8 px-4 pb-24">
+      <Link href="/account/orders" className="text-[var(--fs-ash)] text-[13px] hover:text-[var(--fs-linen)] transition-colors inline-block mb-6">
+        ← Back to My Orders
+      </Link>
+      
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <p className="font-mono text-sm text-[var(--fs-linen)] mb-1">{order.orderNumber}</p>
+          <p className="text-[13px] text-[var(--fs-ash)]">
+            {new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
         </div>
+        <StatusBadge status={order.status} />
+      </div>
 
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 18, color: 'var(--fs-ivory)', marginBottom: 16 }}>Order Status</h2>
-          <OrderStatusTimeline currentStatus={order.status} />
-        </div>
+      <div className="mb-10">
+        <h2 className="font-serif text-xl text-[var(--fs-ivory)] mb-6">Order Tracking</h2>
+        <OrderStatusTimeline currentStatus={order.status} />
+      </div>
 
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 18, color: 'var(--fs-ivory)', marginBottom: 16 }}>Items</h2>
+      <div className="mb-10">
+        <h2 className="font-serif text-xl text-[var(--fs-ivory)] mb-6">Order Items</h2>
+        <div className="flex flex-col gap-4">
           {order.items.map((item, i) => (
-            <div key={i} style={{ display: 'flex', gap: 16, paddingBottom: 16, borderBottom: '1px solid var(--fs-wire)', marginBottom: 16 }}>
-              <div style={{ width: 72, height: 96, background: 'var(--fs-surface-2)', borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
-                {item.image_url && <img src={item.image_url} alt={item.product_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+            <div key={i} className="flex gap-5 pb-6 border-b border-[var(--fs-wire)] last:border-0">
+              <div className="w-20 h-28 bg-[var(--fs-surface-2)] flex-shrink-0 overflow-hidden">
+                {item.imageUrl && <img src={item.imageUrl} alt={item.productName} className="w-full h-full object-cover" />}
               </div>
-              <div style={{ flex: 1 }}>
-                <p style={{ fontSize: 15, color: 'var(--fs-ivory)', marginBottom: 4 }}>{item.product_name}</p>
-                <p style={{ fontSize: 13, color: 'var(--fs-ash)', marginBottom: 8 }}>{item.variant_label} · Qty {item.qty}</p>
-                <p style={{ fontFamily: 'var(--font-dm-mono)', color: 'var(--fs-linen)', fontSize: 15 }}>₹{(item.price * item.qty).toLocaleString('en-IN')}</p>
-                {canReturn && item.is_returnable && (
-                  <Link href={`/account/orders/${order.id}/return`} style={{ fontSize: 13, color: 'var(--fs-linen)', textDecoration: 'none' }}>Return →</Link>
-                )}
+              <div className="flex-1">
+                <p className="text-[16px] text-[var(--fs-ivory)] mb-1">{item.productName}</p>
+                <p className="text-[13px] text-[var(--fs-ash)] mb-6">
+                    {item.variantLabel} · Qty {item.quantity}
+                </p>
+                <div className="flex justify-between items-end">
+                    <p className="font-mono text-[var(--fs-linen)] text-[16px]">
+                        ₹{(item.price * item.quantity).toLocaleString('en-IN')}
+                    </p>
+                    {canReturn && item.isReturnable && (
+                        <Link href={`/account/orders/${order.id}/return`} className="text-[12px] text-[var(--fs-linen)] uppercase tracking-widest hover:underline">
+                            Return →
+                        </Link>
+                    )}
+                </div>
               </div>
             </div>
           ))}
         </div>
-
-        <div style={{ marginBottom: 28, padding: 16, background: 'var(--fs-surface-2)', borderRadius: 2, fontSize: 14, color: 'var(--fs-ash)', lineHeight: 1.8 }}>
-          <strong style={{ color: 'var(--fs-ivory)', display: 'block', marginBottom: 4 }}>Delivery Address</strong>
-          {order.address.full_name} · {order.address.line1}, {order.address.city} — {order.address.pincode}
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: 16, background: 'var(--fs-surface-2)', borderRadius: 2, marginBottom: 28 }}>
-          <span style={{ fontSize: 14, color: 'var(--fs-ash)' }}>Payment: {order.payment_method}</span>
-          <span style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 18, color: 'var(--fs-linen)' }}>₹{order.total.toLocaleString('en-IN')}</span>
-        </div>
-
-        {(canCancel || canReturn) && (
-          <div style={{ display: 'flex', gap: 12 }}>
-            {canCancel && (
-              <button onClick={() => setShowCancelSheet(true)} style={{ flex: 1, height: 48, background: 'none', border: '1px solid var(--fs-error)', color: 'var(--fs-error)', borderRadius: 2, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', cursor: 'pointer' }}>
-                Cancel Order
-              </button>
-            )}
-            {canReturn && (
-              <Link href={`/account/orders/${order.id}/return`} style={{ flex: 1, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--fs-linen)', color: 'var(--fs-linen)', borderRadius: 2, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', textDecoration: 'none' }}>
-                Initiate Return
-              </Link>
-            )}
-          </div>
-        )}
       </div>
+
+      <div className="mb-8 p-5 bg-[var(--fs-surface-2)] border border-[var(--fs-wire)]">
+        <h3 className="text-[12px] uppercase tracking-[0.2em] text-[var(--fs-linen)] mb-3">Delivery Address</h3>
+        <p className="text-[14px] text-[var(--fs-ash)] leading-relaxed">
+          <span className="text-[var(--fs-ivory)] font-medium">{order.address.fullName}</span><br />
+          {order.address.line1}<br />
+          {order.address.city}, {order.address.state} — {order.address.pincode}
+        </p>
+      </div>
+
+      <div className="flex justify-between items-center p-5 bg-[var(--fs-surface-2)] border border-[var(--fs-wire)] mb-10">
+        <div className="flex flex-col">
+            <span className="text-[11px] uppercase tracking-widest text-[var(--fs-ash)]">Payment Method</span>
+            <span className="text-[14px] text-[var(--fs-ivory)] uppercase">{order.paymentMethod}</span>
+        </div>
+        <div className="flex flex-col items-end">
+            <span className="text-[11px] uppercase tracking-widest text-[var(--fs-ash)]">Total Paid</span>
+            <span className="font-mono text-xl text-[var(--fs-linen)]">₹{order.total.toLocaleString('en-IN')}</span>
+        </div>
+      </div>
+
+      {(canCancel || canReturn) && (
+        <div className="flex gap-4">
+          {canCancel && (
+            <button 
+                onClick={() => setShowCancelSheet(true)} 
+                className="flex-1 h-14 border border-[var(--fs-error)] text-[var(--fs-error)] uppercase tracking-widest text-[11px] font-semibold hover:bg-[var(--fs-error)] hover:text-white transition-all"
+            >
+              Cancel Order
+            </button>
+          )}
+          {canReturn && (
+            <Link href={`/account/orders/${order.id}/return`} className="flex-1 h-14 flex items-center justify-center border border-[var(--fs-linen)] text-[var(--fs-linen)] uppercase tracking-widest text-[11px] font-semibold hover:bg-[var(--fs-linen)] hover:text-[var(--fs-void)] transition-all">
+              Initiate Return
+            </Link>
+          )}
+        </div>
+      )}
 
       <AnimatePresence>
         {showCancelSheet && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCancelSheet(false)}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300 }} />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--fs-surface)', padding: 28, zIndex: 400 }}>
-              <p style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 20, color: 'var(--fs-ivory)', marginBottom: 8 }}>Cancel {order.order_number}?</p>
-              <p style={{ fontSize: 14, color: 'var(--fs-ash)', marginBottom: 24 }}>This cannot be undone. Prepaid amount refunded in 5-7 days.</p>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={() => setShowCancelSheet(false)} style={{ flex: 1, height: 48, background: 'none', border: '1px solid var(--fs-wire)', color: 'var(--fs-ash)', borderRadius: 2, cursor: 'pointer', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Back</button>
-                <button onClick={handleCancel} disabled={cancelling} style={{ flex: 1, height: 48, background: 'var(--fs-error)', color: 'white', border: 'none', borderRadius: 2, cursor: 'pointer', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {cancelling ? <SpiderLoader size="sm" /> : 'Yes, Cancel'}
+              className="fixed inset-0 bg-black/80 z-[300] backdrop-blur-sm" />
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 bg-[var(--fs-surface)] p-8 z-[400] border-t border-[var(--fs-wire)]">
+              <p className="font-serif text-2xl text-[var(--fs-ivory)] mb-2">Cancel {order.orderNumber}?</p>
+              <p className="text-[14px] text-[var(--fs-ash)] mb-8">This action cannot be undone. Any prepaid amount will be refunded to your source account in 5-7 business days.</p>
+              <div className="flex gap-4">
+                <button onClick={() => setShowCancelSheet(false)} className="flex-1 h-14 border border-[var(--fs-wire)] text-[var(--fs-ash)] uppercase tracking-widest text-[11px] font-semibold">Back</button>
+                <button onClick={handleCancel} disabled={cancelling} className="flex-1 h-14 bg-[var(--fs-error)] text-white uppercase tracking-widest text-[11px] font-semibold flex items-center justify-center gap-2">
+                  {cancelling && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {cancelling ? 'Cancelling...' : 'Confirm Cancellation'}
                 </button>
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

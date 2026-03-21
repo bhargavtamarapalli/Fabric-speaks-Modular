@@ -1,16 +1,18 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { CheckoutStepper } from '@/components/molecules/CheckoutStepper';
 import { AddressForm, AddressFormData } from '@/components/molecules/AddressForm';
 import { OTPInput } from '@/components/molecules/OTPInput';
 import { PaymentMethodSelector, PaymentMethod } from '@/components/molecules/PaymentMethodSelector';
-import { OrderSummary, OrderSummaryData } from '@/components/molecules/OrderSummary';
+import { OrderSummary } from '@/components/molecules/OrderSummary';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import { sendOtp, verifyOtp } from '@/lib/api/auth';
 import { placeOrder } from '@/lib/api/orders';
 import { initiateRazorpay, verifyPayment, confirmCod } from '@/lib/api/payments';
+import { getCart, Cart } from '@/lib/api/cart';
+import { useToast } from '@/context/ToastContext';
 
 const STORAGE_KEY = 'checkout_guest_state';
 
@@ -20,12 +22,7 @@ const STEPS = [
   { number: 3, label: 'Payment' },
 ];
 
-const EMPTY_ADDRESS: AddressFormData = { full_name: '', mobile: '', pincode: '', line1: '', line2: '', city: '', state: '' };
-
-const MOCK_SUMMARY: OrderSummaryData = {
-  items: [{ name: 'Linen Fabric Set', qty: 1, price: 2499 }],
-  subtotal: 2499, discount: 0, delivery: 0, total: 2499,
-};
+const EMPTY_ADDRESS: AddressFormData = { fullName: '', mobile: '', pincode: '', line1: '', line2: '', city: '', state: '' };
 
 const stepVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 50 : -50, opacity: 0 }),
@@ -35,23 +32,45 @@ const stepVariants = {
 
 export default function GuestCheckoutPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
+  const [cart, setCart] = useState<Cart | null>(null);
   const [address, setAddress] = useState<AddressFormData>(EMPTY_ADDRESS);
   const [otp, setOtp] = useState('');
   const [otpError, setOtpError] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fetchingCart, setFetchingCart] = useState(true);
 
-  // Load saved state
+  const fetchCartData = useCallback(async () => {
+    try {
+      setFetchingCart(true);
+      const res = await getCart();
+      setCart(res);
+    } catch (err: any) {
+      showToast(err.message || "Failed to load cart", "error");
+    } finally {
+      setFetchingCart(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    fetchCartData();
+  }, [fetchCartData]);
+
+  // Load saved address
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) { const parsed = JSON.parse(saved); setAddress(parsed.address ?? EMPTY_ADDRESS); }
+      if (saved) { 
+          const parsed = JSON.parse(saved); 
+          if (parsed.address) setAddress(parsed.address); 
+      }
     } catch {}
   }, []);
 
-  // Persist state
+  // Persist address
   useEffect(() => {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ address }));
   }, [address]);
@@ -61,8 +80,13 @@ export default function GuestCheckoutPage() {
 
   async function handleSendOtp() {
     setLoading(true);
-    try { await sendOtp(address.mobile); goNext(); }
-    catch (e) { console.error(e); }
+    try { 
+        await sendOtp(address.mobile); 
+        goNext(); 
+    }
+    catch (err: any) { 
+        showToast(err.message || "Failed to send OTP", "error");
+    }
     finally { setLoading(false); }
   }
 
@@ -72,17 +96,19 @@ export default function GuestCheckoutPage() {
       await verifyOtp(address.mobile, val);
       setOtpError(false);
       goNext();
-    } catch { setOtpError(true); }
+    } catch { 
+        setOtpError(true); 
+    }
     finally { setLoading(false); }
   }
 
   async function handlePlaceOrder() {
-    if (!paymentMethod) return;
+    if (!paymentMethod || !cart) return;
     setLoading(true);
     try {
       const order = await placeOrder({
-        guest_address: { ...address },
-        payment_method: paymentMethod === 'COD' ? 'COD' : 'RAZORPAY',
+        guestAddress: { ...address },
+        paymentMethod: paymentMethod === 'COD' ? 'COD' : 'RAZORPAY',
       });
 
       if (paymentMethod === 'COD') {
@@ -92,45 +118,76 @@ export default function GuestCheckoutPage() {
         return;
       }
 
-      // Razorpay flow
       const rz = await initiateRazorpay(order.id);
-      // @ts-ignore
-      const Razorpay = (window as any).Razorpay;
-      if (!Razorpay) { alert('Razorpay SDK not loaded'); return; }
-      new Razorpay({
-        key: rz.key, amount: rz.amount, currency: rz.currency,
-        name: rz.name, description: rz.description,
-        order_id: rz.razorpay_order_id,
+      const Rzp = (window as any).Razorpay;
+      if (!Rzp) {
+          showToast("Payment gateway failed to load", "error");
+          return;
+      }
+      new Rzp({
+        key: rz.key,
+        amount: rz.amount,
+        currency: rz.currency,
+        name: rz.name,
+        description: rz.description,
+        order_id: rz.razorpayOrderId,
         handler: async (res: any) => {
-          await verifyPayment({ razorpay_payment_id: res.razorpay_payment_id, razorpay_order_id: res.razorpay_order_id, razorpay_signature: res.razorpay_signature });
-          sessionStorage.removeItem(STORAGE_KEY);
-          router.push('/orders/confirmed');
+          try {
+              await verifyPayment({ 
+                  razorpayPaymentId: res.razorpay_payment_id, 
+                  razorpayOrderId: res.razorpay_order_id, 
+                  razorpaySignature: res.razorpay_signature 
+              });
+              sessionStorage.removeItem(STORAGE_KEY);
+              router.push('/orders/confirmed');
+          } catch (err: any) {
+              showToast("Payment verification failed", "error");
+          }
         },
-        prefill: { name: address.full_name, contact: address.mobile },
+        prefill: { name: address.fullName, contact: address.mobile },
         theme: { color: '#C9A96E' },
       }).open();
-    } catch (e) { console.error(e); }
+    } catch (err: any) { 
+        showToast(err.message || "Failed to place order", "error");
+    }
     finally { setLoading(false); }
   }
+
+  if (fetchingCart) {
+      return (
+        <div className="min-h-screen bg-[var(--fs-void)] flex items-center justify-center">
+            <SpiderLoader size="lg" />
+        </div>
+      );
+  }
+
+  if (!cart || cart.items.length === 0) {
+      router.push('/cart');
+      return null;
+  }
+
+  const summaryData = {
+    items: cart.items.map(item => ({ name: item.productName, qty: item.quantity, price: (item.isSaleActive && item.salePrice ? item.salePrice : item.price) })),
+    subtotal: cart.subtotal,
+    discount: cart.discount,
+    delivery: cart.shipping,
+    total: cart.total
+  };
 
   return (
     <motion.div
       initial={{ clipPath: 'inset(100% 0 0 0)' }}
       animate={{ clipPath: 'inset(0% 0 0 0)' }}
       transition={{ duration: 0.6, ease: [0.76, 0, 0.24, 1] }}
-      style={{ minHeight: '100vh', background: 'var(--fs-void)', padding: '24px 0' }}
+      className="min-h-screen bg-[var(--fs-void)] py-12"
     >
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 20px' }}>
-        {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h1 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 28, color: 'var(--fs-ivory)', marginBottom: 4 }}>
-            Fabric Speaks
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--fs-ash)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Guest Checkout</p>
+      <div className="max-w-[1000px] mx-auto px-4">
+        <div className="text-center mb-12">
+          <h1 className="font-serif text-3xl text-[var(--fs-ivory)] mb-2">Fabric Speaks</h1>
+          <p className="text-[11px] font-mono text-[var(--fs-ash)] uppercase tracking-widest">Guest Checkout</p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 40, alignItems: 'start' }}>
-          {/* Left — Form */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr,350px] gap-12 items-start">
           <div>
             <CheckoutStepper steps={STEPS} currentStep={step} />
             <AnimatePresence mode="wait" custom={dir}>
@@ -145,61 +202,58 @@ export default function GuestCheckoutPage() {
               >
                 {step === 0 && (
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 22, color: 'var(--fs-ivory)', marginBottom: 20 }}>Delivery Address</h2>
+                    <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Delivery Address</h2>
                     <AddressForm value={address} onChange={setAddress} />
-                    <motion.button
+                    <button
                       onClick={handleSendOtp}
-                      disabled={loading || !address.full_name || !address.mobile || !address.line1}
-                      whileTap={{ scale: 0.97 }}
-                      style={{ marginTop: 8, width: '100%', height: 52, background: 'var(--fs-linen)', color: 'var(--fs-void)', border: 'none', borderRadius: 2, fontSize: 13, fontFamily: 'var(--font-dm-sans)', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                      disabled={loading || !address.fullName || !address.mobile || !address.line1}
+                      className={`mt-4 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${
+                        (loading || !address.fullName || !address.mobile || !address.line1) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                      }`}
                     >
                       {loading ? <SpiderLoader size="sm" /> : 'Continue →'}
-                    </motion.button>
+                    </button>
                   </div>
                 )}
 
                 {step === 1 && (
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 22, color: 'var(--fs-ivory)', marginBottom: 8 }}>Verify Mobile</h2>
-                    <p style={{ fontSize: 14, color: 'var(--fs-ash)', marginBottom: 24 }}>6-digit code sent to {address.mobile.replace(/(\d{2})\d{6}(\d{2})/, '$1XXXXXX$2')}</p>
+                    <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-2">Verify Mobile</h2>
+                    <p className="text-[14px] text-[var(--fs-ash)] mb-8">6-digit code sent to {address.mobile.replace(/(\d{2})\d{6}(\d{2})/, '$1XXXXXX$2')}</p>
                     {loading ? (
-                      <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><SpiderLoader size="md" /></div>
+                      <div className="flex justify-center py-12"><SpiderLoader size="md" /></div>
                     ) : (
                       <>
                         <OTPInput value={otp} onChange={setOtp} onComplete={handleVerifyOtp} error={otpError} />
-                        {otpError && <p style={{ marginTop: 8, color: 'var(--fs-error)', fontSize: 13 }}>Invalid code. Please try again.</p>}
+                        {otpError && <p className="mt-4 text-[var(--fs-error)] text-[13px]">Invalid code. Please try again.</p>}
                       </>
                     )}
-                    <button onClick={goBack} style={{ marginTop: 20, background: 'none', border: 'none', color: 'var(--fs-ash)', fontSize: 13, cursor: 'pointer' }}>
-                      ← Back
-                    </button>
+                    <button onClick={goBack} className="mt-8 text-[var(--fs-ash)] text-[13px] hover:text-[var(--fs-linen)] transition-colors">← Back to Address</button>
                   </div>
                 )}
 
                 {step === 2 && (
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-dm-serif)', fontSize: 22, color: 'var(--fs-ivory)', marginBottom: 20 }}>Payment</h2>
+                    <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Payment Method</h2>
                     <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
-                    <motion.button
+                    <button
                       onClick={handlePlaceOrder}
                       disabled={loading || !paymentMethod}
-                      whileTap={{ scale: 0.97 }}
-                      style={{ marginTop: 24, width: '100%', height: 56, background: paymentMethod ? 'var(--fs-linen)' : 'var(--fs-wire)', color: paymentMethod ? 'var(--fs-void)' : 'var(--fs-ash)', border: 'none', borderRadius: 2, fontSize: 13, fontFamily: 'var(--font-dm-sans)', fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', cursor: paymentMethod ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'background 0.2s' }}
+                      className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${
+                        (loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                      }`}
                     >
-                      {loading ? <SpiderLoader size="sm" /> : `Place Order — ₹${MOCK_SUMMARY.total.toLocaleString('en-IN')}`}
-                    </motion.button>
-                    <button onClick={goBack} style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--fs-ash)', fontSize: 13, cursor: 'pointer', width: '100%' }}>
-                      ← Back
+                      {loading ? <SpiderLoader size="sm" /> : `Place Order — ₹${cart.total.toLocaleString('en-IN')}`}
                     </button>
+                    <button onClick={goBack} className="mt-4 w-full text-center text-[var(--fs-ash)] text-[13px] hover:text-[var(--fs-linen)] transition-colors">← Back to Verify</button>
                   </div>
                 )}
               </motion.div>
             </AnimatePresence>
           </div>
 
-          {/* Right — Order Summary (hidden on smallest screens) */}
-          <div style={{ minWidth: 280 }}>
-            <OrderSummary data={MOCK_SUMMARY} />
+          <div className="sticky top-24">
+            <OrderSummary data={summaryData} />
           </div>
         </div>
       </div>

@@ -81,15 +81,27 @@ export class PriceChangeRepository extends BaseRepository {
   }
 
   async updateStatus(id: string, status: PriceChangeStatus, data: { appliedAt?: Date | null; errorMessage?: string | null } = {}): Promise<void> {
+    const setClauses = ['status = $2', 'updated_at = now()'];
+    const params = [id, status];
+
+    // Only include applied_at in SET if explicitly provided
+    if ('appliedAt' in data) {
+      params.push(data.appliedAt);
+      setClauses.push(`applied_at = $${params.length}`);
+    }
+
+    // Only include error_message in SET if explicitly provided
+    if ('errorMessage' in data) {
+      params.push(data.errorMessage);
+      setClauses.push(`error_message = $${params.length}`);
+    }
+
     const query = `
       UPDATE scheduled_price_changes
-      SET status = $2,
-          applied_at = COALESCE($3, applied_at),
-          error_message = COALESCE($4, error_message),
-          updated_at = now()
+      SET ${setClauses.join(', ')}
       WHERE id = $1
     `;
-    await this.query(query, [id, status, data.appliedAt ?? null, data.errorMessage ?? null]);
+    await this.query(query, params);
   }
 
   async markProcessing(id: string): Promise<void> {

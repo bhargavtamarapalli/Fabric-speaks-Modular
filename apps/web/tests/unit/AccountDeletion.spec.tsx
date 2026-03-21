@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import AccountDeletionPage from '../../app/account/delete/page';
+import AccountDeletionPage from '../../src/app/account/delete/page';
 import * as apiClient from '@/lib/apiClient';
 
 // Mocks

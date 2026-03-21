@@ -5,7 +5,7 @@ import { checkPincode, PincodeCheckResult } from '@/lib/api/pincode';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 
 export interface AddressFormData {
-  full_name: string;
+  fullName: string;
   mobile: string;
   pincode: string;
   line1: string;
@@ -19,34 +19,35 @@ interface AddressFormProps {
   onChange: (v: AddressFormData) => void;
 }
 
-function FloatingInput({ label, name, value, onChange, type = 'text', readOnly = false }: {
+function FloatingInput({ label, name, value, onChange, type = 'text', readOnly = false, onBlur }: {
   label: string; name: string; value: string;
   onChange: (v: string) => void; type?: string; readOnly?: boolean;
+  onBlur?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const active = focused || !!value;
   return (
-    <div style={{ position: 'relative', marginBottom: 16 }}>
+    <div className="relative mb-4">
       <input
         id={name} name={name} type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
         onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        onBlur={() => { setFocused(false); if (onBlur) onBlur(); }}
         placeholder=""
         readOnly={readOnly}
-        style={{
-          width: '100%', height: 52, padding: '18px 12px 6px',
-          background: 'var(--fs-surface)', border: `1px solid ${active ? 'var(--fs-linen)' : 'var(--fs-wire)'}`,
-          borderRadius: 2, color: 'var(--fs-ivory)', fontSize: 15, outline: 'none',
-          transition: 'border-color 0.2s',
-        }}
+        className={`w-full h-[52px] pt-[18px] pb-[6px] px-3 bg-[var(--fs-surface)] border rounded-[2px] text-[var(--fs-ivory)] text-[15px] outline-none transition-all ${active ? 'border-[var(--fs-linen)]' : 'border-[var(--fs-wire)]'}`}
       />
       <motion.label
         htmlFor={name}
-        animate={{ top: active ? 6 : '50%', fontSize: active ? 11 : 14, color: active ? '#C9A96E' : '#6B6560', y: active ? 0 : '-50%' }}
+        animate={{ 
+            top: active ? 6 : '50%', 
+            fontSize: active ? 11 : 14, 
+            color: active ? 'var(--fs-linen)' : 'var(--fs-ash)', 
+            y: active ? 0 : '-50%' 
+        }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        style={{ position: 'absolute', left: 12, pointerEvents: 'none', transformOrigin: 'left', letterSpacing: '0.04em' }}
+        className="absolute left-3 pointer-events-none origin-left tracking-[0.04em]"
       >
         {label}
       </motion.label>
@@ -58,7 +59,7 @@ export function AddressForm({ value, onChange }: AddressFormProps) {
   const [pincodeResult, setPincodeResult] = useState<PincodeCheckResult | null>(null);
   const [checking, setChecking] = useState(false);
 
-  function set(field: keyof AddressFormData, val: string) {
+  function updateField(field: keyof AddressFormData, val: string) {
     onChange({ ...value, [field]: val });
   }
 
@@ -68,19 +69,27 @@ export function AddressForm({ value, onChange }: AddressFormProps) {
     try {
       const res = await checkPincode(value.pincode);
       setPincodeResult(res);
-    } catch { setPincodeResult(null); }
+    } catch { 
+        setPincodeResult(null); 
+    }
     finally { setChecking(false); }
   }
 
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-        <FloatingInput label="Full Name" name="full_name" value={value.full_name} onChange={v => set('full_name', v)} />
-        <FloatingInput label="Mobile" name="mobile" value={value.mobile} onChange={v => set('mobile', v)} type="tel" />
+    <div className="w-full">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+        <FloatingInput label="Full Name" name="fullName" value={value.fullName} onChange={v => updateField('fullName', v)} />
+        <FloatingInput label="Mobile" name="mobile" value={value.mobile} onChange={v => updateField('mobile', v)} type="tel" />
       </div>
-      <div style={{ position: 'relative' }}>
-        <FloatingInput label="Pincode" name="pincode" value={value.pincode} onChange={v => set('pincode', v)} />
-        <div style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}>
+      <div className="relative">
+        <FloatingInput 
+            label="Pincode" 
+            name="pincode" 
+            value={value.pincode} 
+            onChange={v => updateField('pincode', v)} 
+            onBlur={handlePincodeBlur}
+        />
+        <div className="absolute right-3 top-[26px] -translate-y-1/2">
           {checking && <SpiderLoader size="sm" />}
         </div>
       </div>
@@ -88,19 +97,23 @@ export function AddressForm({ value, onChange }: AddressFormProps) {
         {pincodeResult && (
           <motion.div
             initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 2, background: pincodeResult.serviceable ? 'rgba(45,106,79,0.12)' : 'rgba(184,76,60,0.12)', border: `1px solid ${pincodeResult.serviceable ? 'var(--fs-success)' : 'var(--fs-error)'}`, fontSize: 13, color: pincodeResult.serviceable ? 'var(--fs-success)' : 'var(--fs-error)' }}
+            className={`mb-4 p-3 border rounded-[2px] text-[13px] transition-all flex items-center gap-2 ${
+                pincodeResult.isServiceable 
+                ? 'bg-[var(--fs-success)]/10 border-[var(--fs-success)] text-[var(--fs-success)]' 
+                : 'bg-[var(--fs-error)]/10 border-[var(--fs-error)] text-[var(--fs-error)]'
+            }`}
           >
-            {pincodeResult.serviceable
-              ? `✓ Delivers by ${pincodeResult.delivery_date_display} · ${pincodeResult.cod_available ? 'COD available' : 'Prepaid only'}`
+            {pincodeResult.isServiceable
+              ? `✓ Delivers in ${pincodeResult.estimatedDays} days · ${pincodeResult.codAvailable ? 'COD available' : 'Prepaid only'}`
               : '✗ Not deliverable to this pincode'}
           </motion.div>
         )}
       </AnimatePresence>
-      <FloatingInput label="Address Line 1" name="line1" value={value.line1} onChange={v => set('line1', v)} />
-      <FloatingInput label="Address Line 2 (optional)" name="line2" value={value.line2} onChange={v => set('line2', v)} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-        <FloatingInput label="City" name="city" value={value.city} onChange={v => set('city', v)} />
-        <FloatingInput label="State" name="state" value={value.state} onChange={v => set('state', v)} />
+      <FloatingInput label="Address Line 1" name="line1" value={value.line1} onChange={v => updateField('line1', v)} />
+      <FloatingInput label="Address Line 2 (optional)" name="line2" value={value.line2} onChange={v => updateField('line2', v)} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+        <FloatingInput label="City" name="city" value={value.city} onChange={v => updateField('city', v)} />
+        <FloatingInput label="State" name="state" value={value.state} onChange={v => updateField('state', v)} />
       </div>
     </div>
   );

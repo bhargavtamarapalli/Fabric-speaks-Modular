@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import pLimit from 'p-limit';
 import { AppError, ErrorCode, getDbPool, getRedisClient, logger } from '@fs/shared';
 import { BroadcastCampaignRepository, BroadcastCampaign, CampaignStatus } from '../repositories/BroadcastCampaignRepository';
 import { TemplateRepository } from '../repositories/TemplateRepository';
@@ -9,6 +10,9 @@ export interface AudienceFilter {
   minOrders?: number;
   lastOrderSinceDays?: number;
 }
+
+// Configurable concurrency limit for broadcast processing
+const BROADCAST_CONCURRENCY_LIMIT = parseInt(process.env.BROADCAST_CONCURRENCY_LIMIT ?? '10', 10);
 
 export class BroadcastService {
   private campaignRepo: BroadcastCampaignRepository;
@@ -41,9 +45,15 @@ export class BroadcastService {
     const now = new Date();
     const scheduledAt = input.scheduledAt ?? null;
     if (scheduledAt) {
-      const hour = scheduledAt.getHours();
-      if (hour < 8 || hour >= 22) {
-        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Scheduled broadcasts must be between 8am and 10pm');
+      // Convert to business timezone (IST: UTC+5:30) for hour validation
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Kolkata' // IST timezone for Indian business hours
+      });
+      const businessHour = parseInt(formatter.format(scheduledAt), 10);
+      if (businessHour < 8 || businessHour >= 22) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Scheduled broadcasts must be between 8am and 10pm IST');
       }
     }
     const status: CampaignStatus =
@@ -51,7 +61,7 @@ export class BroadcastService {
 
     const campaign = await this.campaignRepo.create({
       templateId: input.templateId,
-      audienceFilter: input.audience ?? {},
+      audienceFilter: (input.audience as any) ?? {},
       messagePreview: input.messagePreview,
       scheduledAt,
       templateComponents: input.templateComponents ?? [],
@@ -79,7 +89,7 @@ export class BroadcastService {
   }
 
   async listTemplates(filters: { status?: string; limit?: number; offset?: number }) {
-    return this.templateRepo.list(filters);
+    return this.templateRepo.list(filters as any);
   }
 
   async previewTemplate(templateId: string, variables: string[] = []) {
@@ -112,29 +122,39 @@ export class BroadcastService {
     const recipients = await this.getRecipients(campaign.audienceFilter as AudienceFilter, false);
     const rows = recipients.rows || [];
 
-    let sent = 0;
-    let skipped = 0;
+    // Create a concurrency-limited promise processor
+    const limit = pLimit(BROADCAST_CONCURRENCY_LIMIT);
 
-    for (const row of rows) {
-      const phone = this.normalizePhone(row.mobile);
-      if (!phone) {
-        skipped += 1;
-        continue;
-      }
+    // Process all rows in parallel with concurrency control
+    // Return result objects instead of mutating shared counters (avoid race conditions)
+    const results = await Promise.all(
+      rows.map((row: any) =>
+        limit(async () => {
+          const phone = this.normalizePhone(row.mobile);
+          if (!phone) {
+            return { sent: false, skipped: true };
+          }
 
-      try {
-        await this.coordinator.processNotification({
-          eventType: 'campaign.broadcast',
-          recipientPhone: phone,
-          waTemplateName: campaign.templateId,
-          waComponents: campaign.templateComponents,
-          fallbackSmsBody: campaign.messagePreview
-        });
-        sent += 1;
-      } catch (error) {
-        logger.error({ campaignId, error }, 'Failed to send broadcast message');
-      }
-    }
+          try {
+            await this.coordinator.processNotification({
+              eventType: 'campaign.broadcast',
+              recipientPhone: phone,
+              waTemplateName: campaign.templateId,
+              waComponents: campaign.templateComponents,
+              fallbackSmsBody: campaign.messagePreview
+            });
+            return { sent: true, skipped: false };
+          } catch (error) {
+            logger.error({ campaignId, error }, 'Failed to send broadcast message');
+            return { sent: false, skipped: true };
+          }
+        })
+      )
+    );
+
+    // Count results after all promises complete (no race condition)
+    const sent = results.filter((r: any) => r.sent).length;
+    const skipped = results.filter((r: any) => r.skipped).length;
 
     await this.campaignRepo.updateAnalytics(campaignId, { sent, capped: skipped });
     await this.campaignRepo.updateStatus(campaignId, 'sent', new Date());

@@ -4,8 +4,7 @@ import { useAuth } from '@/lib/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { useEffect, ReactNode } from 'react';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-
-export type AdminRole = 'superAdmin' | 'inventoryManager' | 'supportAgent';
+import type { AdminRole } from '@/lib/admin/types';
 
 interface WithRoleGuardProps {
   children: ReactNode;
@@ -45,15 +44,15 @@ export const WithRoleGuard = ({ children, allowedRoles }: WithRoleGuardProps) =>
 
 // Helper specific layout wrapper shortcuts
 export const SuperAdminOnly = ({ children }: { children: ReactNode }) => (
-  <WithRoleGuard allowedRoles={['superAdmin']}>{children}</WithRoleGuard>
+  <WithRoleGuard allowedRoles={['SUPER_ADMIN']}>{children}</WithRoleGuard>
 );
 
 // Admins + Support Agents (for Support queue / Read-only orders)
 export const SupportAllowed = ({ children }: { children: ReactNode }) => (
-  <WithRoleGuard allowedRoles={['superAdmin', 'supportAgent']}>{children}</WithRoleGuard>
+  <WithRoleGuard allowedRoles={['SUPER_ADMIN', 'SUPPORT_AGENT']}>{children}</WithRoleGuard>
 );
 
 // Admins + Inventory Managers (for Products/Inventory/Categories/Collections)
 export const InventoryAllowed = ({ children }: { children: ReactNode }) => (
-  <WithRoleGuard allowedRoles={['superAdmin', 'inventoryManager']}>{children}</WithRoleGuard>
+  <WithRoleGuard allowedRoles={['SUPER_ADMIN', 'INVENTORY_MANAGER']}>{children}</WithRoleGuard>
 );

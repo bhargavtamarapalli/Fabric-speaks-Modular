@@ -10,6 +10,11 @@ export class AdminLoginAttemptRepository extends BaseRepository {
   }
 
   async countRecentFailures(mobileHash: string, minutes: number): Promise<number> {
+    // Validate minutes parameter to prevent SQL problems
+    if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 1440) {
+      throw new Error(`Invalid minutes parameter: must be a positive integer between 1 and 1440 (24 hours). Received: ${minutes}`);
+    }
+
     const query = `
       SELECT COUNT(*) as count
       FROM admin_login_attempts

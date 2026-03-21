@@ -1,56 +1,54 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
-import { apiFetch } from '@/lib/apiClient';
-import { Shield } from 'lucide-react';
+import { getProfile, updateProfile, UserProfile } from '@/lib/api/customer';
+import { Shield, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-
-interface UserProfile {
-  name: string;
-  email: string;
-  mobile: string;
-}
+import { useToast } from '@/context/ToastContext';
 
 export default function ProfilePage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  useEffect(() => {
-    // Assuming GET /api/v1/customer/profile returns the current user's data
-    apiFetch<UserProfile>('/customer/profile')
-      .then(res => setProfile(res as unknown as UserProfile))
-      .catch(() => {
-        // Fallback to auth context if API not linked yet
-        if (user) {
-          setProfile({
-            name: user.name || '',
-            email: user.email || '',
-            mobile: user.mobile || ''
-          });
-        }
-      })
-      .finally(() => setLoading(false));
+  const fetchProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await getProfile();
+      setProfile(res);
+    } catch (err: any) {
+      if (user) {
+        setProfile({
+          name: user.name || '',
+          email: user.email || '',
+          mobile: user.mobile || ''
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   const handleSave = async () => {
     if (!profile) return;
     try {
       setSaving(true);
-      await apiFetch('/customer/profile', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: profile.name,
-          email: profile.email
-        })
+      await updateProfile({
+        name: profile.name,
+        email: profile.email
       });
       setEditMode(false);
-      alert('Profile updated successfully');
+      showToast('Profile updated successfully', 'success');
     } catch (err: any) {
-      alert(err.message || 'Failed to update profile');
+      showToast(err.message || 'Failed to update profile', 'error');
     } finally {
       setSaving(false);
     }
@@ -121,13 +119,14 @@ export default function ProfilePage() {
             <button 
               disabled={saving}
               onClick={handleSave}
-              className="px-6 py-3 uppercase tracking-[0.15em] text-xs font-medium bg-[var(--fs-linen)] text-[var(--fs-void)] border border-[var(--fs-linen)] hover:bg-gray-200 transition disabled:opacity-50"
+              className="px-6 py-3 uppercase tracking-[0.15em] text-xs font-medium bg-[var(--fs-linen)] text-[var(--fs-void)] border border-[var(--fs-linen)] hover:bg-gray-200 transition disabled:opacity-50 flex items-center gap-2"
             >
+              {saving && <Loader2 className="w-3 h-3 animate-spin" />}
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
             <button 
               disabled={saving}
-              onClick={() => setEditMode(false)}
+              onClick={() => { setEditMode(false); fetchProfile(); }}
               className="px-6 py-3 uppercase tracking-[0.15em] text-xs font-medium bg-transparent text-[var(--fs-ash)] border border-[var(--fs-wire)] hover:border-gray-500 hover:text-white transition"
             >
               Cancel

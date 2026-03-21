@@ -15,8 +15,8 @@ export class BroadcastWorker {
       async (job: Job) => {
         const { campaignId } = job.data as { campaignId: string };
         if (!campaignId) {
-          logger.warn('Broadcast job missing campaignId');
-          return;
+          logger.error('Broadcast job missing campaignId - marking job as failed');
+          throw new Error('Missing campaignId in job data');
         }
         await this.service.dispatchCampaign(campaignId);
       },
