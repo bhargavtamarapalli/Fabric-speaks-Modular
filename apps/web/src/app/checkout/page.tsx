@@ -12,6 +12,7 @@ import { placeOrder } from '@/lib/api/orders';
 import { initiateRazorpay, verifyPayment, confirmCod } from '@/lib/api/payments';
 import { getCart, Cart } from '@/lib/api/cart';
 import { useToast } from '@/context/ToastContext';
+import { RazorpayOptions, RazorpayResponse } from '@/types/razorpay';
 
 const STEPS = [
   { number: 1, label: 'Address' },
@@ -23,7 +24,7 @@ const EMPTY_ADDRESS: AddressFormData = { fullName: '', mobile: '', pincode: '', 
 const stepVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 50 : -50, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit:   (dir: number) => ({ x: dir > 0 ? -50 : 50, opacity: 0 }),
+  exit: (dir: number) => ({ x: dir > 0 ? -50 : 50, opacity: 0 }),
 };
 
 export default function AuthCheckoutPage() {
@@ -62,6 +63,13 @@ export default function AuthCheckoutPage() {
     fetchData();
   }, [fetchData]);
 
+  // Redirect to cart if cart is empty
+  useEffect(() => {
+    if (!fetchingData && (!cart || cart.items.length === 0)) {
+      router.push('/cart');
+    }
+  }, [cart, fetchingData, router]);
+
   function goNext() { setDir(1); setStep(s => s + 1); }
   function goBack() { setDir(-1); setStep(s => s - 1); }
 
@@ -81,59 +89,63 @@ export default function AuthCheckoutPage() {
       }
 
       const rz = await initiateRazorpay(order.id);
-      const Rzp = (window as any).Razorpay;
+      const Rzp = window.Razorpay;
       if (!Rzp) {
-          showToast("Payment gateway failed to load. Please try again.", "error");
-          return;
+        showToast("Payment gateway failed to load. Please try again.", "error");
+        return;
       }
-      
-      new Rzp({
+
+      const options: RazorpayOptions = {
         key: rz.key,
         amount: rz.amount,
         currency: rz.currency,
         order_id: rz.razorpayOrderId,
         name: rz.name,
         description: rz.description,
-        handler: async (res: any) => {
+        handler: async (res: RazorpayResponse) => {
           try {
             await verifyPayment({
-                razorpayPaymentId: res.razorpay_payment_id,
-                razorpayOrderId: res.razorpay_order_id,
-                razorpaySignature: res.razorpay_signature
+              razorpayPaymentId: res.razorpay_payment_id,
+              razorpayOrderId: res.razorpay_order_id,
+              razorpaySignature: res.razorpay_signature
             });
             router.push('/orders/confirmed');
           } catch (err: any) {
             showToast("Payment verification failed", "error");
+          } finally {
+            setLoading(false);
           }
         },
         theme: { color: '#C9A96E' },
-      }).open();
-    } catch (err: any) { 
-        showToast(err.message || "Failed to place order", "error");
-    } finally { 
-        setLoading(false); 
+      };
+
+      new Rzp(options).open();
+    } catch (err: any) {
+      showToast(err.message || "Failed to place order", "error");
+    } finally {
+      setLoading(false);
     }
   }
 
   if (fetchingData) {
-      return (
-        <div className="min-h-screen bg-[var(--fs-void)] flex items-center justify-center">
-            <SpiderLoader size="lg" />
-        </div>
-      );
+    return (
+      <div className="min-h-screen bg-[var(--fs-void)] flex items-center justify-center">
+        <SpiderLoader size="lg" />
+      </div>
+    );
   }
 
   if (!cart || cart.items.length === 0) {
-      router.push('/cart');
-      return null;
+    // Redirect is handled by useEffect above
+    return null;
   }
 
   const summaryData = {
-      items: cart.items.map(item => ({ name: item.productName, qty: item.quantity, price: (item.isSaleActive && item.salePrice ? item.salePrice : item.price) })),
-      subtotal: cart.subtotal,
-      discount: cart.discount,
-      delivery: cart.shipping,
-      total: cart.total
+    items: cart.items.map(item => ({ name: item.productName, qty: item.quantity, price: (item.isSaleActive && item.salePrice ? item.salePrice : item.price) })),
+    subtotal: cart.subtotal,
+    discount: cart.discount,
+    delivery: cart.shipping,
+    total: cart.total
   };
 
   return (
@@ -163,50 +175,49 @@ export default function AuthCheckoutPage() {
                   <div>
                     <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Select Delivery Address</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        {addresses.map(addr => (
+                      {addresses.map(addr => (
                         <motion.div
-                            key={addr.id}
-                            onClick={() => { setSelectedAddressId(addr.id); setShowNewForm(false); }}
-                            whileTap={{ scale: 0.98 }}
-                            animate={{ 
-                                borderColor: selectedAddressId === addr.id ? 'var(--fs-linen)' : 'var(--fs-wire)', 
-                                background: selectedAddressId === addr.id ? 'var(--fs-surface-2)' : 'var(--fs-surface)' 
-                            }}
-                            className="p-5 border cursor-pointer transition-colors"
+                          key={addr.id}
+                          onClick={() => { setSelectedAddressId(addr.id); setShowNewForm(false); }}
+                          whileTap={{ scale: 0.98 }}
+                          animate={{
+                            borderColor: selectedAddressId === addr.id ? 'var(--fs-linen)' : 'var(--fs-wire)',
+                            background: selectedAddressId === addr.id ? 'var(--fs-surface-2)' : 'var(--fs-surface)'
+                          }}
+                          className="p-5 border cursor-pointer transition-colors"
                         >
-                            <div className="text-[10px] font-mono text-[var(--fs-linen)] uppercase tracking-widest mb-2">{addr.label}</div>
-                            <div className="text-[15px] font-sans text-[var(--fs-ivory)] mb-1">{addr.fullName}</div>
-                            <div className="text-[13px] font-sans text-[var(--fs-ash)] leading-relaxed">
+                          <div className="text-[10px] font-mono text-[var(--fs-linen)] uppercase tracking-widest mb-2">{addr.label}</div>
+                          <div className="text-[15px] font-sans text-[var(--fs-ivory)] mb-1">{addr.fullName}</div>
+                          <div className="text-[13px] font-sans text-[var(--fs-ash)] leading-relaxed">
                             {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
                             {addr.city}, {addr.state} — {addr.pincode}
-                            </div>
+                          </div>
                         </motion.div>
-                        ))}
-                        <motion.div
+                      ))}
+                      <motion.div
                         onClick={() => { setShowNewForm(v => !v); setSelectedAddressId(null); }}
                         whileTap={{ scale: 0.98 }}
                         className="p-5 border border-dashed border-[var(--fs-wire)] cursor-pointer flex items-center justify-center text-[var(--fs-ash)] hover:text-[var(--fs-linen)] hover:border-[var(--fs-linen)] transition-colors"
-                        >
+                      >
                         + Add new address
-                        </motion.div>
+                      </motion.div>
                     </div>
-                    
+
                     <AnimatePresence>
-                        {showNewForm && (
+                      {showNewForm && (
                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                            <AddressForm value={newAddress} onChange={setNewAddress} />
+                          <AddressForm value={newAddress} onChange={setNewAddress} />
                         </motion.div>
-                        )}
+                      )}
                     </AnimatePresence>
 
                     <button
-                        onClick={goNext}
-                        disabled={!selectedAddressId && !showNewForm}
-                        className={`mt-6 w-full h-14 uppercase tracking-widest text-[13px] font-semibold transition-all ${
-                        (!selectedAddressId && !showNewForm) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                      onClick={goNext}
+                      disabled={!selectedAddressId && !showNewForm}
+                      className={`mt-6 w-full h-14 uppercase tracking-widest text-[13px] font-semibold transition-all ${(!selectedAddressId && !showNewForm) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
                         }`}
                     >
-                        Continue to Payment →
+                      Continue to Payment →
                     </button>
                   </div>
                 )}
@@ -218,9 +229,8 @@ export default function AuthCheckoutPage() {
                     <button
                       onClick={handlePlaceOrder}
                       disabled={loading || !paymentMethod}
-                      className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${
-                        (loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
-                      }`}
+                      className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${(loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                        }`}
                     >
                       {loading ? <SpiderLoader size="sm" /> : `Place Order — ₹${cart.total.toLocaleString('en-IN')}`}
                     </button>

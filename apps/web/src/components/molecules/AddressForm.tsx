@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { checkPincode, PincodeCheckResult } from '@/lib/api/pincode';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
@@ -19,10 +19,10 @@ interface AddressFormProps {
   onChange: (v: AddressFormData) => void;
 }
 
-function FloatingInput({ label, name, value, onChange, type = 'text', readOnly = false, onBlur }: {
+function FloatingInput({ label, name, value, onChange, type = 'text', readOnly = false, onBlur, ariaDescribedBy }: {
   label: string; name: string; value: string;
   onChange: (v: string) => void; type?: string; readOnly?: boolean;
-  onBlur?: () => void;
+  onBlur?: () => void; ariaDescribedBy?: string;
 }) {
   const [focused, setFocused] = useState(false);
   const active = focused || !!value;
@@ -36,6 +36,8 @@ function FloatingInput({ label, name, value, onChange, type = 'text', readOnly =
         onBlur={() => { setFocused(false); if (onBlur) onBlur(); }}
         placeholder=""
         readOnly={readOnly}
+        aria-required={name !== 'line2'}
+        aria-describedby={ariaDescribedBy}
         className={`w-full h-[52px] pt-[18px] pb-[6px] px-3 bg-[var(--fs-surface)] border rounded-[2px] text-[var(--fs-ivory)] text-[15px] outline-none transition-all ${active ? 'border-[var(--fs-linen)]' : 'border-[var(--fs-wire)]'}`}
       />
       <motion.label
@@ -63,14 +65,20 @@ export function AddressForm({ value, onChange }: AddressFormProps) {
     onChange({ ...value, [field]: val });
   }
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   async function handlePincodeBlur() {
     if (value.pincode.length !== 6) return;
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+
     setChecking(true);
     try {
-      const res = await checkPincode(value.pincode);
+      const res = await checkPincode(value.pincode, abortControllerRef.current.signal);
       setPincodeResult(res);
-    } catch { 
-        setPincodeResult(null); 
+    } catch (err: any) { 
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
+      setPincodeResult(null); 
     }
     finally { setChecking(false); }
   }
@@ -88,6 +96,7 @@ export function AddressForm({ value, onChange }: AddressFormProps) {
             value={value.pincode} 
             onChange={v => updateField('pincode', v)} 
             onBlur={handlePincodeBlur}
+            ariaDescribedBy="pincode-status"
         />
         <div className="absolute right-3 top-[26px] -translate-y-1/2">
           {checking && <SpiderLoader size="sm" />}
@@ -97,6 +106,9 @@ export function AddressForm({ value, onChange }: AddressFormProps) {
         {pincodeResult && (
           <motion.div
             initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            id="pincode-status"
+            role="status"
+            aria-live="polite"
             className={`mb-4 p-3 border rounded-[2px] text-[13px] transition-all flex items-center gap-2 ${
                 pincodeResult.isServiceable 
                 ? 'bg-[var(--fs-success)]/10 border-[var(--fs-success)] text-[var(--fs-success)]' 

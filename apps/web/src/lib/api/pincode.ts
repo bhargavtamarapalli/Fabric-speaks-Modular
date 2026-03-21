@@ -7,6 +7,6 @@ export interface PincodeCheckResult {
   deliveryDate: string;
 }
 
-export async function checkPincode(pincode: string): Promise<PincodeCheckResult> {
-  return apiFetch<PincodeCheckResult>(`/delivery/check?pincode=${pincode}`);
+export async function checkPincode(pincode: string, signal?: AbortSignal): Promise<PincodeCheckResult> {
+  return apiFetch<PincodeCheckResult>(`/delivery/check?pincode=${pincode}`, { signal });
 }

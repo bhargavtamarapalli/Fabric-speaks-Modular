@@ -6,12 +6,11 @@
 // Role gating happens here: non-admin users are redirected.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { AdminAuthProvider, useAdminAuth } from '@/context/AdminAuthContext';
 import { THEME } from '@/lib/admin/theme';
 import type { AdminRole } from '@/lib/admin/types';
-import { AdminAuthProvider, useAdminAuth } from '@/context/AdminAuthContext';
-import { useMemo } from 'react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,6 +26,30 @@ const ROLE_COLOR: Record<AdminRole, string> = {
   SUPPORT_AGENT: THEME.colors.success,
 };
 
+/**
+ * Safely parses a hex color string to RGB values.
+ * Returns a "r,g,b" string or fallback values if parsing fails.
+ */
+function parseHexToRgb(hex: string | undefined): string {
+  if (!hex) return '128,128,128';
+  const cleanHex = hex.replace('#', '');
+  if (cleanHex.length !== 6) return '128,128,128';
+  const match = cleanHex.match(/.{2}/g);
+  if (!match) return '128,128,128';
+  return match.map(h => {
+    const parsed = parseInt(h, 16);
+    return isNaN(parsed) ? 128 : parsed;
+  }).join(',');
+}
+
+/**
+ * Gets RGBA values for a role with the given alpha.
+ */
+function getRgbaFromRole(role: AdminRole, alpha: number): string {
+  const rgb = parseHexToRgb(ROLE_COLOR[role]);
+  return `rgba(${rgb}, ${alpha})`;
+}
+
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 interface NavItem {
@@ -37,12 +60,27 @@ interface NavItem {
   roles: AdminRole[];
 }
 
+/**
+ * Navigation items with role-based access control.
+ * 
+ * Role Permissions Summary:
+ * - SUPER_ADMIN: Full access to all modules
+ * - INVENTORY_MANAGER: Dashboard, Products, Inventory, Returns, Collections, Categories
+ * - SUPPORT_AGENT: Dashboard, Orders, Returns, Support
+ * 
+ * Permission Rationale:
+ * - INVENTORY_MANAGER does NOT have Orders access: Inventory managers handle stock
+ *   and product management, not order processing. Order management is handled by
+ *   SUPER_ADMIN and SUPPORT_AGENT roles who need to resolve customer issues.
+ * - SUPPORT_AGENT has Returns access: To process return requests and refunds.
+ * - INVENTORY_MANAGER has Returns access: To manage inventory aspects of returns.
+ */
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: '▣', roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT'] },
-  { label: 'Orders', path: '/admin/orders', icon: '◱', badge: 0, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT'] },
+  { label: 'Orders', path: '/admin/orders', icon: '◱', badge: 0, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT'] },
   { label: 'Products', path: '/admin/products', icon: '◆', roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
   { label: 'Inventory', path: '/admin/inventory', icon: '○', badge: 0, roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
-  { label: 'Returns', path: '/admin/returns', icon: '↺', badge: 0, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT'] },
+  { label: 'Returns', path: '/admin/returns', icon: '↺', badge: 0, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT', 'INVENTORY_MANAGER'] },
   { label: 'Support', path: '/admin/support', icon: '◎', roles: ['SUPER_ADMIN', 'SUPPORT_AGENT'] },
   { label: 'Collections', path: '/admin/collections', icon: '▦', roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
   { label: 'Categories', path: '/admin/categories', icon: '⊞', roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
@@ -86,6 +124,11 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   const { role, name, email, loading } = useAdminAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (isMobile) {
@@ -102,14 +145,26 @@ function AdminShell({ children }: { children: React.ReactNode }) {
 
   // Redirect if not authenticated
   useEffect(() => {
-    if (!loading && !role) {
+    if (mounted && !loading && !role) {
       router.replace('/login');
     }
-  }, [role, loading, router]);
+  }, [role, loading, router, mounted]);
 
   const handleNavClick = useCallback((path: string) => {
     router.push(path);
   }, [router]);
+
+  const visibleNav = useMemo(() => {
+    if (!role) return [];
+    return NAV_ITEMS.filter(item => item.roles.includes(role as AdminRole));
+  }, [role]);
+
+  const sidebarWidth = useMemo(() =>
+    isMobile
+      ? (mobileOpen ? '240px' : '0')
+      : (collapsed ? '54px' : THEME.layout.sidebarWidth),
+    [isMobile, mobileOpen, collapsed]
+  );
 
   if (loading) {
     return (
@@ -118,18 +173,6 @@ function AdminShell({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-
-  const visibleNav = useMemo(() => 
-    NAV_ITEMS.filter(item => item.roles.includes(role ?? 'SUPER_ADMIN')),
-    [role]
-  );
-
-  const sidebarWidth = useMemo(() => 
-    isMobile 
-      ? (mobileOpen ? '240px' : '0') 
-      : (collapsed ? '54px' : THEME.layout.sidebarWidth),
-    [isMobile, mobileOpen, collapsed]
-  );
 
   return (
     <div style={{
@@ -232,8 +275,8 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <span style={{
               display: 'inline-block',
               marginTop: '5px',
-              background: `rgba(${ROLE_COLOR[role].replace('#', '').match(/.{2}/g)!.map(h => parseInt(h, 16)).join(',')}, 0.1)`,
-              border: `1px solid rgba(${ROLE_COLOR[role].replace('#', '').match(/.{2}/g)!.map(h => parseInt(h, 16)).join(',')}, 0.2)`,
+              background: getRgbaFromRole(role, 0.1),
+              border: `1px solid ${getRgbaFromRole(role, 0.2)}`,
               color: ROLE_COLOR[role],
               fontSize: THEME.fontSizes.xs,
               padding: '2px 8px',
@@ -290,10 +333,10 @@ function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Content */}
-        <div style={{ 
-          flex: 1, 
-          overflowY: 'auto', 
-          padding: isMobile ? '12px' : THEME.layout.contentPadding 
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: isMobile ? '12px' : THEME.layout.contentPadding
         }}>
           {children}
         </div>

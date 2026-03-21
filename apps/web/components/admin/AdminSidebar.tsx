@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useAuth } from '@/lib/hooks/useAuth';
 import { 
   LayoutDashboard, ShoppingBag, Package, RefreshCcw, 
   Activity, Tag, Layers, Ticket, Monitor, FileText, 
   Users, Headset, LogOut 
 } from 'lucide-react';
+import { useAuth } from '@/lib/hooks/useAuth';
 import type { AdminRole } from '@/lib/admin/types';
 
 interface NavItem {

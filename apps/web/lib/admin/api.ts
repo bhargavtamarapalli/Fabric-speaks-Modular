@@ -4,6 +4,7 @@
 // Never use raw fetch in page components.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { apiClient } from '@/lib/apiClient';
 import type {
   Order, OrderTimeline, PackingSlip,
   Product, Brand, Category, Collection,
@@ -13,13 +14,57 @@ import type {
   Coupon, StoreSettings, AdminUser,
   AuditLogEntry, DashboardData, ContentPage, AnalyticsData,
 } from './types';
-import { apiClient } from '@/lib/apiClient';
 
 // ─── Cache & Deduplication ──────────────────────────────────────────────────
 
-const cache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_KEY = 'fs_admin_api_cache';
+
+/**
+ * Cache storage using sessionStorage instead of localStorage.
+ * 
+ * SECURITY: sessionStorage is cleared when the browser tab is closed,
+ * significantly reducing the exposure window for XSS attacks.
+ * This is appropriate for admin data that should not persist indefinitely.
+ */
+// Synchronous initial load from sessionStorage if in browser
+const initialCache = (() => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = sessionStorage.getItem(CACHE_KEY);
+    return stored ? Object.entries(JSON.parse(stored)) : [];
+  } catch {
+    return [];
+  }
+})();
+
+// Cache stores API responses with timestamps for TTL-based invalidation.
+// Using 'any' for data field since API responses have varied shapes that are
+// validated by the calling code. The cache provides deduplication and TTL,
+// not type safety - type safety comes from the API layer.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const cache = new Map<string, { data: any; timestamp: number }>(initialCache as any);
+// Pending requests map for request deduplication during rapid navigation.
+// Uses 'any' for the Promise type since we deduplicate by URL, not by response shape.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pendingRequests = new Map<string, Promise<any>>();
 const CACHE_TTL = 30_000; // 30 seconds
+
+/**
+ * Persists the current cache to sessionStorage.
+ * 
+ * Note: sessionStorage is tab-specific - each browser tab has its own
+ * isolated storage. This is ideal for admin dashboards where users might
+ * have multiple tabs open with different data requirements.
+ */
+function syncToStorage() {
+  if (typeof window === 'undefined') return;
+  try {
+    const obj = Object.fromEntries(cache);
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(obj));
+  } catch (err) {
+    console.warn('[Admin API] Failed to persist cache', err);
+  }
+}
 
 /**
  * Normalises a URL by removing trailing slashes and sorting query params
@@ -38,23 +83,43 @@ function normalizeUrl(url: string): string {
 }
 
 /**
+ * Builds a query string from params, filtering out undefined/null values.
+ * This prevents URLSearchParams from serializing undefined as the literal string "undefined".
+ */
+function buildQueryString(params?: Record<string, string | number | undefined>): string {
+  if (!params) return '';
+  const filtered = Object.entries(params).filter(([_, value]) => value !== undefined && value !== null);
+  if (filtered.length === 0) return '';
+  return new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
+}
+
+/**
  * Invalidates cache entries matching a prefix (e.g., '/admin/orders')
  */
 export function invalidateAdminCache(prefix?: string) {
   if (!prefix) {
     cache.clear();
+    syncToStorage();
     return;
   }
   const normalizedPrefix = normalizeUrl(prefix);
+  let changed = false;
   for (const key of Array.from(cache.keys())) {
     if (key.startsWith(normalizedPrefix)) {
       cache.delete(key);
+      changed = true;
     }
   }
+  if (changed) syncToStorage();
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// GET wrapper for admin API calls.
+// Uses 'any' for response type as the generic apiClient.get already handles type transformation.
+// The return type <T> ensures type safety for callers while allowing the internal response
+// to be passed through without additional type casting.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _get = <T>(url: string, signal?: AbortSignal) => apiClient.get<any, T>(url, { signal });
 
 /**
@@ -77,6 +142,7 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
   // 3. Fetch and populate cache
   const requestPromise = _get<T>(url, signal).then(response => {
     cache.set(key, { data: response, timestamp: Date.now() });
+    syncToStorage();
     pendingRequests.delete(key);
     return response;
   }).catch(err => {
@@ -88,17 +154,24 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
   return requestPromise;
 }
 
+// POST/PATCH/DELETE wrappers for admin API calls.
+// Using 'any' for request body type since different endpoints accept different shapes.
+// The generic <T> return type provides type safety for callers while allowing flexibility
+// in the request payload. This is a common pattern for API wrapper functions.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const post = <T>(url: string, data?: any) => apiClient.post<any, T>(url, data);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const patch = <T>(url: string, data?: any) => apiClient.patch<any, T>(url, data);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const del = <T>(url: string) => apiClient.delete<any, T>(url);
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export const dashboardApi = {
-  getData:        ()        => getWithCache<DashboardData>('/admin/dashboard'),
-  getPendingActions: ()     => getWithCache<DashboardData>('/admin/dashboard/pending-actions'),
-  getAnalytics:   (range: '7d'|'30d'|'90d') =>
-    getWithCache<AnalyticsData>(`/admin/analytics?range=${range}`),
+  getData: (signal?: AbortSignal) => getWithCache<DashboardData>('/admin/dashboard', signal),
+  getPendingActions: (signal?: AbortSignal) => getWithCache<DashboardData>('/admin/dashboard/pending-actions', signal),
+  getAnalytics: (range: '7d' | '30d' | '90d', signal?: AbortSignal) =>
+    getWithCache<AnalyticsData>(`/admin/analytics?range=${range}`, signal),
 };
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
@@ -110,13 +183,13 @@ export const ordersApi = {
     page?: number;
     limit?: number;
   }, signal?: AbortSignal) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return getWithCache<{ items: Order[]; total: number }>(`/admin/orders?${qs}`, signal);
+    const qs = buildQueryString(params);
+    return getWithCache<{ items: Order[]; total: number; page: number; limit: number; totalPages: number }>(`/admin/orders?${qs}`, signal);
   },
 
-  getById:      (id: string) => getWithCache<Order>(`/admin/orders/${id}`),
-  getTimeline:  (id: string) => getWithCache<OrderTimeline[]>(`/admin/orders/${id}/timeline`),
-  getPackingSlip:(id: string) => getWithCache<PackingSlip>(`/admin/orders/${id}/packing-slip`),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<Order>(`/admin/orders/${id}`, signal),
+  getTimeline: (id: string, signal?: AbortSignal) => getWithCache<OrderTimeline[]>(`/admin/orders/${id}/timeline`, signal),
+  getPackingSlip: (id: string, signal?: AbortSignal) => getWithCache<PackingSlip>(`/admin/orders/${id}/packing-slip`, signal),
 
   updateStatus: async (id: string, status: string) => {
     const res = await patch<Order>(`/admin/orders/${id}/status`, { status });
@@ -142,18 +215,23 @@ export const ordersApi = {
   bulkPushShiprocket: async (ids: string[]) => {
     const res = await post<{ pushed: number }>('/admin/orders/shiprocket/bulk', { ids });
     invalidateAdminCache('/admin/orders');
+    ids.forEach(id => invalidateAdminCache(`/admin/orders/${id}`));
     return res;
   },
 
   bulkUpdateStatus: async (ids: string[], status: string) => {
     const res = await patch<{ updated: number }>('/admin/orders/status/bulk', { ids, status });
     invalidateAdminCache('/admin/orders');
+    ids.forEach(id => invalidateAdminCache(`/admin/orders/${id}`));
     return res;
   },
 
   exportCsv: (params?: { dateFrom?: string; dateTo?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.fabricspeaks.com/api/v1';
+    const qs = buildQueryString(params);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!baseUrl) {
+      throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
+    }
     return `${baseUrl}/admin/orders/export?${qs}`;
   },
 };
@@ -168,14 +246,15 @@ export const productsApi = {
     status?: string;
     search?: string;
     page?: number;
+    limit?: number;
   }, signal?: AbortSignal) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return getWithCache<{ items: Product[]; total: number }>(`/admin/products?${qs}`, signal);
+    const qs = buildQueryString(params);
+    return getWithCache<{ items: Product[]; total: number; page: number; limit: number; totalPages: number }>(`/admin/products?${qs}`, signal);
   },
 
-  getById:  (id: string) => getWithCache<Product>(`/admin/products/${id}`),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<Product>(`/admin/products/${id}`, signal),
 
-  create: async (data: Omit<Product, 'id'|'slug'|'createdAt'>) => {
+  create: async (data: Omit<Product, 'id' | 'slug' | 'createdAt'>) => {
     const res = await post<Product>('/admin/products', data);
     invalidateAdminCache('/admin/products');
     return res;
@@ -221,8 +300,8 @@ export const productsApi = {
 // ─── Brands ───────────────────────────────────────────────────────────────────
 
 export const brandsApi = {
-  list:   () => getWithCache<Brand[]>('/admin/brands'),
-  create: async (data: Omit<Brand,'id'>) => {
+  list: (signal?: AbortSignal) => getWithCache<Brand[]>('/admin/brands', signal),
+  create: async (data: Omit<Brand, 'id'>) => {
     const res = await post<Brand>('/admin/brands', data);
     invalidateAdminCache('/admin/brands');
     return res;
@@ -237,8 +316,8 @@ export const brandsApi = {
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 export const categoriesApi = {
-  list:   () => getWithCache<Category[]>('/admin/categories'),
-  create: async (data: Omit<Category,'id'>) => {
+  list: (signal?: AbortSignal) => getWithCache<Category[]>('/admin/categories', signal),
+  create: async (data: Omit<Category, 'id'>) => {
     const res = await post<Category>('/admin/categories', data);
     invalidateAdminCache('/admin/categories');
     return res;
@@ -253,9 +332,9 @@ export const categoriesApi = {
 // ─── Collections ─────────────────────────────────────────────────────────────
 
 export const collectionsApi = {
-  list:   () => getWithCache<Collection[]>('/admin/collections'),
-  getById:(id: string) => getWithCache<Collection & { products: Product[] }>(`/admin/collections/${id}`),
-  create: async (data: Omit<Collection,'id'|'productCount'>) => {
+  list: (signal?: AbortSignal) => getWithCache<Collection[]>('/admin/collections', signal),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<Collection & { products: Product[] }>(`/admin/collections/${id}`, signal),
+  create: async (data: Omit<Collection, 'id' | 'productCount'>) => {
     const res = await post<Collection>('/admin/collections', data);
     invalidateAdminCache('/admin/collections');
     return res;
@@ -266,7 +345,7 @@ export const collectionsApi = {
     invalidateAdminCache(`/admin/collections/${id}`);
     return res;
   },
-  addProduct:    async (id: string, productId: string) => {
+  addProduct: async (id: string, productId: string) => {
     const res = await post<void>(`/admin/collections/${id}/products`, { productId });
     invalidateAdminCache(`/admin/collections/${id}`);
     return res;
@@ -281,12 +360,12 @@ export const collectionsApi = {
 // ─── Inventory ────────────────────────────────────────────────────────────────
 
 export const inventoryApi = {
-  list: (params?: { status?: string; search?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return getWithCache<InventoryItem[]>(`/admin/inventory?${qs}`);
+  list: (params?: { status?: string; search?: string }, signal?: AbortSignal) => {
+    const qs = buildQueryString(params);
+    return getWithCache<InventoryItem[]>(`/admin/inventory?${qs}`, signal);
   },
 
-  getHealth:  () => getWithCache<StockHealth>('/admin/inventory/stock-health'),
+  getHealth: (signal?: AbortSignal) => getWithCache<StockHealth>('/admin/inventory/stock-health', signal),
 
   adjust: async (variantId: string, data: {
     adjustmentQty: number;
@@ -298,11 +377,11 @@ export const inventoryApi = {
     return res;
   },
 
-  getAdjustments: (variantId: string) =>
-    getWithCache<InventoryAdjustment[]>(`/admin/inventory/${variantId}/adjustments`),
+  getAdjustments: (variantId: string, signal?: AbortSignal) =>
+    getWithCache<InventoryAdjustment[]>(`/admin/inventory/${variantId}/adjustments`, signal),
 
-  getExpected:  () => getWithCache<ExpectedStock[]>('/admin/inventory/expected-stock'),
-  addExpected:  async (data: Omit<ExpectedStock,'id'>) => {
+  getExpected: (signal?: AbortSignal) => getWithCache<ExpectedStock[]>('/admin/inventory/expected-stock', signal),
+  addExpected: async (data: Omit<ExpectedStock, 'id'>) => {
     const res = await post<ExpectedStock>('/admin/inventory/expected-stock', data);
     invalidateAdminCache('/admin/inventory/expected-stock');
     return res;
@@ -317,14 +396,14 @@ export const inventoryApi = {
 // ─── Returns ─────────────────────────────────────────────────────────────────
 
 export const returnsApi = {
-  list: (params?: { status?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return getWithCache<{ items: Return[]; total: number }>(`/admin/returns?${qs}`);
+  list: (params?: { status?: string; page?: number; limit?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString(params);
+    return getWithCache<{ items: Return[]; total: number; page: number; limit: number; totalPages: number }>(`/admin/returns?${qs}`, signal);
   },
 
-  getById:        (id: string) => getWithCache<Return>(`/admin/returns/${id}`),
-  getTimeline:    (id: string) => getWithCache<ReturnTimeline[]>(`/admin/returns/${id}/timeline`),
-  getRefundStatus:(id: string) => getWithCache<RefundStatus>(`/admin/returns/${id}/refund-status`),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<Return>(`/admin/returns/${id}`, signal),
+  getTimeline: (id: string, signal?: AbortSignal) => getWithCache<ReturnTimeline[]>(`/admin/returns/${id}/timeline`, signal),
+  getRefundStatus: (id: string, signal?: AbortSignal) => getWithCache<RefundStatus>(`/admin/returns/${id}/refund-status`, signal),
 
   updateStatus: async (id: string, status: string) => {
     const res = await patch<Return>(`/admin/returns/${id}/status`, { status });
@@ -350,15 +429,16 @@ export const returnsApi = {
 // ─── Support ─────────────────────────────────────────────────────────────────
 
 export const supportApi = {
-  list: (params?: { status?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return getWithCache<SupportCase[]>(`/admin/support/queries?${qs}`);
+  list: (params?: { status?: string; page?: number; limit?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString(params);
+    return getWithCache<{ items: SupportCase[]; total: number; page: number; limit: number; totalPages: number }>(`/admin/support/queries?${qs}`, signal);
   },
 
-  getById:        (id: string)          => getWithCache<SupportCase>(`/admin/support/queries/${id}`),
-  updateStatus:   async (id: string, status: string) => {
+  getById: (id: string, signal?: AbortSignal) => getWithCache<SupportCase>(`/admin/support/queries/${id}`, signal),
+  updateStatus: async (id: string, status: string) => {
     const res = await patch<SupportCase>(`/admin/support/queries/${id}`, { status });
     invalidateAdminCache('/admin/support/queries');
+    invalidateAdminCache(`/admin/support/queries/${id}`);
     return res;
   },
 
@@ -368,8 +448,8 @@ export const supportApi = {
     return res;
   },
 
-  lookupCustomer: (mobile: string) =>
-    getWithCache<CustomerProfile>(`/admin/users/customers?mobile=${encodeURIComponent(mobile)}`),
+  lookupCustomer: (mobile: string, signal?: AbortSignal) =>
+    getWithCache<CustomerProfile>(`/admin/users/customers?mobile=${encodeURIComponent(mobile)}`, signal),
 
   addCustomerNote: async (mobile: string, note: string) => {
     const res = await post<void>(`/admin/users/customers/${encodeURIComponent(mobile)}/note`, { note });
@@ -387,8 +467,8 @@ export const supportApi = {
 // ─── Coupons ─────────────────────────────────────────────────────────────────
 
 export const couponsApi = {
-  list:   () => getWithCache<Coupon[]>('/admin/coupons'),
-  create: async (data: Omit<Coupon,'id'|'usedCount'|'createdAt'>) => {
+  list: (signal?: AbortSignal) => getWithCache<Coupon[]>('/admin/coupons', signal),
+  create: async (data: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => {
     const res = await post<Coupon>('/admin/coupons', data);
     invalidateAdminCache('/admin/coupons');
     return res;
@@ -408,20 +488,20 @@ export const couponsApi = {
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 export const settingsApi = {
-  getAll:       () => getWithCache<StoreSettings>('/admin/settings'),
-  update:       async (key: string, value: string | boolean | number) => {
+  getAll: (signal?: AbortSignal) => getWithCache<StoreSettings>('/admin/settings', signal),
+  update: async (key: string, value: string | boolean | number) => {
     const res = await patch<StoreSettings>('/admin/settings', { key: String(key), value: String(value) });
     invalidateAdminCache('/admin/settings');
     return res;
   },
-  getPublic:    () => getWithCache<Partial<StoreSettings>>('/admin/settings/public'),
+  getPublic: (signal?: AbortSignal) => getWithCache<Partial<StoreSettings>>('/admin/settings/public', signal),
 };
 
 // ─── Admin Users ──────────────────────────────────────────────────────────────
 
 export const adminUsersApi = {
-  list:       () => getWithCache<AdminUser[]>('/admin/users'),
-  create:     async (data: Omit<AdminUser,'id'|'lastActiveAt'|'createdAt'>) => {
+  list: (signal?: AbortSignal) => getWithCache<AdminUser[]>('/admin/users', signal),
+  create: async (data: Omit<AdminUser, 'id' | 'lastActiveAt' | 'createdAt'>) => {
     const res = await post<AdminUser>('/admin/users', data);
     invalidateAdminCache('/admin/users');
     return res;
@@ -441,29 +521,29 @@ export const adminUsersApi = {
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 export const auditApi = {
-  list: (params?: { entity?: string; page?: number }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return getWithCache<{ items: AuditLogEntry[]; total: number }>(`/admin/audit-log?${qs}`);
+  list: (params?: { entity?: string; page?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString(params);
+    return getWithCache<{ items: AuditLogEntry[]; total: number }>(`/admin/audit-log?${qs}`, signal);
   },
 };
 
 // ─── Content Pages ────────────────────────────────────────────────────────────
 
 export const contentApi = {
-  list:     () => getWithCache<ContentPage[]>('/admin/pages'),
-  getById:  (id: string) => getWithCache<ContentPage>(`/admin/pages/${id}`),
-  create:   async (data: Omit<ContentPage,'id'|'updatedAt'>) => {
+  list: (signal?: AbortSignal) => getWithCache<ContentPage[]>('/admin/pages', signal),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<ContentPage>(`/admin/pages/${id}`, signal),
+  create: async (data: Omit<ContentPage, 'id' | 'updatedAt'>) => {
     const res = await post<ContentPage>('/admin/pages', data);
     invalidateAdminCache('/admin/pages');
     return res;
   },
-  update:   async (id: string, data: Partial<ContentPage>) => {
+  update: async (id: string, data: Partial<ContentPage>) => {
     const res = await patch<ContentPage>(`/admin/pages/${id}`, data);
     invalidateAdminCache('/admin/pages');
     invalidateAdminCache(`/admin/pages/${id}`);
     return res;
   },
-  publish:  async (id: string) => {
+  publish: async (id: string) => {
     const res = await patch<ContentPage>(`/admin/pages/${id}`, { publishedAt: new Date().toISOString() });
     invalidateAdminCache('/admin/pages');
     invalidateAdminCache(`/admin/pages/${id}`);

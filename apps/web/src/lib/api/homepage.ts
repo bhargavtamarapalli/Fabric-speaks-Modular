@@ -21,6 +21,6 @@ export interface HomepageData {
   announcement?: string;
 }
 
-export async function getHomepageData(): Promise<HomepageData> {
-  return apiFetch<HomepageData>('/homepage');
+export async function getHomepageData(signal?: AbortSignal): Promise<HomepageData> {
+  return apiFetch<HomepageData>('/homepage', { signal });
 }

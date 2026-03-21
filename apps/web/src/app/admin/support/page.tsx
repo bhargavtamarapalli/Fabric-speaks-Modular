@@ -19,26 +19,26 @@ export default function SupportPage() {
   const router = useRouter();
   const { showToast, ToastComponent } = useToast();
 
-  const [cases,    setCases]    = useState<SupportCase[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [filter,   setFilter]   = useState('');
-  const [search,   setSearch]   = useState('');
+  const [cases, setCases] = useState<SupportCase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const [search, setSearch] = useState('');
 
   // Customer lookup
-  const [lookupMobile,  setLookupMobile]  = useState('');
+  const [lookupMobile, setLookupMobile] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [customer,      setCustomer]      = useState<CustomerProfile | null>(null);
-  const [showLookup,    setShowLookup]    = useState(false);
-  const [newTag,        setNewTag]        = useState('');
-  const [newNote,       setNewNote]       = useState('');
+  const [customer, setCustomer] = useState<CustomerProfile | null>(null);
+  const [showLookup, setShowLookup] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const [newNote, setNewNote] = useState('');
 
   const load = useCallback(async () => {
     try {
       setError(null);
       setLoading(true);
       const res = await supportApi.list({ status: filter || undefined });
-      setCases(res);
+      setCases(res.items);
     } catch (e: any) {
       setError(mapError(e));
     } finally {
@@ -92,14 +92,14 @@ export default function SupportPage() {
 
   const columns = [
     {
-      key:    'id',
-      label:  'Case',
-      width:  '90px',
+      key: 'id',
+      label: 'Case',
+      width: '90px',
       render: (c: SupportCase) => <MonoText>{c.id}</MonoText>,
     },
     {
-      key:    'customer',
-      label:  'Customer',
+      key: 'customer',
+      label: 'Customer',
       render: (c: SupportCase) => (
         <div>
           <div style={{ color: THEME.colors.ivory, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>{c.customer.name}</div>
@@ -108,40 +108,40 @@ export default function SupportPage() {
       ),
     },
     {
-      key:    'issue',
-      label:  'Issue',
+      key: 'issue',
+      label: 'Issue',
       render: (c: SupportCase) => (
         <span style={{ color: THEME.colors.ash, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>{c.issueType}</span>
       ),
     },
     {
-      key:    'order',
-      label:  'Order',
-      width:  '110px',
+      key: 'order',
+      label: 'Order',
+      width: '110px',
       render: (c: SupportCase) => c.orderNumber
         ? <span style={{ fontFamily: THEME.fonts.mono, fontSize: THEME.fontSizes.sm, color: THEME.colors.linen }}>{c.orderNumber}</span>
         : <span style={{ color: THEME.colors.muted }}>—</span>,
     },
     {
-      key:    'priority',
-      label:  'Priority',
-      width:  '90px',
+      key: 'priority',
+      label: 'Priority',
+      width: '90px',
       render: (c: SupportCase) => (
         <Badge type={c.priority.toLowerCase() as any}>{c.priority}</Badge>
       ),
     },
     {
-      key:    'status',
-      label:  'Status',
-      width:  '110px',
+      key: 'status',
+      label: 'Status',
+      width: '110px',
       render: (c: SupportCase) => (
-        <Badge type={c.status.toLowerCase().replace('_','') as any}>{c.status.replace('_', ' ')}</Badge>
+        <Badge type={c.status.toLowerCase().replace('_', '') as any}>{c.status.replace('_', ' ')}</Badge>
       ),
     },
     {
-      key:    'agent',
-      label:  'Agent',
-      width:  '110px',
+      key: 'agent',
+      label: 'Agent',
+      width: '110px',
       render: (c: SupportCase) => (
         <span style={{ color: c.assignedTo ? THEME.colors.ash : THEME.colors.muted, fontSize: THEME.fontSizes.sm, fontFamily: THEME.fonts.ui }}>
           {c.assignedTo ?? 'Unassigned'}
@@ -149,9 +149,9 @@ export default function SupportPage() {
       ),
     },
     {
-      key:    'time',
-      label:  'Opened',
-      width:  '120px',
+      key: 'time',
+      label: 'Opened',
+      width: '120px',
       render: (c: SupportCase) => (
         <span style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.mono }}>
           {formatDateTime(c.createdAt)}
@@ -177,7 +177,7 @@ export default function SupportPage() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
         {['', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'].map((v, i) => (
-          <FilterChip key={v} label={['All','Open','In progress','Resolved','Escalated'][i]} active={filter === v} onClick={() => setFilter(v)} />
+          <FilterChip key={v} label={['All', 'Open', 'In progress', 'Resolved', 'Escalated'][i]} active={filter === v} onClick={() => setFilter(v)} />
         ))}
         <div style={{ flex: 1, minWidth: '200px' }}>
           <SearchInput placeholder="Search by name or mobile..." value={search} onChange={setSearch} />
@@ -215,7 +215,7 @@ export default function SupportPage() {
             <div style={{ background: THEME.colors.bg, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, padding: '14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(201,169,110,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: THEME.colors.linen, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.base, fontWeight: 600, flexShrink: 0 }}>
-                  {customer.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2)}
+                  {(customer.name || '').split(' ').filter(n => n.length > 0).map(n => n.charAt(0)).join('').toUpperCase().slice(0, 2) || '?'}
                 </div>
                 <div>
                   <div style={{ color: THEME.colors.ivory, fontSize: THEME.fontSizes.md, fontFamily: THEME.fonts.ui }}>{customer.name}</div>
@@ -227,8 +227,8 @@ export default function SupportPage() {
                 {[
                   { label: 'Member since', value: new Date(customer.memberSince).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) },
                   { label: 'Total orders', value: customer.totalOrders },
-                  { label: 'Total spent',  value: formatCurrency(customer.totalSpent) },
-                  { label: 'Returns',      value: customer.returns.length },
+                  { label: 'Total spent', value: formatCurrency(customer.totalSpent) },
+                  { label: 'Returns', value: customer.returns.length },
                 ].map(row => (
                   <div key={row.label}>
                     <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{row.label}</div>
@@ -271,7 +271,7 @@ export default function SupportPage() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: THEME.colors.ivory, fontSize: THEME.fontSizes.sm, fontFamily: THEME.fonts.ui }}>{formatCurrency(o.total)}</div>
-                      <Badge type={(o.status.toLowerCase().split('_')[0]) as any}>{o.status.replace(/_/g,' ')}</Badge>
+                      <Badge type={(o.status.toLowerCase().split('_')[0]) as any}>{o.status.replace(/_/g, ' ')}</Badge>
                     </div>
                   </div>
                 ))}

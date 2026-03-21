@@ -24,39 +24,44 @@ export interface Cart {
   total: number;
 }
 
-export async function getCart(): Promise<Cart> {
-  return apiFetch<Cart>('/cart');
+export async function getCart(signal?: AbortSignal): Promise<Cart> {
+  return apiFetch<Cart>('/cart', { signal });
 }
 
-export async function addToCart(variantId: string, quantity: number): Promise<Cart> {
+export async function addToCart(variantId: string, quantity: number, signal?: AbortSignal): Promise<Cart> {
   return apiFetch<Cart>('/cart/items', {
     method: 'POST',
-    body: JSON.stringify({ variantId, quantity })
+    data: { variantId, quantity },
+    signal
   });
 }
 
-export async function updateCartItemQuantity(itemId: string, quantity: number): Promise<Cart> {
+export async function updateCartItemQuantity(itemId: string, quantity: number, signal?: AbortSignal): Promise<Cart> {
   return apiFetch<Cart>(`/cart/items/${itemId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ quantity })
+    data: { quantity },
+    signal
   });
 }
 
-export async function removeFromCart(itemId: string): Promise<Cart> {
+export async function removeFromCart(itemId: string, signal?: AbortSignal): Promise<Cart> {
   return apiFetch<Cart>(`/cart/items/${itemId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    signal
   });
 }
 
-export async function applyCoupon(code: string): Promise<Cart> {
+export async function applyCoupon(code: string, signal?: AbortSignal): Promise<Cart> {
   return apiFetch<Cart>('/cart/coupon', {
     method: 'POST',
-    body: JSON.stringify({ code })
+    data: { code },
+    signal
   });
 }
 
-export async function removeCoupon(): Promise<Cart> {
+export async function removeCoupon(signal?: AbortSignal): Promise<Cart> {
   return apiFetch<Cart>('/cart/coupon', {
-    method: 'DELETE'
+    method: 'DELETE',
+    signal
   });
 }

@@ -2,9 +2,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { NavBar } from '@/components/organisms/NavBar';
 import { ProductCard } from '@/components/molecules/ProductCard';
-import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import { getCollectionBySlug, CollectionDetail } from '@/lib/api/collections';
-import { Loader2, ArrowLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { MagneticButton } from '@/components/atoms/MagneticButton';
 

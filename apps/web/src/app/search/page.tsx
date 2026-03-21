@@ -21,24 +21,29 @@ export default function SearchPage() {
     }
   }, []);
 
-  const fetchSuggestions = useCallback(async (q: string) => {
+  const fetchSuggestions = useCallback(async (q: string, signal?: AbortSignal) => {
     if (q.length < 2) {
       setSuggestions([]);
       return;
     }
     try {
-      const res = await getSearchSuggestions(q);
+      const res = await getSearchSuggestions(q, signal);
       setSuggestions(res);
-    } catch {
+    } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       // Ignore suggestion errors silenty
     }
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      if (query) fetchSuggestions(query);
+      if (query) fetchSuggestions(query, controller.signal);
     }, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query, fetchSuggestions]);
 
   const handleSearch = async (e?: React.FormEvent, searchQuery?: string) => {
@@ -46,13 +51,15 @@ export default function SearchPage() {
     const q = searchQuery || query;
     if (!q.trim()) return;
 
+    const controller = new AbortController();
     try {
       setIsSearching(true);
       setError(null);
-      const res = await getProducts({ search: q, limit: 20 });
+      const res = await getProducts({ search: q, limit: 20 }, controller.signal);
       setResults(res.items);
       setQuery(q);
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       setError(err.message || 'Search failed');
     } finally {
       setIsSearching(false);
@@ -68,7 +75,11 @@ export default function SearchPage() {
         {/* Search Bar */}
         <div className="w-full max-w-3xl mb-12">
           <form onSubmit={(e) => handleSearch(e)} className="relative w-full">
+            <label htmlFor="search-query" className="sr-only">
+              Search fabrics, brands, or collections
+            </label>
             <input
+              id="search-query"
               ref={inputRef}
               type="text"
               value={query}

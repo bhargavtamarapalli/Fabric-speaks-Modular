@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { ActionButton } from '../../../components/admin/shared';
+import { ActionButton } from '@/components/admin/shared';
 
 const meta: Meta<typeof ActionButton> = {
   title: 'Admin/ActionButton',
@@ -37,6 +37,20 @@ export const Danger: Story = {
 export const Loading: Story = {
   args: {
     children: 'Saving...',
+    loading: true,
+  },
+};
+
+export const FullWidth: Story = {
+  args: {
+    children: 'Full Width Action',
+    fullWidth: true,
+  },
+};
+
+export const Disabled: Story = {
+  args: {
+    children: 'Disabled Button',
     disabled: true,
   },
 };

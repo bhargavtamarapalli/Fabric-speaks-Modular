@@ -20,13 +20,14 @@ export default function CartPage() {
   const [couponCode, setCouponCode] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
 
-  const fetchCart = useCallback(async () => {
+  const fetchCart = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await getCart();
+      const res = await getCart(signal);
       setCart(res);
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       setError(err.message || 'Failed to load cart');
     } finally {
       setLoading(false);
@@ -34,25 +35,31 @@ export default function CartPage() {
   }, []);
 
   useEffect(() => {
-    fetchCart();
+    const controller = new AbortController();
+    fetchCart(controller.signal);
+    return () => controller.abort();
   }, [fetchCart]);
 
   const handleUpdateQuantity = async (itemId: string, newQuantity: number) => {
     if (newQuantity < 1) return;
+    const controller = new AbortController();
     try {
-      const res = await updateCartItemQuantity(itemId, newQuantity);
+      const res = await updateCartItemQuantity(itemId, newQuantity, controller.signal);
       setCart(res);
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       showToast(err.message || "Failed to update quantity", "error");
     }
   };
 
   const handleRemoveItem = async (itemId: string) => {
+    const controller = new AbortController();
     try {
-      const res = await removeFromCart(itemId);
+      const res = await removeFromCart(itemId, controller.signal);
       setCart(res);
       showToast("Item removed from cart", "success");
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       showToast(err.message || "Failed to remove item", "error");
     }
   };
@@ -63,11 +70,13 @@ export default function CartPage() {
       showToast("Please enter a valid 6-digit pincode", "error");
       return;
     }
+    const controller = new AbortController();
     try {
       setPincodeLoading(true);
-      const res = await checkPincode(pincode);
+      const res = await checkPincode(pincode, controller.signal);
       setPincodeResult(res);
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       showToast(err.message || "Failed to check pincode", "error");
     } finally {
       setPincodeLoading(false);
@@ -77,12 +86,14 @@ export default function CartPage() {
   const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!couponCode.trim()) return;
+    const controller = new AbortController();
     try {
       setCouponLoading(true);
-      const res = await apiApplyCoupon(couponCode);
+      const res = await apiApplyCoupon(couponCode, controller.signal);
       setCart(res);
       showToast("Coupon applied successfully!", "success");
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       showToast(err.message || "Invalid coupon code", "error");
     } finally {
       setCouponLoading(false);
@@ -90,13 +101,15 @@ export default function CartPage() {
   };
 
   const handleRemoveCoupon = async () => {
+    const controller = new AbortController();
     try {
       setCouponLoading(true);
-      const res = await apiRemoveCoupon();
+      const res = await apiRemoveCoupon(controller.signal);
       setCart(res);
       setCouponCode('');
       showToast("Coupon removed", "success");
     } catch (err: any) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       showToast(err.message || "Failed to remove coupon", "error");
     } finally {
       setCouponLoading(false);
@@ -116,7 +129,7 @@ export default function CartPage() {
       <div className="min-h-screen bg-[var(--fs-surface)] flex flex-col items-center justify-center p-4 text-center">
         <h2 className="text-2xl font-serif text-[var(--fs-ivory)] mb-4">Something went wrong</h2>
         <p className="text-[var(--fs-ash)] mb-8 max-w-md">{error}</p>
-        <MagneticButton onClick={fetchCart}>Retry</MagneticButton>
+        <MagneticButton onClick={() => fetchCart()}>Retry</MagneticButton>
       </div>
     );
   }
@@ -201,18 +214,24 @@ export default function CartPage() {
                 <h3 className="font-sans text-[13px] uppercase tracking-widest text-[var(--fs-ivory)] mb-4 flex items-center gap-2">
                   <MapPin size={16} /> Delivery Options
                 </h3>
-                <form onSubmit={handleCheckPincode} className="flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="Enter Pincode" 
-                    maxLength={6}
-                    value={pincode}
-                    onChange={(e) => setPincode(e.target.value)}
-                    className="flex-1 bg-transparent border-b border-[var(--fs-wire)] font-mono text-[14px] text-[var(--fs-ivory)] focus:border-[var(--fs-linen)] outline-none py-2 px-1 transition-colors"
-                  />
-                  <button type="submit" disabled={pincodeLoading} className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
-                    {pincodeLoading ? '...' : 'Check'}
-                  </button>
+                <form onSubmit={handleCheckPincode} className="flex flex-col gap-2">
+                  <label htmlFor="pincode" className="text-[11px] uppercase tracking-widest text-[var(--fs-ash)] font-medium">
+                    Enter Pincode
+                  </label>
+                  <div className="flex gap-2">
+                    <input 
+                      id="pincode"
+                      type="text" 
+                      placeholder="e.g. 560001" 
+                      maxLength={6}
+                      value={pincode}
+                      onChange={(e) => setPincode(e.target.value)}
+                      className="flex-1 bg-transparent border-b border-[var(--fs-wire)] font-mono text-[14px] text-[var(--fs-ivory)] focus:border-[var(--fs-linen)] outline-none py-2 px-1 transition-colors"
+                    />
+                    <button type="submit" disabled={pincodeLoading} className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
+                      {pincodeLoading ? '...' : 'Check'}
+                    </button>
+                  </div>
                 </form>
                 {pincodeResult && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 p-3 bg-black/20 border border-[var(--fs-wire)]">
@@ -235,17 +254,23 @@ export default function CartPage() {
                 <h3 className="font-sans text-[13px] uppercase tracking-widest text-[var(--fs-ivory)] mb-4 flex items-center gap-2">
                   <Tag size={16} /> Apply Coupon
                 </h3>
-                <form onSubmit={handleApplyCoupon} className="flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="Coupon Code" 
-                    value={couponCode}
-                    onChange={(e) => setCouponCode(e.target.value)}
-                    className="flex-1 bg-transparent border-b border-[var(--fs-wire)] font-mono text-[14px] text-[var(--fs-ivory)] focus:border-[var(--fs-linen)] outline-none py-2 px-1 uppercase transition-colors"
-                  />
-                  <button type="submit" disabled={couponLoading} className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
-                    {couponLoading ? '...' : 'Apply'}
-                  </button>
+                <form onSubmit={handleApplyCoupon} className="flex flex-col gap-2">
+                  <label htmlFor="coupon-code" className="text-[11px] uppercase tracking-widest text-[var(--fs-ash)] font-medium">
+                    Coupon Code
+                  </label>
+                  <div className="flex gap-2">
+                    <input 
+                      id="coupon-code"
+                      type="text" 
+                      placeholder="SAVE10" 
+                      value={couponCode}
+                      onChange={(e) => setCouponCode(e.target.value)}
+                      className="flex-1 bg-transparent border-b border-[var(--fs-wire)] font-mono text-[14px] text-[var(--fs-ivory)] focus:border-[var(--fs-linen)] outline-none py-2 px-1 uppercase transition-colors"
+                    />
+                    <button type="submit" disabled={couponLoading} className="font-sans text-[12px] uppercase tracking-wide text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition-colors">
+                      {couponLoading ? '...' : 'Apply'}
+                    </button>
+                  </div>
                 </form>
                 {cart && cart.discount > 0 && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-between items-center mt-2">

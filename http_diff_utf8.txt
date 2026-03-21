@@ -1,0 +1,27 @@
+﻿git : warning: in the working copy of 
+'shared/src/http.ts', LF will be replaced 
+by CRLF the next time Git touches it
+At line:1 char:1
++ git diff shared/src/http.ts > 
+http_diff.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo          : NotSpecified: 
+    (warning: in the... Git touches it:Str  
+  ing) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommand 
+   Error
+ 
+diff --git a/shared/src/http.ts b/shared/src/http.ts
+index 6adfd55..3697cd2 100644
+--- a/shared/src/http.ts
++++ b/shared/src/http.ts
+@@ -130,6 +130,7 @@ export async function withRetry<T>(
+       await sleep(delayMs);
+     }
+   }
++  throw new Error('Unreachable');
+ }
+ 
+ export async function withExternalRetry<T>(
+

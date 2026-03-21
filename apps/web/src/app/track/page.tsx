@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { OTPInput } from '@/components/molecules/OTPInput';
 import { OrderStatusTimeline } from '@/components/molecules/OrderStatusTimeline';
@@ -16,20 +16,46 @@ export default function GuestTrackPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState('');
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   async function handleSendOtp() {
     if (!mobile || !orderId) return;
+    // Clear previous error
+    setError('');
     setLoading(true);
-    try { await sendOtp(mobile); setOtpSent(true); }
-    catch (e) { setError('Could not send OTP. Check your mobile number.'); }
+    // Cancel any existing request
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+    try {
+      await sendOtp(mobile, abortControllerRef.current.signal);
+      setOtpSent(true);
+    }
+    catch (e: any) {
+      if (e.name === 'AbortError' || e.name === 'CanceledError') return;
+      setError('Could not send OTP. Check your mobile number.');
+    }
     finally { setLoading(false); }
   }
 
   async function handleVerify(val: string) {
     setLoading(true);
+    // Cancel any existing request
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
     try {
-      const result = await trackGuestOrder(mobile, orderId, val);
+      const result = await trackGuestOrder(mobile, orderId, val, abortControllerRef.current.signal);
       setOrder(result);
-    } catch { setError('Invalid code or order not found.'); }
+    } catch (e: any) {
+      if (e.name === 'AbortError' || e.name === 'CanceledError') return;
+      setError('Invalid code or order not found.');
+    }
     finally { setLoading(false); }
   }
 
@@ -47,14 +73,30 @@ export default function GuestTrackPage() {
         {!order && (
           <div style={{ background: 'var(--fs-surface)', border: '1px solid var(--fs-wire)', borderRadius: 2, padding: 32 }}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, color: 'var(--fs-ash)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Mobile Number</label>
-              <input value={mobile} onChange={e => setMobile(e.target.value)} type="tel" placeholder="+91 98XXXXXXXX"
+              <label htmlFor="mobile" style={{ display: 'block', fontSize: 11, color: 'var(--fs-ash)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Mobile Number</label>
+              <input
+                id="mobile"
+                value={mobile}
+                onChange={e => setMobile(e.target.value)}
+                type="tel"
+                placeholder="+91 98XXXXXXXX"
+                required
+                aria-required="true"
+                aria-describedby={error ? "track-error" : undefined}
                 style={{ width: '100%', height: 48, padding: '0 12px', background: 'transparent', border: '1px solid var(--fs-wire)', borderRadius: 2, color: 'var(--fs-ivory)', fontSize: 15, outline: 'none' }}
               />
             </div>
             <div style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', fontSize: 11, color: 'var(--fs-ash)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Order ID</label>
-              <input value={orderId} onChange={e => setOrderId(e.target.value)} type="text" placeholder="FS-XXXXXXXX"
+              <label htmlFor="orderId" style={{ display: 'block', fontSize: 11, color: 'var(--fs-ash)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Order ID</label>
+              <input
+                id="orderId"
+                value={orderId}
+                onChange={e => setOrderId(e.target.value)}
+                type="text"
+                placeholder="FS-XXXXXXXX"
+                required
+                aria-required="true"
+                aria-describedby={error ? "track-error" : undefined}
                 style={{ width: '100%', height: 48, padding: '0 12px', background: 'transparent', border: '1px solid var(--fs-wire)', borderRadius: 2, color: 'var(--fs-ivory)', fontSize: 15, fontFamily: 'var(--font-dm-mono)', outline: 'none' }}
               />
             </div>
@@ -68,7 +110,7 @@ export default function GuestTrackPage() {
               )}
             </AnimatePresence>
 
-            {error && <p style={{ color: 'var(--fs-error)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+            {error && <p id="track-error" role="alert" style={{ color: 'var(--fs-error)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
 
             {loading ? (
               <div style={{ display: 'flex', justifyContent: 'center' }}><SpiderLoader size="md" /></div>

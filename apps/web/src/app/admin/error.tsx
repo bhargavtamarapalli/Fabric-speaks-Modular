@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect } from 'react';
-import { THEME, css } from '@/lib/admin/theme';
+import { THEME } from '@/lib/admin/theme';
 import { ActionButton } from '@/components/admin/shared';
 import { mapError } from '@/lib/admin/errors';
 
@@ -42,7 +42,7 @@ export default function AdminError({
       }}>
         ⚠
       </div>
-      
+
       <h1 style={{
         fontSize: THEME.fontSizes.lg,
         fontFamily: THEME.fonts.display,

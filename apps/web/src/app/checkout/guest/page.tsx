@@ -13,6 +13,7 @@ import { placeOrder } from '@/lib/api/orders';
 import { initiateRazorpay, verifyPayment, confirmCod } from '@/lib/api/payments';
 import { getCart, Cart } from '@/lib/api/cart';
 import { useToast } from '@/context/ToastContext';
+import { RazorpayOptions, RazorpayResponse } from '@/types/razorpay';
 
 const STORAGE_KEY = 'checkout_guest_state';
 
@@ -27,7 +28,7 @@ const EMPTY_ADDRESS: AddressFormData = { fullName: '', mobile: '', pincode: '', 
 const stepVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 50 : -50, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit:   (dir: number) => ({ x: dir > 0 ? -50 : 50, opacity: 0 }),
+  exit: (dir: number) => ({ x: dir > 0 ? -50 : 50, opacity: 0 }),
 };
 
 export default function GuestCheckoutPage() {
@@ -59,15 +60,22 @@ export default function GuestCheckoutPage() {
     fetchCartData();
   }, [fetchCartData]);
 
+  // Redirect to cart if cart is empty
+  useEffect(() => {
+    if (!fetchingCart && (!cart || cart.items.length === 0)) {
+      router.push('/cart');
+    }
+  }, [cart, fetchingCart, router]);
+
   // Load saved address
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) { 
-          const parsed = JSON.parse(saved); 
-          if (parsed.address) setAddress(parsed.address); 
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.address) setAddress(parsed.address);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   // Persist address
@@ -80,12 +88,12 @@ export default function GuestCheckoutPage() {
 
   async function handleSendOtp() {
     setLoading(true);
-    try { 
-        await sendOtp(address.mobile); 
-        goNext(); 
+    try {
+      await sendOtp(address.mobile);
+      goNext();
     }
-    catch (err: any) { 
-        showToast(err.message || "Failed to send OTP", "error");
+    catch (err: any) {
+      showToast(err.message || "Failed to send OTP", "error");
     }
     finally { setLoading(false); }
   }
@@ -96,8 +104,8 @@ export default function GuestCheckoutPage() {
       await verifyOtp(address.mobile, val);
       setOtpError(false);
       goNext();
-    } catch { 
-        setOtpError(true); 
+    } catch {
+      setOtpError(true);
     }
     finally { setLoading(false); }
   }
@@ -119,51 +127,52 @@ export default function GuestCheckoutPage() {
       }
 
       const rz = await initiateRazorpay(order.id);
-      const Rzp = (window as any).Razorpay;
+      const Rzp = window.Razorpay;
       if (!Rzp) {
-          showToast("Payment gateway failed to load", "error");
-          return;
+        showToast("Payment gateway failed to load", "error");
+        return;
       }
-      new Rzp({
+      const options: RazorpayOptions = {
         key: rz.key,
         amount: rz.amount,
         currency: rz.currency,
         name: rz.name,
         description: rz.description,
         order_id: rz.razorpayOrderId,
-        handler: async (res: any) => {
+        handler: async (res: RazorpayResponse) => {
           try {
-              await verifyPayment({ 
-                  razorpayPaymentId: res.razorpay_payment_id, 
-                  razorpayOrderId: res.razorpay_order_id, 
-                  razorpaySignature: res.razorpay_signature 
-              });
-              sessionStorage.removeItem(STORAGE_KEY);
-              router.push('/orders/confirmed');
+            await verifyPayment({
+              razorpayPaymentId: res.razorpay_payment_id,
+              razorpayOrderId: res.razorpay_order_id,
+              razorpaySignature: res.razorpay_signature
+            });
+            sessionStorage.removeItem(STORAGE_KEY);
+            router.push('/orders/confirmed');
           } catch (err: any) {
-              showToast("Payment verification failed", "error");
+            showToast("Payment verification failed", "error");
           }
         },
         prefill: { name: address.fullName, contact: address.mobile },
         theme: { color: '#C9A96E' },
-      }).open();
-    } catch (err: any) { 
-        showToast(err.message || "Failed to place order", "error");
+      };
+      new Rzp(options).open();
+    } catch (err: any) {
+      showToast(err.message || "Failed to place order", "error");
     }
     finally { setLoading(false); }
   }
 
   if (fetchingCart) {
-      return (
-        <div className="min-h-screen bg-[var(--fs-void)] flex items-center justify-center">
-            <SpiderLoader size="lg" />
-        </div>
-      );
+    return (
+      <div className="min-h-screen bg-[var(--fs-void)] flex items-center justify-center">
+        <SpiderLoader size="lg" />
+      </div>
+    );
   }
 
   if (!cart || cart.items.length === 0) {
-      router.push('/cart');
-      return null;
+    // Redirect is handled by useEffect above
+    return null;
   }
 
   const summaryData = {
@@ -207,9 +216,8 @@ export default function GuestCheckoutPage() {
                     <button
                       onClick={handleSendOtp}
                       disabled={loading || !address.fullName || !address.mobile || !address.line1}
-                      className={`mt-4 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${
-                        (loading || !address.fullName || !address.mobile || !address.line1) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
-                      }`}
+                      className={`mt-4 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${(loading || !address.fullName || !address.mobile || !address.line1) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                        }`}
                     >
                       {loading ? <SpiderLoader size="sm" /> : 'Continue →'}
                     </button>
@@ -224,8 +232,10 @@ export default function GuestCheckoutPage() {
                       <div className="flex justify-center py-12"><SpiderLoader size="md" /></div>
                     ) : (
                       <>
-                        <OTPInput value={otp} onChange={setOtp} onComplete={handleVerifyOtp} error={otpError} />
-                        {otpError && <p className="mt-4 text-[var(--fs-error)] text-[13px]">Invalid code. Please try again.</p>}
+                        <div aria-live="polite" aria-atomic="true">
+                          <OTPInput value={otp} onChange={setOtp} onComplete={handleVerifyOtp} error={otpError} />
+                        </div>
+                        {otpError && <p id="otp-error" className="mt-4 text-[var(--fs-error)] text-[13px]" role="alert">Invalid code. Please try again.</p>}
                       </>
                     )}
                     <button onClick={goBack} className="mt-8 text-[var(--fs-ash)] text-[13px] hover:text-[var(--fs-linen)] transition-colors">← Back to Address</button>
@@ -239,9 +249,8 @@ export default function GuestCheckoutPage() {
                     <button
                       onClick={handlePlaceOrder}
                       disabled={loading || !paymentMethod}
-                      className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${
-                        (loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
-                      }`}
+                      className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${(loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                        }`}
                     >
                       {loading ? <SpiderLoader size="sm" /> : `Place Order — ₹${cart.total.toLocaleString('en-IN')}`}
                     </button>

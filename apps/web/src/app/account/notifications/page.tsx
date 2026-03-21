@@ -46,7 +46,7 @@ export default function NotificationsPage() {
       setSaving(true);
       await apiFetch('/customer/preferences', {
         method: 'PATCH',
-        body: JSON.stringify(newPrefs)
+        data: newPrefs
       });
     } catch (err) {
       // Revert if API fails

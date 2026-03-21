@@ -44,6 +44,7 @@ export const ERROR_MAP: Record<string, string> = {
   'auth/wrong-password': 'The password you entered is incorrect.',
   'auth/network-request-failed': 'A network error occurred during login. Please try again.',
   'auth/too-many-requests': 'Account locked due to too many failed attempts. Please reset your password or try later.',
+  'RATE_LIMITED': 'Too many requests. Please wait a moment before trying again.',
   'auth/email-already-in-use': 'An account with this email already exists.',
   'auth/user-disabled': 'This admin account has been disabled. Please contact the super admin.',
 
@@ -55,7 +56,13 @@ export const ERROR_MAP: Record<string, string> = {
 /**
  * Translates a technical error into a user-friendly message.
  * Accepts error codes, error objects, or raw strings.
+ * 
+ * Using 'any' for error parameter since this function needs to handle errors from
+ * multiple sources (API responses, Firebase auth errors, network errors, thrown exceptions).
+ * Creating a union type for all possible error shapes would be overly complex and
+ * defeat the purpose of this simple error mapping utility.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mapError(error: any): string {
   if (!error) return ERROR_MAP['UNKNOWN_ERROR'];
 
@@ -66,14 +73,14 @@ export function mapError(error: any): string {
 
   // Handle nested technical messages
   const message = (error.message || '').toString();
-  
+
   // High-level patterns
   if (message.includes('ECONNREFUSED') || message.includes('5432')) return ERROR_MAP['5432'];
   if (message.includes('timeout')) return ERROR_MAP['TIMEOUT'];
   if (message.includes('permission denied') || message.includes('forbidden')) return ERROR_MAP['PERMISSION_DENIED'];
   if (message.includes('not found')) return ERROR_MAP['NOT_FOUND'];
   if (message.includes('network')) return ERROR_MAP['NETWORK_ERROR'];
-  if (message.includes('large') || message.includes('limit')) return ERROR_MAP['FILE_TOO_LARGE'];
+  if (/\b(file (too large|size (exceed|exceeded|limit)|exceeds max(imum)? file size))\b/i.test(message)) return ERROR_MAP['FILE_TOO_LARGE'];
 
   // If it's an object with a code or errorCode (common in our API and Firebase)
   const code = error.code || error.errorCode || error.name;
@@ -87,7 +94,7 @@ export function mapError(error: any): string {
     if (status === 401) return ERROR_MAP['UNAUTHORIZED'];
     if (status === 403) return ERROR_MAP['FORBIDDEN'];
     if (status === 404) return ERROR_MAP['NOT_FOUND'];
-    if (status === 429) return ERROR_MAP['auth/too-many-requests'];
+    if (status === 429) return ERROR_MAP['RATE_LIMITED'];
     if (status >= 500) return ERROR_MAP['INTERNAL_SERVER_ERROR'];
   }
 
@@ -97,5 +104,9 @@ export function mapError(error: any): string {
   }
 
   // Fallback to a generic message if we can't find a better one
-  return error.message || ERROR_MAP['UNKNOWN_ERROR'];
+  // Don't leak sensitive details from error.message; log the original error instead
+  if (error && error.message && process.env.NODE_ENV === 'development') {
+    console.error('[mapErrorToUserMessage] Unmapped error:', error);
+  }
+  return ERROR_MAP['UNKNOWN_ERROR'];
 }

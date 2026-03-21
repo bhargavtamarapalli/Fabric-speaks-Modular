@@ -1,8 +1,8 @@
 'use client';
 
-import { useAuth } from '@/lib/hooks/useAuth';
-import { useRouter } from 'next/navigation';
 import { useEffect, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/hooks/useAuth';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import type { AdminRole } from '@/lib/admin/types';
 

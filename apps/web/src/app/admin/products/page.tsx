@@ -8,6 +8,7 @@ import {
   ActionButton,
   ErrorBanner,
   ConfirmModal,
+  Pagination,
 } from '@/components/admin/shared';
 
 import dynamic from 'next/dynamic';
@@ -24,10 +25,15 @@ export default function ProductsPage() {
   const router = useRouter();
   const {
     products,
+    total,
+    totalPages,
+    currentPage,
+    itemsPerPage,
     loading,
     error,
     filters,
     updateFilters,
+    goToPage,
     deleteId,
     setDeleteId,
     delLoading,
@@ -45,7 +51,7 @@ export default function ProductsPage() {
     <div>
       <PageHeader
         title="Products"
-        subtitle={`${products.length} products`}
+        subtitle={`${total} products`}
         action={
           <ActionButton onClick={handleAddProduct}>
             + Add product
@@ -59,9 +65,9 @@ export default function ProductsPage() {
         </div>
       )}
 
-      <ProductFilters 
-        filters={filters} 
-        onFilterChange={updateFilters} 
+      <ProductFilters
+        filters={filters}
+        onFilterChange={updateFilters}
       />
 
       <ProductsDataGrid
@@ -70,6 +76,14 @@ export default function ProductsPage() {
         hoverId={hoverId}
         onHover={setHoverId}
         onRemove={setDeleteId}
+      />
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={total}
+        itemsPerPage={itemsPerPage}
+        onPageChange={goToPage}
       />
 
       <ConfirmModal

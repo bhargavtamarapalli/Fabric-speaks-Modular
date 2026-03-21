@@ -1,10 +1,8 @@
 'use client';
 import { motion } from 'framer-motion';
 
-type Status = 'PLACED' | 'CONFIRMED' | 'PACKED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'REQUESTED' | 'APPROVED' | 'RESOLVED_REFUNDED' | 'RESOLVED_REPLACED';
-
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
-  PLACED:             { label: 'Placed',      color: '#6B6560', bg: 'rgba(107,101,96,0.15)' },
+  PLACED:             { label: 'Placed',      color: '#949494', bg: 'rgba(148,148,148,0.15)' },
   CONFIRMED:          { label: 'Confirmed',   color: '#2E86C1', bg: 'rgba(46,134,193,0.15)' },
   PACKED:             { label: 'Packed',      color: '#E67E22', bg: 'rgba(230,126,34,0.15)' },
   SHIPPED:            { label: 'Shipped',     color: '#C9A96E', bg: 'rgba(201,169,110,0.15)' },
@@ -18,8 +16,12 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
 
 interface StatusBadgeProps { status: string; }
 
+/**
+ * Display badge for order and return statuses.
+ * Includes a subtle pulse animation for "SHIPPED" status.
+ */
 export function StatusBadge({ status }: StatusBadgeProps) {
-  const cfg = statusConfig[status] ?? { label: status, color: '#6B6560', bg: 'rgba(107,101,96,0.15)' };
+  const cfg = statusConfig[status] ?? { label: status, color: '#949494', bg: 'rgba(148,148,148,0.15)' };
   const pulse = status === 'SHIPPED';
   
   return (

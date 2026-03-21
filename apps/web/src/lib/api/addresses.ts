@@ -13,23 +13,23 @@ export interface Address {
   isDefault: boolean;
 }
 
-export async function getAddresses(): Promise<Address[]> {
-  const res = await apiFetch<{ items: Address[] }>('/addresses');
+export async function getAddresses(signal?: AbortSignal): Promise<Address[]> {
+  const res = await apiFetch<{ items: Address[] }>('/addresses', { signal });
   return res.items || [];
 }
 
-export async function createAddress(data: Omit<Address, 'id' | 'isDefault'>): Promise<Address> {
-  return apiFetch<Address>('/addresses', { method: 'POST', data });
+export async function createAddress(data: Omit<Address, 'id' | 'isDefault'>, signal?: AbortSignal): Promise<Address> {
+  return apiFetch<Address>('/addresses', { method: 'POST', data, signal });
 }
 
-export async function updateAddress(id: string, data: Partial<Omit<Address, 'id'>>): Promise<Address> {
-  return apiFetch<Address>(`/addresses/${id}`, { method: 'PATCH', data });
+export async function updateAddress(id: string, data: Partial<Omit<Address, 'id'>>, signal?: AbortSignal): Promise<Address> {
+  return apiFetch<Address>(`/addresses/${id}`, { method: 'PATCH', data, signal });
 }
 
-export async function deleteAddress(id: string): Promise<void> {
-  await apiFetch(`/addresses/${id}`, { method: 'DELETE' });
+export async function deleteAddress(id: string, signal?: AbortSignal): Promise<void> {
+  await apiFetch(`/addresses/${id}`, { method: 'DELETE', signal });
 }
 
-export async function setDefaultAddress(id: string): Promise<Address> {
-  return apiFetch<Address>(`/addresses/${id}/default`, { method: 'POST' });
+export async function setDefaultAddress(id: string, signal?: AbortSignal): Promise<Address> {
+  return apiFetch<Address>(`/addresses/${id}/default`, { method: 'POST', signal });
 }

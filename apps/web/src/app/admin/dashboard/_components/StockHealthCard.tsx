@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo, useCallback } from 'react';
+import React, { memo, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { THEME } from '@/lib/admin/theme';
 import { SectionCard, MonoText } from '@/components/admin/shared';
@@ -20,7 +20,7 @@ export const StockHealthCard = memo(function StockHealthCard({ data }: StockHeal
   // Memoize critical items computation to avoid recalculation on each render
   const criticalItems = useMemo(
     () => data.stockHealth.items.filter(i => i.status === 'CRITICAL').slice(0, 3),
-    [data.stockHealth.items, data.stockHealth.critical]
+    [data.stockHealth.items]
   );
 
   // Memoize legend data to avoid recreation on each render
@@ -33,22 +33,25 @@ export const StockHealthCard = memo(function StockHealthCard({ data }: StockHeal
     [data.stockHealth.critical, data.stockHealth.warning, data.stockHealth.healthy]
   );
 
-  // Memoize navigation handler
-  const handleManageClick = useCallback(
-    () => router.push('/admin/inventory/health'),
-    [router]
-  );
-
   return (
     <SectionCard
       title="Stock health"
       action={
-        <span
-          onClick={handleManageClick}
-          style={{ fontSize: THEME.fontSizes.sm, color: THEME.colors.ash, cursor: 'pointer' }}
+        <button
+          onClick={() => router.push('/admin/inventory/health')}
+          style={{
+            fontSize: THEME.fontSizes.sm,
+            color: THEME.colors.ash,
+            cursor: 'pointer',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            font: 'inherit'
+          }}
+          aria-label="Manage stock health"
         >
           Manage →
-        </span>
+        </button>
       }
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: THEME.fontSizes.sm, color: THEME.colors.muted, marginBottom: THEME.spacing.sm, fontFamily: THEME.fonts.ui }}>

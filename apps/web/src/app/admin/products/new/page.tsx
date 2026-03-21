@@ -58,33 +58,57 @@ function VariantMatrix({ productName, sizes, colours, matrix, onChange }: { prod
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ borderCollapse: 'collapse' }}>
+      <table style={{ borderCollapse: 'collapse' }} role="grid" aria-label="Product variants matrix">
         <thead>
           <tr>
-            <th style={{ padding: '6px 10px', textAlign: 'left', color: THEME.colors.muted, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.xs, textTransform: 'uppercase', letterSpacing: '0.06em', borderRight: `1px solid ${THEME.colors.ghost}` }}>Colour / Size</th>
-            {sizes.map(s => <th key={s} style={{ padding: '6px 8px', textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.xs, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{s}</th>)}
+            <th scope="col" style={{ padding: '6px 10px', textAlign: 'left', color: THEME.colors.muted, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.xs, textTransform: 'uppercase', letterSpacing: '0.06em', borderRight: `1px solid ${THEME.colors.ghost}` }}>Colour / Size</th>
+            {sizes.map(s => <th key={s} scope="col" style={{ padding: '6px 8px', textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.xs, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{s}</th>)}
           </tr>
         </thead>
         <tbody>
           {colours.map(colour => (
             <tr key={colour}>
-              <td style={{ padding: '6px 10px', color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, whiteSpace: 'nowrap', borderRight: `1px solid ${THEME.colors.ghost}`, fontSize: THEME.fontSizes.base }}>{colour}</td>
+              <th scope="row" style={{ padding: '6px 10px', color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, whiteSpace: 'nowrap', borderRight: `1px solid ${THEME.colors.ghost}`, fontSize: THEME.fontSizes.base, fontWeight: 500 }}>{colour}</th>
               {sizes.map(size => {
                 const cell = matrix[colour]?.[size] ?? { enabled: false, price: '', comparePrice: '', stockQty: '0', sku: generateSku(productName, colour, size) };
+                const cellId = `cell-${colour}-${size}`;
                 return (
                   <td key={size} style={{ padding: '4px 5px', verticalAlign: 'top' }}>
                     <div style={{ width: '88px', background: cell.enabled ? 'rgba(201,169,110,0.05)' : THEME.colors.bg, border: `1px solid ${cell.enabled ? 'rgba(201,169,110,0.2)' : THEME.colors.ghost}`, borderRadius: THEME.radius.sm, padding: '5px', transition: 'all 0.12s' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cell.enabled ? '5px' : 0 }}>
                         <span style={{ fontSize: '10px', color: cell.enabled ? THEME.colors.linen : THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{cell.enabled ? 'Active' : 'Off'}</span>
-                        <div onClick={() => toggle(colour, size)} style={{ width: '26px', height: '14px', borderRadius: '7px', background: cell.enabled ? THEME.colors.success : THEME.colors.ghost, cursor: 'pointer', position: 'relative', transition: 'background 0.2s' }}>
-                          <div style={{ position: 'absolute', top: '2px', left: cell.enabled ? '13px' : '2px', width: '10px', height: '10px', background: 'white', borderRadius: '50%', transition: 'left 0.2s' }} />
-                        </div>
+                        <button
+                          onClick={() => toggle(colour, size)}
+                          aria-pressed={cell.enabled}
+                          aria-label={`${cell.enabled ? 'Disable' : 'Enable'} ${colour} ${size} variant`}
+                          style={{ width: '26px', height: '14px', borderRadius: '7px', background: cell.enabled ? THEME.colors.success : THEME.colors.ghost, cursor: 'pointer', position: 'relative', transition: 'background 0.2s', border: 'none', padding: 0 }}
+                        >
+                          <span aria-hidden="true" style={{ position: 'absolute', top: '2px', left: cell.enabled ? '13px' : '2px', width: '10px', height: '10px', background: 'white', borderRadius: '50%', transition: 'left 0.2s', display: 'block' }} />
+                        </button>
                       </div>
                       {cell.enabled && (
                         <>
-                          <input type="number" placeholder="₹ Price" value={cell.price} onChange={e => update(colour, size, 'price', e.target.value)} style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ivory, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} />
-                          <input type="number" placeholder="Stock" value={cell.stockQty} onChange={e => update(colour, size, 'stockQty', e.target.value)} style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ash, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} />
-                          <div style={{ fontSize: '9px', color: THEME.colors.muted, fontFamily: THEME.fonts.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cell.sku}</div>
+                          <label className="sr-only" htmlFor={`price-${cellId}`}>Price for {colour} {size}</label>
+                          <input 
+                            id={`price-${cellId}`}
+                            type="number" 
+                            placeholder="₹ Price" 
+                            value={cell.price} 
+                            onChange={e => update(colour, size, 'price', e.target.value)} 
+                            aria-label={`Price for ${colour} ${size}`}
+                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ivory, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} 
+                          />
+                          <label className="sr-only" htmlFor={`stock-${cellId}`}>Stock for {colour} {size}</label>
+                          <input 
+                            id={`stock-${cellId}`}
+                            type="number" 
+                            placeholder="Stock" 
+                            value={cell.stockQty} 
+                            onChange={e => update(colour, size, 'stockQty', e.target.value)}
+                            aria-label={`Stock for ${colour} ${size}`}
+                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ash, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} 
+                          />
+                          <div style={{ fontSize: '9px', color: THEME.colors.muted, fontFamily: THEME.fonts.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} aria-label={`SKU: ${cell.sku}`}>{cell.sku}</div>
                         </>
                       )}
                     </div>
@@ -115,7 +139,18 @@ export default function NewProductPage() {
   const [variantError, setVariantError] = useState('');
 
   useEffect(() => {
-    Promise.all([brandsApi.list(), categoriesApi.list()]).then(([b,c]) => { setBrands(b); setCategories(c); });
+    const controller = new AbortController();
+    Promise.all([
+      brandsApi.list(controller.signal), 
+      categoriesApi.list(controller.signal)
+    ]).then(([b,c]) => { 
+      setBrands(b); 
+      setCategories(c); 
+    }).catch(err => {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
+      console.error('Failed to load initial data', err);
+    });
+    return () => controller.abort();
   }, []);
 
   const updateField = <K extends keyof ProductForm>(key: K, value: ProductForm[K]) => {
@@ -318,9 +353,16 @@ export default function NewProductPage() {
               ))}
               {imagePreviews.length < 6 && (
                 <label style={{ aspectRatio: '1', borderRadius: THEME.radius.md, border: `1px dashed ${THEME.colors.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ color: THEME.colors.muted, fontSize: 20 }}>+</span>
+                  <span style={{ color: THEME.colors.muted, fontSize: 20 }} aria-hidden="true">+</span>
                   <span style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui }}>Add image</span>
-                  <input type="file" accept="image/*" multiple onChange={handleImageAdd} style={{ display: 'none' }} />
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    multiple 
+                    onChange={handleImageAdd} 
+                    style={{ display: 'none' }}
+                    aria-label="Upload product images"
+                  />
                 </label>
               )}
             </div>

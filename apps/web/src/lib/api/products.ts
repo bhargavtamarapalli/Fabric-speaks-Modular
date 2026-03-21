@@ -36,7 +36,7 @@ export async function getProducts(params?: {
   search?: string;
   page?: number;
   limit?: number;
-}): Promise<{ items: Product[]; total: number }> {
+}, signal?: AbortSignal): Promise<{ items: Product[]; total: number }> {
   const searchParams = new URLSearchParams();
   if (params?.fabric) searchParams.set('fabric', params.fabric);
   if (params?.brand) searchParams.set('brand', params.brand);
@@ -45,13 +45,13 @@ export async function getProducts(params?: {
   if (params?.page) searchParams.set('page', String(params.page));
   if (params?.limit) searchParams.set('limit', String(params.limit));
 
-  return apiFetch<{ items: Product[]; total: number }>(`/products?${searchParams.toString()}`);
+  return apiFetch<{ items: Product[]; total: number }>(`/products?${searchParams.toString()}`, { signal });
 }
 
-export async function getProductBySlug(slug: string): Promise<Product> {
-  return apiFetch<Product>(`/products/${slug}`);
+export async function getProductBySlug(slug: string, signal?: AbortSignal): Promise<Product> {
+  return apiFetch<Product>(`/products/${slug}`, { signal });
 }
 
-export async function getSearchSuggestions(query: string): Promise<string[]> {
-  return apiFetch<string[]>(`/search/suggestions?q=${encodeURIComponent(query)}`);
+export async function getSearchSuggestions(query: string, signal?: AbortSignal): Promise<string[]> {
+  return apiFetch<string[]>(`/search/suggestions?q=${encodeURIComponent(query)}`, { signal });
 }

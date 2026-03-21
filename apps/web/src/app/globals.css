@@ -5,25 +5,32 @@
 @layer base {
   :root {
     /* === Screen Prompt Pack v1.0 Design Tokens === */
-    --fs-void:      #0A0A0A;
-    --fs-surface:   #111111;
+    --fs-void: #0A0A0A;
+    --fs-surface: #111111;
     --fs-surface-2: #1A1A1A;
-    --fs-linen:     #C9A96E;
-    --fs-linen-dk:  #A8843A;
-    --fs-ivory:     #F0EBE3;
-    --fs-ash:       #6B6560;
-    --fs-wire:      #252525;
-    --fs-error:     #B84C3C;
-    --fs-success:   #2D6A4F;
+    --fs-linen: #C9A96E;
+    --fs-linen-dk: #A8843A;
+    --fs-ivory: #F0EBE3;
+    --fs-ash: #949494;
+    --fs-wire: #252525;
+    --fs-error: #B84C3C;
+    --fs-success: #2D6A4F;
 
     /* Spacing */
-    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
-    --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
-    --space-12: 48px; --space-16: 64px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
 
     /* Motion */
-    --ease-wipe: cubic-bezier(0.76,0,0.24,1);
-    --ease-spring: cubic-bezier(0.34,1.56,0.64,1);
+    --ease-wipe: cubic-bezier(0.76, 0, 0.24, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
     /* Z-Index */
     --z-dropdown: 100;
@@ -33,6 +40,19 @@
   }
 }
 
+/* Screen reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   color: var(--fs-ivory);
   background: var(--fs-void);
@@ -40,4 +60,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}

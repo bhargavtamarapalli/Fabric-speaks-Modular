@@ -5,8 +5,24 @@ import pino from 'pino';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { getDbPool } from './db';
+import * as Sentry from '@sentry/node';
 
 const logger = pino();
+
+// Initialize Sentry for backend services
+const initializeSentry = () => {
+  const sentryDsn = process.env.SENTRY_DSN;
+  if (sentryDsn) {
+    Sentry.init({
+      dsn: sentryDsn,
+      environment: process.env.APP_ENV || 'development',
+      tracesSampleRate: process.env.APP_ENV === 'production' ? 0.1 : 1.0,
+    });
+  }
+};
+
+// Initialize Sentry on module load
+initializeSentry();
 
 // Extend Express Request type to include the user property
 declare global {
@@ -184,6 +200,11 @@ export const globalErrorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
+  // Capture error with Sentry
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(err);
+  }
+
   if (err instanceof AppError) {
     logger.error({ code: err.code, msg: err.message, meta: err.meta });
     return res

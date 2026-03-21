@@ -2,12 +2,10 @@
 
 // app/admin/dashboard/page.tsx
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React from 'react';
 import { THEME } from '@/lib/admin/theme';
 import dynamic from 'next/dynamic';
 import { dashboardApi } from '@/lib/admin/api';
-import type { DashboardData } from '@/lib/admin/types';
 import { PageHeader, Loader, ErrorBanner, useToast, MetricsGridSkeleton, MetricCardSkeleton, DataTableSkeleton } from '@/components/admin/shared';
 import { mapError } from '@/lib/admin/errors';
 
@@ -35,16 +33,14 @@ import useSWR from 'swr';
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { showToast, ToastComponent } = useToast();
 
-  const { 
-    data, 
-    error: swrError, 
-    isLoading, 
-    mutate 
+  const {
+    data,
+    error: swrError,
+    isLoading,
+    mutate
   } = useSWR('/admin/dashboard', () => dashboardApi.getData(), {
-    refreshInterval: 60000,
+    refreshInterval: 300000,
     revalidateOnFocus: true,
     errorRetryCount: 3,
   });
@@ -73,7 +69,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {ToastComponent}
     </div>
   );
 }

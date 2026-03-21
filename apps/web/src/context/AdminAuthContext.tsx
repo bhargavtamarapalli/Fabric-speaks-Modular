@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import type { AdminRole } from '@/lib/admin/types';
 import app from '@/lib/firebase';
@@ -19,14 +19,11 @@ const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefin
 const ROLE_MAP: Record<string, AdminRole> = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   INVENTORY_MANAGER: 'INVENTORY_MANAGER',
-  SUPPORT_AGENT: 'SUPER_ADMIN', // Note: Check if this was a typo in original or intentional
+  SUPPORT_AGENT: 'SUPPORT_AGENT',
   superAdmin: 'SUPER_ADMIN',
   inventoryManager: 'INVENTORY_MANAGER',
   supportAgent: 'SUPPORT_AGENT',
 };
-
-// Fixed support agent mapping if it was a typo:
-ROLE_MAP['SUPPORT_AGENT'] = 'SUPPORT_AGENT';
 
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<AdminRole | null>(null);

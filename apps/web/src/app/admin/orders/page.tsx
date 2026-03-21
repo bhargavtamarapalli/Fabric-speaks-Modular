@@ -1,10 +1,10 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import {
   PageHeader,
   ActionButton,
   ErrorBanner,
+  Pagination,
   THEME,
 } from '@/components/admin/shared';
 
@@ -21,14 +21,19 @@ const OrdersDataGrid = dynamic(
 );
 
 export default function OrdersPage() {
-  const router = useRouter();
   const {
     orders,
     total,
+    page,
+    limit,
+    totalPages,
+    currentPage,
+    itemsPerPage,
     loading,
     error,
     filters,
     updateFilters,
+    goToPage,
     selected,
     toggleSelect,
     clearSelection,
@@ -77,6 +82,14 @@ export default function OrdersPage() {
         loading={loading}
         selected={selected}
         onToggleSelect={toggleSelect}
+      />
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={total}
+        itemsPerPage={itemsPerPage}
+        onPageChange={goToPage}
       />
     </div>
   );

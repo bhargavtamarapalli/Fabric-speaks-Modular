@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { ordersApi } from '@/lib/admin/api';
@@ -13,6 +13,8 @@ export interface OrdersFilters {
   status: string;
 }
 
+const DEFAULT_LIMIT = 20;
+
 export function useOrders(initialSearch: string = '') {
   const searchParams = useSearchParams();
   const { showToast } = useToast();
@@ -22,17 +24,27 @@ export function useOrders(initialSearch: string = '') {
     status: searchParams.get('filter') ?? '',
   });
   
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_LIMIT);
+  
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.status, filters.search]);
 
   const { 
     data, 
     error: swrError, 
     isLoading, 
     mutate 
-  } = useSWR(['/admin/orders', filters], () => ordersApi.list({
+  } = useSWR(['/admin/orders', filters, currentPage, itemsPerPage], () => ordersApi.list({
     status: filters.status || undefined,
-    search: filters.search || undefined
+    search: filters.search || undefined,
+    page: currentPage,
+    limit: itemsPerPage,
   }), {
     revalidateOnFocus: true,
     dedupingInterval: 2000,
@@ -40,10 +52,17 @@ export function useOrders(initialSearch: string = '') {
 
   const orders = data?.items ?? [];
   const total = data?.total ?? 0;
+  const page = data?.page ?? currentPage;
+  const limit = data?.limit ?? itemsPerPage;
+  const totalPages = data?.totalPages ?? Math.ceil(total / limit);
   const error = swrError ? mapError(swrError) : null;
 
   const updateFilters = useCallback((patch: Partial<OrdersFilters>) => {
     setFilters(prev => ({ ...prev, ...patch }));
+  }, []);
+
+  const goToPage = useCallback((page: number) => {
+    setCurrentPage(page);
   }, []);
 
   const toggleSelect = useCallback((id: string) => {
@@ -71,10 +90,16 @@ export function useOrders(initialSearch: string = '') {
   return {
     orders,
     total,
+    page,
+    limit,
+    totalPages,
+    currentPage,
+    itemsPerPage,
     loading: isLoading,
     error,
     filters,
     updateFilters,
+    goToPage,
     selected,
     toggleSelect,
     clearSelection,

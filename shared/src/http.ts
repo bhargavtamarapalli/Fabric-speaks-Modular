@@ -130,6 +130,7 @@ export async function withRetry<T>(
       await sleep(delayMs);
     }
   }
+  throw new Error('Unreachable');
 }
 
 export async function withExternalRetry<T>(

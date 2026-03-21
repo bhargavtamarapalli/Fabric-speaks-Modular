@@ -36,7 +36,7 @@ export function useProductDetail(productId: string | undefined) {
     try {
       setError(null);
       setLoading(true);
-      const res = await productsApi.getById(productId);
+      const res = await productsApi.getById(productId, abortControllerRef.current?.signal);
       if (!res.isActive) {
         setError('This product is currently deactivated/deleted.');
       }

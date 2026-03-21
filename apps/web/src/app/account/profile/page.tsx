@@ -15,12 +15,13 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
-      const res = await getProfile();
+      const res = await getProfile(signal);
       setProfile(res);
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
       if (user) {
         setProfile({
           name: user.name || '',
@@ -34,20 +35,24 @@ export default function ProfilePage() {
   }, [user]);
 
   useEffect(() => {
-    fetchProfile();
+    const controller = new AbortController();
+    fetchProfile(controller.signal);
+    return () => controller.abort();
   }, [fetchProfile]);
 
   const handleSave = async () => {
     if (!profile) return;
+    const controller = new AbortController();
     try {
       setSaving(true);
       await updateProfile({
         name: profile.name,
         email: profile.email
-      });
+      }, controller.signal);
       setEditMode(false);
       showToast('Profile updated successfully', 'success');
     } catch (err: any) {
+      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
       showToast(err.message || 'Failed to update profile', 'error');
     } finally {
       setSaving(false);
@@ -77,8 +82,9 @@ export default function ProfilePage() {
 
       <div className="space-y-6">
         <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-[var(--fs-ash)]">Full Name</label>
+          <label htmlFor="full-name" className="text-xs uppercase tracking-widest text-[var(--fs-ash)] cursor-pointer">Full Name</label>
           <input 
+            id="full-name"
             type="text" 
             disabled={!editMode}
             value={profile.name}
@@ -88,8 +94,9 @@ export default function ProfilePage() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-[var(--fs-ash)]">Email Address</label>
+          <label htmlFor="email" className="text-xs uppercase tracking-widest text-[var(--fs-ash)] cursor-pointer">Email Address</label>
           <input 
+            id="email"
             type="email" 
             disabled={!editMode}
             value={profile.email}
@@ -100,12 +107,13 @@ export default function ProfilePage() {
 
         <div className="space-y-2 opacity-70">
           <div className="flex justify-between">
-            <label className="text-xs uppercase tracking-widest text-[var(--fs-ash)]">Mobile Number</label>
+            <label htmlFor="mobile" className="text-xs uppercase tracking-widest text-[var(--fs-ash)] cursor-pointer">Mobile Number</label>
             <span className="text-xs text-amber-500 flex items-center gap-1">
               <Shield className="w-3 h-3" /> Verified
             </span>
           </div>
           <input 
+            id="mobile"
             type="text" 
             disabled 
             value={profile.mobile}
