@@ -88,6 +88,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Content', path: '/admin/pages', icon: '▤', roles: ['SUPER_ADMIN'] },
   { label: 'Users', path: '/admin/users', icon: '◉', roles: ['SUPER_ADMIN'] },
   { label: 'Settings', path: '/admin/config', icon: '◌', roles: ['SUPER_ADMIN'] },
+  { label: 'Dev Tools', path: '/admin/dev/promote-user', icon: '⚙', roles: ['SUPER_ADMIN'] },
 ];
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────

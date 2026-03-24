@@ -1,0 +1,65 @@
+﻿src/controllers/auth.controller.ts(5,20): error TS2307: Cannot find module 'bcryptjs' or its corresponding type declarations.
+src/index.ts(1,51): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/index.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/repositories/user.repository.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/config/env.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/services/auth.service.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/repositories/audit_log.repository.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/repositories/admin-login-attempt.repository.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/repositories/refresh-token.repository.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/schemas/auth.schemas.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/controllers/auth.controller.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/routes/auth.routes.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/middleware/rateLimiter.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/src/middleware/rateLimiter.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/tests/integration/auth.routes.test.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/tests/unit/auth.service.test.ts'
+    Imported via '@fs/shared' from file 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service/tests/unit/auth.service.test.ts'
+src/services/auth.service.ts(25,20): error TS2307: Cannot find module 'bcryptjs' or its corresponding type declarations.
+tests/unit/auth.service.test.ts(58,23): error TS2554: Expected 4 arguments, but got 3.
+tests/unit/auth.service.test.ts(89,27): error TS2339: Property 'token' does not exist on type 'AuthResult'.
+tests/unit/auth.service.test.ts(100,19): error TS2741: Property 'whatsapp_enabled' is missing in type '{ id: string; role: string; mobile: string; mobile_hash: string; firebase_uid: string; is_deleted: false; name: null; email: null; }' but required in type 'User'.
+tests/unit/auth.service.test.ts(169,19): error TS2741: Property 'whatsapp_enabled' is missing in type '{ id: string; role: string; mobile: string; mobile_hash: string; firebase_uid: string; is_deleted: false; name: null; email: null; }' but required in type 'User'.
+../../shared/src/index.ts(1,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/db.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './db' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'
+    Imported via './db' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/middleware.ts'
+../../shared/src/index.ts(2,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/errors.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './errors' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'
+    Imported via './errors' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/middleware.ts'
+    Imported via './errors' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/media.ts'
+../../shared/src/index.ts(3,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/logger.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './logger' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'
+    Imported via './logger' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/redis.ts'
+    Imported via './logger' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config.ts'
+    Imported via './logger' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/media.ts'
+    Imported via './logger' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/http.ts'
+../../shared/src/index.ts(4,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/middleware.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './middleware' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'
+    Imported via './middleware' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/app.ts'
+../../shared/src/index.ts(5,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/pricing.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(8,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/schemas.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(9,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(10,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config/permissions.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './config/permissions' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'
+    Imported via './permissions' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config/cache.ts'
+../../shared/src/index.ts(11,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config/cache.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(12,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/app.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(13,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/repository.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(14,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/media.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/index.ts(15,15): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/http.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+../../shared/src/middleware.ts(3,34): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/types.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './types' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/middleware.ts'
+    Imported via './types' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'
+    Imported via '../types' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config/permissions.ts'
+    Imported via '../types' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/config/cache.ts'
+../../shared/src/middleware.ts(294,47): error TS6059: File 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/redis.ts' is not under 'rootDir' 'C:/Bhargav/Fabricspeaks/FsModular/services/auth-service'. 'rootDir' is expected to contain all source files.
+  The file is in the program because:
+    Imported via './redis' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/middleware.ts'
+    Imported via './redis' from file 'C:/Bhargav/Fabricspeaks/FsModular/shared/src/index.ts'

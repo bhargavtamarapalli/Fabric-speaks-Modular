@@ -28,3 +28,16 @@ CREATE INDEX IF NOT EXISTS sale_events_scope_gin ON sale_events USING GIN(scope_
 
 -- Add check to ensure starts_at < ends_at
 ALTER TABLE sale_events ADD CONSTRAINT sale_events_dates_check CHECK (starts_at < ends_at);
+
+
+
+
+
+
+
+
+
+
+
+
+

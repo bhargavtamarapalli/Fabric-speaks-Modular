@@ -74,13 +74,25 @@ CREATE INDEX IF NOT EXISTS addresses_user_id_idx
 -- Full audit timeline is preserved for TRAI + DPDPA compliance.
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS consent_channel AS ENUM (
-  'whatsapp', 'email', 'sms', 'push'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'consent_channel') THEN
+    CREATE TYPE consent_channel AS ENUM (
+'whatsapp', 'email', 'sms', 'push'
+    );
+  END IF;
+END
+$$;
 
-CREATE TYPE IF NOT EXISTS consent_source AS ENUM (
-  'order_confirm', 'register', 'preferences_page', 'checkout', 'notify_me'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'consent_source') THEN
+    CREATE TYPE consent_source AS ENUM (
+'order_confirm', 'register', 'preferences_page', 'checkout', 'notify_me'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS consent_log (
   id                UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,3 +114,17 @@ CREATE INDEX IF NOT EXISTS consent_log_user_id_idx
 
 CREATE INDEX IF NOT EXISTS consent_log_opted_out_idx
   ON consent_log(user_id) WHERE opted_out_at IS NOT NULL;
+
+
+
+
+
+
+
+
+
+
+
+
+
+

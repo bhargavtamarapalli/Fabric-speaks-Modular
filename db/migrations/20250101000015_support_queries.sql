@@ -3,8 +3,24 @@
 -- Description: Support queue tables for support-service workflows
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS support_query_status AS ENUM ('open', 'in_progress', 'resolved');
-CREATE TYPE IF NOT EXISTS support_query_priority AS ENUM ('P0', 'P1', 'P2');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'support_query_status') THEN
+    CREATE TYPE support_query_status AS ENUM (
+'open', 'in_progress', 'resolved'
+    );
+  END IF;
+END
+$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'support_query_priority') THEN
+    CREATE TYPE support_query_priority AS ENUM (
+'P0', 'P1', 'P2'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS support_queries (
   id               UUID                   PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -50,3 +66,18 @@ CREATE TRIGGER update_support_queries_updated_at
 BEFORE UPDATE ON support_queries
 FOR EACH ROW
 EXECUTE FUNCTION update_support_queries_updated_at();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

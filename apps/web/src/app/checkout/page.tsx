@@ -12,6 +12,7 @@ import { placeOrder } from '@/lib/api/orders';
 import { initiateRazorpay, verifyPayment, confirmCod } from '@/lib/api/payments';
 import { getCart, Cart } from '@/lib/api/cart';
 import { useToast } from '@/context/ToastContext';
+import { AccountGuard } from '@/components/account/AccountGuard';
 import { RazorpayOptions, RazorpayResponse } from '@/types/razorpay';
 
 const STEPS = [
@@ -149,103 +150,105 @@ export default function AuthCheckoutPage() {
   };
 
   return (
-    <motion.div
-      initial={{ clipPath: 'inset(100% 0 0 0)' }}
-      animate={{ clipPath: 'inset(0% 0 0 0)' }}
-      transition={{ duration: 0.6, ease: [0.76, 0, 0.24, 1] }}
-      className="min-h-screen bg-[var(--fs-void)] py-12"
-    >
-      <div className="max-w-[1100px] mx-auto px-4">
-        <div className="text-center mb-12">
-          <h1 className="font-serif text-3xl md:text-4xl text-[var(--fs-ivory)] mb-2">Checkout</h1>
-        </div>
+    <AccountGuard>
+      <motion.div
+        initial={{ clipPath: 'inset(100% 0 0 0)' }}
+        animate={{ clipPath: 'inset(0% 0 0 0)' }}
+        transition={{ duration: 0.6, ease: [0.76, 0, 0.24, 1] }}
+        className="min-h-screen bg-[var(--fs-void)] py-12"
+      >
+        <div className="max-w-[1100px] mx-auto px-4">
+          <div className="text-center mb-12">
+            <h1 className="font-serif text-3xl md:text-4xl text-[var(--fs-ivory)] mb-2">Checkout</h1>
+          </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr,350px] gap-12 items-start">
-          <div>
-            <CheckoutStepper steps={STEPS} currentStep={step} />
-            <AnimatePresence mode="wait" custom={dir}>
-              <motion.div
-                key={step}
-                custom={dir}
-                variants={stepVariants}
-                initial="enter" animate="center" exit="exit"
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-              >
-                {step === 0 && (
-                  <div>
-                    <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Select Delivery Address</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      {addresses.map(addr => (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr,350px] gap-12 items-start">
+            <div>
+              <CheckoutStepper steps={STEPS} currentStep={step} />
+              <AnimatePresence mode="wait" custom={dir}>
+                <motion.div
+                  key={step}
+                  custom={dir}
+                  variants={stepVariants}
+                  initial="enter" animate="center" exit="exit"
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                >
+                  {step === 0 && (
+                    <div>
+                      <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Select Delivery Address</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        {addresses.map(addr => (
+                          <motion.div
+                            key={addr.id}
+                            onClick={() => { setSelectedAddressId(addr.id); setShowNewForm(false); }}
+                            whileTap={{ scale: 0.98 }}
+                            animate={{
+                              borderColor: selectedAddressId === addr.id ? 'var(--fs-linen)' : 'var(--fs-wire)',
+                              background: selectedAddressId === addr.id ? 'var(--fs-surface-2)' : 'var(--fs-surface)'
+                            }}
+                            className="p-5 border cursor-pointer transition-colors"
+                          >
+                            <div className="text-[10px] font-mono text-[var(--fs-linen)] uppercase tracking-widest mb-2">{addr.label}</div>
+                            <div className="text-[15px] font-sans text-[var(--fs-ivory)] mb-1">{addr.fullName}</div>
+                            <div className="text-[13px] font-sans text-[var(--fs-ash)] leading-relaxed">
+                              {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
+                              {addr.city}, {addr.state} — {addr.pincode}
+                            </div>
+                          </motion.div>
+                        ))}
                         <motion.div
-                          key={addr.id}
-                          onClick={() => { setSelectedAddressId(addr.id); setShowNewForm(false); }}
+                          onClick={() => { setShowNewForm(v => !v); setSelectedAddressId(null); }}
                           whileTap={{ scale: 0.98 }}
-                          animate={{
-                            borderColor: selectedAddressId === addr.id ? 'var(--fs-linen)' : 'var(--fs-wire)',
-                            background: selectedAddressId === addr.id ? 'var(--fs-surface-2)' : 'var(--fs-surface)'
-                          }}
-                          className="p-5 border cursor-pointer transition-colors"
+                          className="p-5 border border-dashed border-[var(--fs-wire)] cursor-pointer flex items-center justify-center text-[var(--fs-ash)] hover:text-[var(--fs-linen)] hover:border-[var(--fs-linen)] transition-colors"
                         >
-                          <div className="text-[10px] font-mono text-[var(--fs-linen)] uppercase tracking-widest mb-2">{addr.label}</div>
-                          <div className="text-[15px] font-sans text-[var(--fs-ivory)] mb-1">{addr.fullName}</div>
-                          <div className="text-[13px] font-sans text-[var(--fs-ash)] leading-relaxed">
-                            {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
-                            {addr.city}, {addr.state} — {addr.pincode}
-                          </div>
+                          + Add new address
                         </motion.div>
-                      ))}
-                      <motion.div
-                        onClick={() => { setShowNewForm(v => !v); setSelectedAddressId(null); }}
-                        whileTap={{ scale: 0.98 }}
-                        className="p-5 border border-dashed border-[var(--fs-wire)] cursor-pointer flex items-center justify-center text-[var(--fs-ash)] hover:text-[var(--fs-linen)] hover:border-[var(--fs-linen)] transition-colors"
+                      </div>
+
+                      <AnimatePresence>
+                        {showNewForm && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                            <AddressForm value={newAddress} onChange={setNewAddress} />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <button
+                        onClick={goNext}
+                        disabled={!selectedAddressId && !showNewForm}
+                        className={`mt-6 w-full h-14 uppercase tracking-widest text-[13px] font-semibold transition-all ${(!selectedAddressId && !showNewForm) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                          }`}
                       >
-                        + Add new address
-                      </motion.div>
+                        Continue to Payment →
+                      </button>
                     </div>
+                  )}
 
-                    <AnimatePresence>
-                      {showNewForm && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                          <AddressForm value={newAddress} onChange={setNewAddress} />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                  {step === 1 && (
+                    <div>
+                      <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Payment Method</h2>
+                      <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
+                      <button
+                        onClick={handlePlaceOrder}
+                        disabled={loading || !paymentMethod}
+                        className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${(loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
+                          }`}
+                      >
+                        {loading ? <SpiderLoader size="sm" /> : `Place Order — ₹${cart.total.toLocaleString('en-IN')}`}
+                      </button>
+                      <button onClick={goBack} className="mt-4 w-full text-center text-[var(--fs-ash)] text-[13px] hover:text-[var(--fs-linen)] transition-colors">← Back to Address</button>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
 
-                    <button
-                      onClick={goNext}
-                      disabled={!selectedAddressId && !showNewForm}
-                      className={`mt-6 w-full h-14 uppercase tracking-widest text-[13px] font-semibold transition-all ${(!selectedAddressId && !showNewForm) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
-                        }`}
-                    >
-                      Continue to Payment →
-                    </button>
-                  </div>
-                )}
-
-                {step === 1 && (
-                  <div>
-                    <h2 className="font-serif text-2xl text-[var(--fs-ivory)] mb-6">Payment Method</h2>
-                    <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
-                    <button
-                      onClick={handlePlaceOrder}
-                      disabled={loading || !paymentMethod}
-                      className={`mt-8 w-full h-14 uppercase tracking-widest text-[13px] font-semibold flex items-center justify-center gap-3 transition-all ${(loading || !paymentMethod) ? 'bg-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' : 'bg-[var(--fs-linen)] text-[var(--fs-void)] hover:opacity-90'
-                        }`}
-                    >
-                      {loading ? <SpiderLoader size="sm" /> : `Place Order — ₹${cart.total.toLocaleString('en-IN')}`}
-                    </button>
-                    <button onClick={goBack} className="mt-4 w-full text-center text-[var(--fs-ash)] text-[13px] hover:text-[var(--fs-linen)] transition-colors">← Back to Address</button>
-                  </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          <div className="sticky top-24">
-            <OrderSummary data={summaryData} />
+            <div className="sticky top-24">
+              <OrderSummary data={summaryData} />
+            </div>
           </div>
         </div>
-      </div>
-    </motion.div>
+      </motion.div>
+    </AccountGuard>
   );
 }

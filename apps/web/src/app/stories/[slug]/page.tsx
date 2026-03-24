@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import { getStoryBySlug } from '@/lib/api/stories';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 export default async function StoryPage({ params }: { params: { slug: string } }) {
   let story;
@@ -43,7 +44,7 @@ export default async function StoryPage({ params }: { params: { slug: string } }
       <article className="max-w-3xl mx-auto px-6 py-16 md:py-24 text-[var(--fs-ivory)] font-sans">
         <div 
           className="prose prose-invert prose-p:text-gray-300 prose-p:leading-loose prose-a:text-[var(--fs-linen)] prose-headings:font-serif prose-headings:text-[var(--fs-ivory)]"
-          dangerouslySetInnerHTML={{ __html: story.bodyHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(story.bodyHtml) }}
         />
         
         <div className="mt-16 pt-8 border-t border-[var(--fs-wire)] flex justify-between items-center">

@@ -90,7 +90,7 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        await apiClient.get("/auth/me");
+        await apiClient.post("/auth/refresh");
         processQueue(null);
         return apiClient(originalRequest!);
       } catch (err) {

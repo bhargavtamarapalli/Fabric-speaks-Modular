@@ -1,2 +1,15 @@
 ALTER TABLE payments
   ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(4);
+
+
+
+
+
+
+
+
+
+
+
+
+

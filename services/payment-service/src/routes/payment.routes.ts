@@ -1,7 +1,7 @@
 import Razorpay from 'razorpay';
 import { Queue } from 'bullmq';
 import { Router } from 'express';
-import { getDbPool, logger, requireAuth, requireRole } from '@fs/shared';
+import { getDbPool, getRedisClient, logger, requireAuth, requireRole } from '@fs/shared';
 import { PAYMENT_EVENT_QUEUE_NAME } from '../constants/payment.constants';
 import { env } from '../config/env';
 import { PaymentController } from '../controllers/payment.controller';
@@ -19,10 +19,7 @@ const razorpayClient = new Razorpay({
   key_secret: env.RAZORPAY_KEY_SECRET,
 });
 export const paymentEventQueue = new Queue(PAYMENT_EVENT_QUEUE_NAME, {
-  connection: {
-    host: env.REDIS_HOST,
-    port: env.REDIS_PORT,
-  },
+  connection: getRedisClient(),
 });
 
 const paymentService = new PaymentService({

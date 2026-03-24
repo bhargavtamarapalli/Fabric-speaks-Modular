@@ -25,26 +25,44 @@ ALTER TABLE sale_events
 -- 3) Scheduled price changes (PRC-14)
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS price_change_status AS ENUM (
-  'scheduled',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'price_change_status') THEN
+    CREATE TYPE price_change_status AS ENUM (
+'scheduled',
   'processing',
   'applied',
   'failed',
   'cancelled'
-);
+    );
+  END IF;
+END
+$$;
 
-CREATE TYPE IF NOT EXISTS price_change_target AS ENUM (
-  'product',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'price_change_target') THEN
+    CREATE TYPE price_change_target AS ENUM (
+'product',
   'variant',
   'collection',
   'brand',
   'global'
-);
+    );
+  END IF;
+END
+$$;
 
-CREATE TYPE IF NOT EXISTS price_change_apply_to AS ENUM (
-  'base_price',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'price_change_apply_to') THEN
+    CREATE TYPE price_change_apply_to AS ENUM (
+'base_price',
   'price_override'
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS scheduled_price_changes (
   id               UUID                     PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -78,12 +96,18 @@ ALTER TABLE broadcast_campaigns
 ALTER TABLE broadcast_campaigns
   ADD COLUMN IF NOT EXISTS channel VARCHAR(20) NOT NULL DEFAULT 'whatsapp';
 
-CREATE TYPE IF NOT EXISTS whatsapp_template_status AS ENUM (
-  'pending',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'whatsapp_template_status') THEN
+    CREATE TYPE whatsapp_template_status AS ENUM (
+'pending',
   'approved',
   'rejected',
   'disabled'
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS whatsapp_templates (
   id             UUID                     PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -119,3 +143,17 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
 
 CREATE INDEX IF NOT EXISTS admin_login_attempts_mobile_idx
   ON admin_login_attempts(mobile_hash, attempted_at DESC);
+
+
+
+
+
+
+
+
+
+
+
+
+
+

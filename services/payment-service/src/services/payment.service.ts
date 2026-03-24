@@ -525,7 +525,7 @@ export class PaymentService {
 
     try {
       const refund = await withExternalRetry(
-        () => this.dependencies.razorpayClient.payments.refund(payment.razorpayPaymentId, {
+        () => this.dependencies.razorpayClient.payments.refund(payment.razorpayPaymentId as string, {
           amount: payload.amount ? Math.round(payload.amount * 100) : undefined,
           speed: 'normal',
         }),

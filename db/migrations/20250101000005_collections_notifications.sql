@@ -21,7 +21,15 @@
 -- Manual collections: curated product list via collection_products
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS collection_type AS ENUM ('smart', 'manual');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'collection_type') THEN
+    CREATE TYPE collection_type AS ENUM (
+'smart', 'manual'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS collections (
   id                     UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -80,7 +88,15 @@ CREATE INDEX IF NOT EXISTS collection_products_order_idx
 -- body_html MUST be DOMPurify-sanitised before storage — enforced in service layer
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS content_status AS ENUM ('draft', 'published', 'archived');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'content_status') THEN
+    CREATE TYPE content_status AS ENUM (
+'draft', 'published', 'archived'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS content_pages (
   id                   UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -115,7 +131,15 @@ CREATE INDEX IF NOT EXISTS content_pages_related_gin
 -- Explicit invalidation: redis.del('nav:global') on every save
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS nav_link_type AS ENUM ('category', 'collection', 'url');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'nav_link_type') THEN
+    CREATE TYPE nav_link_type AS ENUM (
+'category', 'collection', 'url'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS nav_items (
   id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -140,8 +164,11 @@ CREATE INDEX IF NOT EXISTS nav_items_active_order_idx
 -- Explicit invalidation: redis.del('homepage:config') on admin save.
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS homepage_section AS ENUM (
-  'announcement_bar',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'homepage_section') THEN
+    CREATE TYPE homepage_section AS ENUM (
+'announcement_bar',
   'hero_banner',
   'shop_by_fabric',
   'new_arrivals',
@@ -149,7 +176,10 @@ CREATE TYPE IF NOT EXISTS homepage_section AS ENUM (
   'brand_spotlight',
   'fabric_story',
   'deal_of_day'
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS homepage_config (
   id            UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -258,13 +288,19 @@ CREATE INDEX IF NOT EXISTS notification_log_user_sent_idx
 -- Analytics stored in a companion 1:1 table for easy columnar updates
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS campaign_status AS ENUM (
-  'draft',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'campaign_status') THEN
+    CREATE TYPE campaign_status AS ENUM (
+'draft',
   'scheduled',
   'sending',
   'sent',
   'failed'
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS broadcast_campaigns (
   id                   UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -404,3 +440,17 @@ CREATE INDEX IF NOT EXISTS event_log_event_type_idx
 
 CREATE INDEX IF NOT EXISTS event_log_metadata_gin
   ON event_log USING GIN(metadata_json);
+
+
+
+
+
+
+
+
+
+
+
+
+
+

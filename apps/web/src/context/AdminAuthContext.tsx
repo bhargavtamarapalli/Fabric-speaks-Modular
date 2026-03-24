@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { getAuth, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import type { AdminRole } from '@/lib/admin/types';
 import app from '@/lib/firebase';
 
@@ -12,6 +12,7 @@ interface AdminAuthContextType {
   loading: boolean;
   user: User | null;
   error: string | null;
+  logout: () => Promise<void>;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
@@ -95,10 +96,15 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+  const logout = useCallback(async () => {
+    if (!app) return;
+    await signOut(getAuth(app));
+  }, []);
+
   // Memoize context value to prevent unnecessary re-renders of consuming components
   const contextValue = useMemo(
-    () => ({ role, name, email, loading, user, error }),
-    [role, name, email, loading, user, error]
+    () => ({ role, name, email, loading, user, error, logout }),
+    [role, name, email, loading, user, error, logout]
   );
 
   return (

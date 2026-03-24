@@ -6,6 +6,7 @@ import { StatusBadge } from '@/components/atoms/StatusBadge';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import { getOrders, Order } from '@/lib/api/orders';
 import { useToast } from '@/context/ToastContext';
+import { EmptyState } from '@/components/atoms/EmptyState';
 
 const STATUS_FILTERS: { label: string; value: string }[] = [
   { label: 'All',       value: '' },
@@ -30,7 +31,7 @@ export default function MyOrdersPage() {
     try {
         setLoading(true);
         const res = await getOrders({ status: activeFilter as any || undefined, limit: 20 });
-        setOrders(res.items);
+        setOrders(res?.items ?? []);
     } catch (err: any) {
         showToast(err.message || "Failed to load orders", "error");
     } finally {
@@ -66,11 +67,14 @@ export default function MyOrdersPage() {
 
       {loading ? (
         <div className="flex justify-center py-20"><SpiderLoader size="md" /></div>
-      ) : orders.length === 0 ? (
-        <div className="text-center py-20 border border-[var(--fs-wire)] border-dashed rounded-sm">
-          <p className="font-serif text-2xl text-[var(--fs-ash)] mb-4">No orders found.</p>
-          <Link href="/products" className="text-[var(--fs-linen)] text-sm hover:underline">Start shopping →</Link>
-        </div>
+      ) : (orders?.length ?? 0) === 0 ? (
+        <EmptyState
+          variant="generic"
+          title="No Orders Yet"
+          message="When you place an order, it will appear here."
+          actionLabel="Start Shopping"
+          onAction={() => window.location.href = '/products'}
+        />
       ) : (
         <AnimatePresence mode="wait">
           <motion.div key={activeFilter} className="flex flex-col gap-4">

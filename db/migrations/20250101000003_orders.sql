@@ -12,7 +12,15 @@
 -- NOTE: coupons must be created BEFORE orders due to the FK in orders.coupon_id
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS discount_type AS ENUM ('PERCENT', 'FIXED');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'discount_type') THEN
+    CREATE TYPE discount_type AS ENUM (
+'PERCENT', 'FIXED'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS coupons (
   id               UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,8 +63,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS coupon_redemptions_user_coupon_idx
 --   PLACED/CONFIRMED → PAYMENT_FAILED
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS order_status AS ENUM (
-  'PLACED',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
+    CREATE TYPE order_status AS ENUM (
+'PLACED',
   'PAYMENT_PENDING',
   'PAYMENT_FAILED',
   'CONFIRMED',
@@ -66,9 +77,20 @@ CREATE TYPE IF NOT EXISTS order_status AS ENUM (
   'CANCELLED',
   'RETURN_REQUESTED',
   'RETURNED'
-);
+    );
+  END IF;
+END
+$$;
 
-CREATE TYPE IF NOT EXISTS payment_method_type AS ENUM ('UPI', 'CARD', 'NETBANKING', 'COD');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method_type') THEN
+    CREATE TYPE payment_method_type AS ENUM (
+'UPI', 'CARD', 'NETBANKING', 'COD'
+    );
+  END IF;
+END
+$$;
 
 -- =============================================================================
 -- orders
@@ -107,9 +129,15 @@ CREATE INDEX IF NOT EXISTS orders_status_idx     ON orders(status);
 CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders(created_at DESC);
 
 -- Now add FK from coupon_redemptions.order_id to orders
-ALTER TABLE coupon_redemptions
-  ADD CONSTRAINT IF NOT EXISTS coupon_redemptions_order_id_fk
-  FOREIGN KEY (order_id) REFERENCES orders(id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coupon_redemptions_order_id_fk') THEN
+    ALTER TABLE coupon_redemptions
+      ADD CONSTRAINT coupon_redemptions_order_id_fk
+      FOREIGN KEY (order_id) REFERENCES orders(id);
+  END IF;
+END
+$$;
 
 -- =============================================================================
 -- order_items
@@ -148,8 +176,11 @@ CREATE INDEX IF NOT EXISTS order_items_variant_id_idx ON order_items(variant_id)
 -- Always uses SELECT ... FOR UPDATE in the same transaction (row-level lock).
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS adjustment_reason AS ENUM (
-  'damaged',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'adjustment_reason') THEN
+    CREATE TYPE adjustment_reason AS ENUM (
+'damaged',
   'miscounted',
   'theft',
   'return_restocked',
@@ -157,7 +188,10 @@ CREATE TYPE IF NOT EXISTS adjustment_reason AS ENUM (
   'initial_stock',
   'correction',
   'other'
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS stock_adjustments (
   id          UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -221,3 +255,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS cart_items_user_variant_idx
 
 CREATE INDEX IF NOT EXISTS cart_items_user_id_idx
   ON cart_items(user_id);
+
+
+
+
+
+
+
+
+
+
+
+
+
+

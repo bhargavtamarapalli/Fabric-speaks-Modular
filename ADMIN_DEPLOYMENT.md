@@ -1,4 +1,4 @@
-# Admin Panel Deployment & Setup Runbook
+!# Admin Panel Deployment & Setup Runbook
 
 This guide helps developers set up the Fabric Speaks Admin Panel and deploy it to various environments.
 
@@ -22,11 +22,45 @@ This guide helps developers set up the Fabric Speaks Admin Panel and deploy it t
     - `ADMIN_API_BASE_URL`: URL of the backend microservices (e.g., http://localhost:3000)
     - `INTERNAL_AUTH_SECRET`: Shared secret for service-to-service auth
 
-4.  **Run Development Server**
+4.  **Setup Shared Module** (one-time, required for all services)
     ```bash
-    npm run dev -w apps/web
+    npm run setup:shared
     ```
+
+5.  **Start Development Server**
+
+    ### Option A: Start Everything (All Services + Gateway + Frontend)
+    ```bash
+    npm run dev:all
+    ```
+
+    ### Option B: Start Only Backend Services (Admin + Auth + Catalog)
+    ```bash
+    npm run dev:services
+    npm run dev:gateway
+    npm run dev:frontend
+    ```
+
+    ### Option C: Start Admin Only
+    ```bash
+    npm run dev:admin
+    npm run dev:gateway
+    npm run dev:frontend
+    ```
+
+    ### Available Commands:
+    | Command | Description |
+    |---------|-------------|
+    | `npm run setup:shared` | Build shared module and copy to all services |
+    | `npm run dev:gateway` | Start local API gateway (port 4000) |
+    | `npm run dev:frontend` | Start Next.js frontend (port 3000) |
+    | `npm run dev:services` | Start all backend microservices |
+    | `npm run dev:admin` | Start only admin service (port 8080) |
+    | `npm run dev:all` | Start everything (services + gateway + frontend) |
+    | `npm run stop` | Stop all Node.js processes |
+
     The admin panel will be available at `http://localhost:3000/admin`.
+    The local gateway runs on `http://localhost:4000`.
 
 ## 🏗️ Build & Verification
 

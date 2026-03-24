@@ -24,6 +24,14 @@ const STAGGER_CONTAINER = {
   }
 };
 
+const DEFAULT_HERO = {
+  title: 'Where Fabric Speaks',
+  subtitle: 'Discover handcrafted textiles that tell stories. Timeless fabric, modern sensibility.',
+  imageUrl: '',
+  ctaLink: '/products',
+  ctaText: 'Explore Collection',
+};
+
 export default function Home() {
   const [data, setData] = useState<HomepageData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,45 +79,52 @@ export default function Home() {
       <NavBar />
 
       {/* Hero Section */}
-      <section className="relative h-screen w-full flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-[var(--fs-void)] z-0" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[var(--fs-void)] opacity-80 z-10" />
-        
-        <div className="absolute inset-0 z-0 opacity-40 mix-blend-luminosity">
-          <Image 
-            src={data.hero.imageUrl} 
-            alt="Hero Texture"
-            fill
-            className="object-cover"
-            priority
-          />
-        </div>
+      {(() => {
+        const hero = data.hero ?? DEFAULT_HERO;
+        return (
+          <section className="relative h-screen w-full flex items-center justify-center overflow-hidden">
+            <div className="absolute inset-0 bg-[var(--fs-void)] z-0" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[var(--fs-void)] opacity-80 z-10" />
+            
+            {hero.imageUrl && (
+              <div className="absolute inset-0 z-0 opacity-40 mix-blend-luminosity">
+                <Image 
+                  src={hero.imageUrl} 
+                  alt="Hero Texture"
+                  fill
+                  className="object-cover"
+                  priority
+                />
+              </div>
+            )}
 
-        <motion.div 
-          className="relative z-20 flex flex-col items-center text-center px-4 max-w-4xl"
-          variants={STAGGER_CONTAINER}
-          initial="hidden"
-          animate="visible"
-        >
-          <motion.h1 
-            variants={STAGGER_CHILD}
-            className="font-serif text-5xl md:text-7xl lg:text-8xl tracking-tight text-[var(--fs-linen)] mb-6"
-          >
-            {data.hero.title}
-          </motion.h1>
-          <motion.p 
-            variants={STAGGER_CHILD}
-            className="font-sans text-lg md:text-xl text-[var(--fs-ash)] max-w-xl mb-10"
-          >
-            {data.hero.subtitle}
-          </motion.p>
-          <motion.div variants={STAGGER_CHILD}>
-            <Link href={data.hero.ctaLink}>
-              <MagneticButton>{data.hero.ctaText}</MagneticButton>
-            </Link>
-          </motion.div>
-        </motion.div>
-      </section>
+            <motion.div 
+              className="relative z-20 flex flex-col items-center text-center px-4 max-w-4xl"
+              variants={STAGGER_CONTAINER}
+              initial="hidden"
+              animate="visible"
+            >
+              <motion.h1 
+                variants={STAGGER_CHILD}
+                className="font-serif text-5xl md:text-7xl lg:text-8xl tracking-tight text-[var(--fs-linen)] mb-6"
+              >
+                {hero.title}
+              </motion.h1>
+              <motion.p 
+                variants={STAGGER_CHILD}
+                className="font-sans text-lg md:text-xl text-[var(--fs-ash)] max-w-xl mb-10"
+              >
+                {hero.subtitle}
+              </motion.p>
+              <motion.div variants={STAGGER_CHILD}>
+                <Link href={hero.ctaLink || '/'}>
+                  <MagneticButton>{hero.ctaText}</MagneticButton>
+                </Link>
+              </motion.div>
+            </motion.div>
+          </section>
+        );
+      })()}
 
       {/* Marquee Banner */}
       {data.announcement && (
@@ -130,7 +145,7 @@ export default function Home() {
       )}
 
       {/* Collections Strip */}
-      {data.featuredCollections.length > 0 && (
+      {(data.featuredCollections?.length ?? 0) > 0 && (
         <section className="py-24 px-4 md:px-8 max-w-[1280px] mx-auto">
           <div className="flex justify-between items-end mb-12">
             <h2 className="font-serif text-3xl md:text-4xl text-[var(--fs-ivory)]">Featured Collections</h2>
@@ -140,7 +155,7 @@ export default function Home() {
           </div>
           
           <div className="flex gap-4 overflow-x-auto pb-8 snap-x hide-scrollbar">
-            {data.featuredCollections.map((col) => (
+            {data.featuredCollections?.map((col) => (
               <Link key={col.id} href={`/collections/${col.slug}`} className="group relative min-w-[280px] md:min-w-[320px] aspect-[4/5] overflow-hidden bg-[var(--fs-surface-2)] snap-start">
                 {col.imageUrl && (
                   <Image 
@@ -164,7 +179,7 @@ export default function Home() {
       )}
 
       {/* Product Grid */}
-      {data.featuredProducts.length > 0 && (
+      {(data.featuredProducts?.length ?? 0) > 0 && (
         <section className="py-24 px-4 md:px-8 bg-[var(--fs-surface-2)]">
           <div className="max-w-[1280px] mx-auto">
             <div className="flex justify-between items-end mb-12">
@@ -174,7 +189,7 @@ export default function Home() {
               </Link>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {data.featuredProducts.map((p) => (
+              {data.featuredProducts?.map((p) => (
                 <ProductCard key={p.id} product={p} />
               ))}
             </div>

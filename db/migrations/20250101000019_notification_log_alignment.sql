@@ -19,3 +19,16 @@ ON notification_log(status, sent_at DESC);
 
 CREATE INDEX IF NOT EXISTS notification_log_provider_response_gin
 ON notification_log USING GIN(provider_response);
+
+
+
+
+
+
+
+
+
+
+
+
+

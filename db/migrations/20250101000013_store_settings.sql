@@ -17,3 +17,16 @@ INSERT INTO store_settings (setting_key, setting_value) VALUES
     ('stock_alert_threshold', '10'),
     ('razorpay_live_mode', 'false')
 ON CONFLICT (setting_key) DO NOTHING;
+
+
+
+
+
+
+
+
+
+
+
+
+

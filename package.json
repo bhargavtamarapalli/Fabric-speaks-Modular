@@ -9,20 +9,34 @@
     "apps/*"
   ],
   "scripts": {
-    "db:migrate": "node-pg-migrate up",
+    "db:migrate": "node-pg-migrate -m db/migrations up",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "vitest run"
+    "test": "vitest run",
+    "setup:shared": "node scripts/setup-env.js",
+    "dev:gateway": "node local-gateway.js",
+    "dev:frontend": "npm --workspaces=false --prefix apps/web run dev",
+    "dev:services": "concurrently \"npm --workspaces=false --prefix services/admin-service run dev\" \"npm --workspaces=false --prefix services/auth-service run dev\" \"npm --workspaces=false --prefix services/catalog-service run dev\" \"npm --workspaces=false --prefix services/cart-service run dev\" \"npm --workspaces=false --prefix services/order-service run dev\" \"npm --workspaces=false --prefix services/inventory-service run dev\" \"npm --workspaces=false --prefix services/payment-service run dev\" \"npm --workspaces=false --prefix services/notification-service run dev\" \"npm --workspaces=false --prefix services/pincode-service run dev\" \"npm --workspaces=false --prefix services/return-service run dev\" \"npm --workspaces=false --prefix services/search-service run dev\" \"npm --workspaces=false --prefix services/support-service run dev\"",
+    "dev:admin": "npm --workspaces=false --prefix services/admin-service run dev",
+    "dev:auth-debug": "concurrently \"npm run dev:gateway\" \"npm run dev:frontend\" \"npm --workspaces=false --prefix services/auth-service run dev\"",
+    "dev:all": "npm run setup:shared && concurrently \"npm:dev:services\" \"npm run dev:gateway\" \"npm run dev:frontend\"",
+    "stop": "taskkill /F /IM node.exe || exit 0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "eslint": "^8.57.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "prettier": "^3.0.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^8.57.0",
     "eslint-plugin-import": "^2.29.0",
     "node-pg-migrate": "^7.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
     "vitest": "^1.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^3.0.5"
   }
 }

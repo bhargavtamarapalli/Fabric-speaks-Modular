@@ -152,3 +152,16 @@ CREATE INDEX IF NOT EXISTS variants_badges_gin
 -- GIN index on images_json JSONB
 CREATE INDEX IF NOT EXISTS variants_images_gin
   ON variants USING GIN(images_json);
+
+
+
+
+
+
+
+
+
+
+
+
+

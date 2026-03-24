@@ -1,8 +1,24 @@
 import { z } from 'zod';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
+import * as fs from 'fs';
 import { logger } from './logger';
 
-dotenv.config();
+// Try to load service-specific .env first, then fall back to root
+const possiblePaths = [
+  path.resolve(process.cwd(), '.env'),           // Service's own .env
+  path.resolve(__dirname, '../../../.env'),       // Root .env from node_modules
+  path.resolve(__dirname, '../../.env'),          // Alternative root path
+];
+
+for (const envPath of possiblePaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log('Loaded .env from:', envPath);
+  }
+}
+
+console.log('REDIS_URL from env:', process.env.REDIS_URL);
 
 if (!process.env.APP_JWT_SECRET && process.env.JWT_SECRET) {
   process.env.APP_JWT_SECRET = process.env.JWT_SECRET;
@@ -50,7 +66,7 @@ export function loadEnv<T extends z.ZodRawShape>(serviceSchema: T) {
       }
     }
   });
-  
+
   try {
     return mergedSchema.parse(process.env);
   } catch (error) {

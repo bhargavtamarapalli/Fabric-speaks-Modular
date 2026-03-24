@@ -34,7 +34,10 @@ export class EventConsumer {
             throw error;
           }
         },
-        { connection: redis as any }
+        { 
+          connection: redis as any,
+          maxRetriesPerRequest: null
+        }
       );
 
       worker.on('completed', (job) => {

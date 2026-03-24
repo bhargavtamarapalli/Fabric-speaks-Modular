@@ -41,6 +41,8 @@ export const viewport: Viewport = {
   themeColor: "#0D7377",
 };
 
+import { AuthProvider } from "@/context/AuthContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -52,10 +54,12 @@ export default function RootLayout({
         className={`${dmSans.variable} ${dmSerifDisplay.variable} ${dmMono.variable} antialiased font-sans`}
       >
         <ToastProvider>
-          <ErrorBoundary>
-            <PwaRegistry />
-            {children}
-          </ErrorBoundary>
+          <AuthProvider>
+            <ErrorBoundary>
+              <PwaRegistry />
+              {children}
+            </ErrorBoundary>
+          </AuthProvider>
         </ToastProvider>
       </body>
     </html>

@@ -26,7 +26,15 @@ CREATE INDEX products_fts_idx ON products USING GIN(
 );
 
 -- 2. Bulk Upload Tracking Table
-CREATE TYPE IF NOT EXISTS bulk_upload_status AS ENUM ('pending', 'processing', 'completed', 'failed');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bulk_upload_status') THEN
+    CREATE TYPE bulk_upload_status AS ENUM (
+'pending', 'processing', 'completed', 'failed'
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS bulk_uploads (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -43,3 +51,17 @@ CREATE TABLE IF NOT EXISTS bulk_uploads (
 
 CREATE INDEX IF NOT EXISTS bulk_uploads_created_by_idx ON bulk_uploads(created_by);
 CREATE INDEX IF NOT EXISTS bulk_uploads_status_idx ON bulk_uploads(status);
+
+
+
+
+
+
+
+
+
+
+
+
+
+

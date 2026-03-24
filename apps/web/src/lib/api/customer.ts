@@ -4,6 +4,8 @@ export interface UserProfile {
   name: string;
   email: string;
   mobile: string;
+  whatsapp_enabled: boolean;
+  email_verified: boolean;
 }
 
 export async function getProfile(signal?: AbortSignal): Promise<UserProfile> {

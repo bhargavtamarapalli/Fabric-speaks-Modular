@@ -26,3 +26,16 @@ CREATE TABLE IF NOT EXISTS order_status_history (
 );
 
 CREATE INDEX IF NOT EXISTS order_status_history_order_id_idx ON order_status_history(order_id);
+
+
+
+
+
+
+
+
+
+
+
+
+

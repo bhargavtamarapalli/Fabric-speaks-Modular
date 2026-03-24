@@ -12,16 +12,16 @@ export const getRedisClient = (): Redis => {
     const options: RedisOptions = (redisUrl || isUpstash)
       ? { 
           connectionName: 'fs-backend',
-          retryStrategy: (times) => (times <= 3 ? 500 : null),
+          retryStrategy: (times) => Math.min(times * 200, 3000), // Indefinite exponential backoff
           lazyConnect: true,
-          enableOfflineQueue: false,
+          maxRetriesPerRequest: null,
           tls: isUpstash ? { rejectUnauthorized: false } : undefined
         }
       : {
           host: process.env.REDIS_HOST || 'localhost',
           port: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379,
           maxRetriesPerRequest: null,
-          retryStrategy: (times) => (times <= 10 ? 2000 : null), // More lenient for local dev
+          retryStrategy: (times) => Math.min(times * 100, 3000),
           lazyConnect: true,
         };
 
@@ -31,7 +31,13 @@ export const getRedisClient = (): Redis => {
       logger.info('Redis initialized in PRODUCTION mode');
     }
 
-    redisClient.on('error', (err) => {
+    redisClient.on('error', (err: any) => {
+      // Silence common transient network resets to reduce log noise
+      const silentCodes = ['ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH'];
+      if (silentCodes.includes(err.code)) {
+        logger.debug(`Redis connection transient error (${err.code}), retrying...`);
+        return;
+      }
       console.error('Redis Client Error', err);
     });
   }

@@ -143,13 +143,15 @@ export const ReorderCollectionProductsSchema = z.object({
     productIds: z.array(z.string().uuid()).min(1)
 });
 
-export const BulkPriceUpdateSchema = z.object({
+export const BulkPriceUpdateBaseSchema = z.object({
     targetType: z.enum(['product', 'variant', 'collection', 'brand', 'global']),
     targetIds: z.array(z.string().uuid()).optional().default([]),
     adjustmentType: z.enum(['PERCENT', 'FIXED']),
     adjustmentValue: z.number().min(-1000).max(1000),
     applyTo: z.enum(['base_price', 'price_override']).default('base_price')
-}).refine((data) => {
+});
+
+export const BulkPriceUpdateSchema = BulkPriceUpdateBaseSchema.refine((data) => {
     if (data.targetType === 'global') return true;
     return data.targetIds.length > 0;
 }, {
@@ -157,7 +159,7 @@ export const BulkPriceUpdateSchema = z.object({
     path: ['targetIds']
 });
 
-export const SchedulePriceChangeSchema = BulkPriceUpdateSchema.extend({
+export const SchedulePriceChangeSchema = BulkPriceUpdateBaseSchema.extend({
     scheduledAt: z.string().datetime()
 });
 

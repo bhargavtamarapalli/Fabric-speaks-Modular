@@ -2,7 +2,7 @@
 
 import { useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAdminAuth } from '@/context/AdminAuthContext';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import type { AdminRole } from '@/lib/admin/types';
 
@@ -12,20 +12,20 @@ interface WithRoleGuardProps {
 }
 
 export const WithRoleGuard = ({ children, allowedRoles }: WithRoleGuardProps) => {
-  const { user, loading } = useAuth();
+  const { role, loading, user } = useAdminAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!loading) {
-      if (!user) {
+      if (!user || !role) {
         router.push('/login?redirect=/admin');
         return;
       }
-      if (!user.role || !allowedRoles.includes(user.role as AdminRole)) {
+      if (!allowedRoles.includes(role)) {
         router.push('/admin/unauthorized');
       }
     }
-  }, [user, loading, allowedRoles, router]);
+  }, [user, role, loading, allowedRoles, router]);
 
   if (loading) {
     return (
@@ -35,7 +35,7 @@ export const WithRoleGuard = ({ children, allowedRoles }: WithRoleGuardProps) =>
     );
   }
 
-  if (!user || !user.role || !allowedRoles.includes(user.role as AdminRole)) {
+  if (!user || !role || !allowedRoles.includes(role)) {
     return null; // Will redirect in useEffect
   }
 

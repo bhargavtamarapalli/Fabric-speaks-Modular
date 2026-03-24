@@ -5,6 +5,7 @@ import { DashboardRepository } from '../repositories/dashboard.repository';
 import { AppError, ErrorCode, getRedisClient, logger } from '@fs/shared';
 import { AdminListQueryDto, AuditLogQueryDto, CreateAdminUserDto } from '../schemas/admin.schemas';
 import { Queue } from 'bullmq';
+import admin from 'firebase-admin';
 
 export class AdminService {
   private eventQueue: Queue;
@@ -108,6 +109,22 @@ export class AdminService {
 
     const deleted = await this.adminUserRepo.softDelete(userId);
     if (!deleted) throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
+
+    // Revoke all Firebase refresh tokens to force re-authentication on next request
+    try {
+      await admin.auth().revokeRefreshTokens(userId);
+    } catch (err) {
+      logger.error(`Failed to revoke Firebase tokens for user ${userId}:`, err);
+      // Continue anyway - user is already soft deleted
+    }
+
+    // Mark session as revoked to invalidate active JWTs immediately
+    try {
+      await this.adminUserRepo.resetSession(userId);
+    } catch (err) {
+      logger.error(`Failed to revoke session for user ${userId}:`, err);
+      // Continue anyway - user is already soft deleted
+    }
 
     await this.auditLogRepo.insert({
       adminId,

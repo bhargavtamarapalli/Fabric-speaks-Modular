@@ -10,3 +10,16 @@ ADD COLUMN price_at_add NUMERIC(10, 2) NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN cart_items.price_at_add IS 
   'Price locked at time of addition. MUST NOT be updated after insert. Used instead of fetching current variant price (RULE 1).';
+
+
+
+
+
+
+
+
+
+
+
+
+

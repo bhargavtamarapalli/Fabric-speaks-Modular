@@ -25,7 +25,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
       setError(null);
       const res = await getProductBySlug(params.slug);
       setProduct(res);
-      if (res.variants.length > 0) {
+      if (res?.variants?.length && res.variants.length > 0) {
         setSelectedVariantId(res.variants[0].id);
       }
     } catch (err: any) {

@@ -13,13 +13,19 @@
 -- razorpay_payment_id is the idempotency key for the PAY-04 webhook.
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS payment_status AS ENUM (
-  'PENDING',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status') THEN
+    CREATE TYPE payment_status AS ENUM (
+'PENDING',
   'CAPTURED',
   'FAILED',
   'REFUNDED',
   'PARTIALLY_REFUNDED'
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS payments (
   id                  UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -49,16 +55,25 @@ CREATE INDEX IF NOT EXISTS payments_user_id_idx  ON payments(user_id);
 -- return_requests uses soft-delete (is_deleted) to maintain audit trail
 -- =============================================================================
 
-CREATE TYPE IF NOT EXISTS return_type AS ENUM (
-  'WRONG_ITEM',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'return_type') THEN
+    CREATE TYPE return_type AS ENUM (
+'WRONG_ITEM',
   'DAMAGED',
   'SIZE_EXCHANGE',
   'CHANGED_MIND',
   'OTHER'
-);
+    );
+  END IF;
+END
+$$;
 
-CREATE TYPE IF NOT EXISTS return_status AS ENUM (
-  'REQUESTED',
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'return_status') THEN
+    CREATE TYPE return_status AS ENUM (
+'REQUESTED',
   'APPROVED',
   'REJECTED',
   'PICKUP_SCHEDULED',
@@ -66,7 +81,10 @@ CREATE TYPE IF NOT EXISTS return_status AS ENUM (
   'INSPECTED',
   'COMPLETED',
   'FAST_TRACKED'    -- Express return path: approved + refund issued within 24h
-);
+    );
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS return_requests (
   id                    UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -117,3 +135,17 @@ CREATE INDEX IF NOT EXISTS return_items_return_request_id_idx
 
 CREATE INDEX IF NOT EXISTS return_items_variant_id_idx
   ON return_items(variant_id);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
