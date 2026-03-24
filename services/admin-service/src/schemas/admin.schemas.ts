@@ -34,6 +34,7 @@ export type AuditLogQueryDto = z.infer<typeof AuditLogQuerySchema>;
  */
 export const CreateAdminUserSchema = z.object({
   name: z.string().min(2).max(100),
+  email: z.string().email().optional(),
   mobile: z.string().regex(/^[6-9]\d{9}$/),
   role: z.enum(['inventoryManager', 'supportAgent', 'superAdmin'])
 });
