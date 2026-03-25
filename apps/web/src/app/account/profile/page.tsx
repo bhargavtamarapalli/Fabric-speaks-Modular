@@ -13,10 +13,12 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; email?: string; mobile?: string }>({});
 
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
   const [pwForm, setPwForm] = useState({ current: '', new: '', confirm: '' });
+  const [pwErrors, setPwErrors] = useState<{ current?: string; new?: string; confirm?: string }>({});
 
   const fetchProfile = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -47,6 +49,25 @@ export default function ProfilePage() {
 
   const handleSave = async () => {
     if (!profile) return;
+    
+    // Validate all fields before save (I5-1)
+    const errors: typeof fieldErrors = {};
+    if (!profile.name?.trim()) errors.name = 'Name is required';
+    else if (profile.name.length < 2) errors.name = 'Name must be at least 2 characters';
+    
+    if (!profile.email?.trim()) errors.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email)) errors.email = 'Enter a valid email address';
+    
+    if (profile.mobile && !/^\d{10}$/.test(profile.mobile.replace(/\D/g, ''))) {
+      errors.mobile = 'Mobile must be 10 digits';
+    }
+    
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      showToast('Please fix the errors below', 'error');
+      return;
+    }
+    
     try {
       setSaving(true);
       await updateProfile({
@@ -57,6 +78,7 @@ export default function ProfilePage() {
         email_verified: profile.email_verified
       });
       setEditMode(false);
+      setFieldErrors({});
       showToast('Profile updated successfully', 'success');
       await refreshUser();
     } catch (err: any) {
@@ -64,6 +86,33 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
+  };
+  
+  // Validate individual field on blur (I5-1)
+  const validateField = (field: 'name' | 'email' | 'mobile', value: string) => {
+    const errors: typeof fieldErrors = { ...fieldErrors };
+    
+    if (field === 'name') {
+      if (!value?.trim()) errors.name = 'Name is required';
+      else if (value.length < 2) errors.name = 'Name must be at least 2 characters';
+      else delete errors.name;
+    }
+    
+    if (field === 'email') {
+      if (!value?.trim()) errors.email = 'Email is required';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) errors.email = 'Enter a valid email address';
+      else delete errors.email;
+    }
+    
+    if (field === 'mobile') {
+      if (value && !/^\d{10}$/.test(value.replace(/\D/g, ''))) {
+        errors.mobile = 'Mobile must be 10 digits';
+      } else {
+        delete errors.mobile;
+      }
+    }
+    
+    setFieldErrors(errors);
   };
 
   const toggleWhatsapp = async (val: boolean) => {
@@ -144,8 +193,14 @@ export default function ProfilePage() {
                 disabled={!editMode}
                 value={profile.name}
                 onChange={e => setProfile({ ...profile, name: e.target.value })}
-                className="w-full bg-[var(--fs-surface-2)] border border-[var(--fs-wire)] rounded-lg py-3 px-4 text-sm text-[var(--fs-ivory)] disabled:opacity-50 focus:border-[var(--fs-linen)] outline-none transition"
+                onBlur={() => validateField('name', profile.name)}
+                className={`w-full bg-[var(--fs-surface-2)] border rounded-lg py-3 px-4 text-sm text-[var(--fs-ivory)] disabled:opacity-50 focus:outline-none transition ${
+                  fieldErrors.name ? 'border-red-500' : 'border-[var(--fs-wire)] focus:border-[var(--fs-linen)]'
+                }`}
               />
+              {fieldErrors.name && (
+                <p className="text-[10px] text-red-500 mt-1">{fieldErrors.name}</p>
+              )}
             </div>
           </div>
 
@@ -160,13 +215,21 @@ export default function ProfilePage() {
                 <button className="text-[10px] text-amber-500 hover:underline uppercase tracking-tighter">Verify Now</button>
               )}
             </div>
-            <input 
-              type="email" 
-              disabled={!editMode}
-              value={profile.email}
-              onChange={e => setProfile({ ...profile, email: e.target.value })}
-              className="w-full bg-[var(--fs-surface-2)] border border-[var(--fs-wire)] rounded-lg py-3 px-4 text-sm text-[var(--fs-ivory)] disabled:opacity-50 focus:border-[var(--fs-linen)] outline-none transition"
-            />
+            <div>
+              <input 
+                type="email" 
+                disabled={!editMode}
+                value={profile.email}
+                onChange={e => setProfile({ ...profile, email: e.target.value })}
+                onBlur={() => validateField('email', profile.email)}
+                className={`w-full bg-[var(--fs-surface-2)] border rounded-lg py-3 px-4 text-sm text-[var(--fs-ivory)] disabled:opacity-50 focus:outline-none transition ${
+                  fieldErrors.email ? 'border-red-500' : 'border-[var(--fs-wire)] focus:border-[var(--fs-linen)]'
+                }`}
+              />
+              {fieldErrors.email && (
+                <p className="text-[10px] text-red-500 mt-1">{fieldErrors.email}</p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -178,14 +241,24 @@ export default function ProfilePage() {
                 </span>
               )}
             </div>
-            <input 
-              type="tel" 
-              disabled={!editMode || !!profile.mobile}
-              value={profile.mobile}
-              placeholder={!profile.mobile ? "Add mobile number" : ""}
-              onChange={e => setProfile({ ...profile, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })}
-              className={`w-full bg-[var(--fs-surface-2)] border border-[var(--fs-wire)] rounded-lg py-3 px-4 text-sm text-[var(--fs-ivory)] disabled:opacity-50 focus:border-[var(--fs-linen)] outline-none transition ${!profile.mobile && editMode ? 'border-dashed' : ''}`}
-            />
+            <div>
+              <input 
+                type="tel" 
+                disabled={!editMode || !!profile.mobile}
+                value={profile.mobile}
+                placeholder={!profile.mobile ? "Add mobile number" : ""}
+                onChange={e => setProfile({ ...profile, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                onBlur={() => validateField('mobile', profile.mobile)}
+                className={`w-full bg-[var(--fs-surface-2)] border rounded-lg py-3 px-4 text-sm text-[var(--fs-ivory)] disabled:opacity-50 focus:outline-none transition ${
+                  fieldErrors.mobile ? 'border-red-500' : (
+                    !profile.mobile && editMode ? 'border-dashed border-[var(--fs-wire)]' : 'border-[var(--fs-wire)] focus:border-[var(--fs-linen)]'
+                  )
+                }`}
+              />
+              {fieldErrors.mobile && (
+                <p className="text-[10px] text-red-500 mt-1">{fieldErrors.mobile}</p>
+              )}
+            </div>
             {!profile.mobile && (
               <p className="text-[10px] text-amber-500 mt-1 italic">Adding a mobile number enables WhatsApp notifications.</p>
             )}

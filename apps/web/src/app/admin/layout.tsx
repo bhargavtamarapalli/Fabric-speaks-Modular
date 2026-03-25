@@ -27,18 +27,37 @@ const ROLE_COLOR: Record<AdminRole, string> = {
 };
 
 /**
+ * Converts the ash fallback color to an "r,g,b" string.
+ * THEME.colors.ash is "#A5A5A5" -> "165,165,165"
+ */
+function getAshAsRgb(): string {
+  const ash = THEME.colors.ash.replace('#', '');
+  return [
+    parseInt(ash.slice(0, 2), 16),
+    parseInt(ash.slice(2, 4), 16),
+    parseInt(ash.slice(4, 6), 16),
+  ].join(',');
+}
+
+/**
  * Safely parses a hex color string to RGB values.
  * Returns a "r,g,b" string or fallback values if parsing fails.
  */
 function parseHexToRgb(hex: string | undefined): string {
-  if (!hex) return '128,128,128';
+  if (!hex) return getAshAsRgb();
   const cleanHex = hex.replace('#', '');
-  if (cleanHex.length !== 6) return '128,128,128';
+  if (cleanHex.length !== 6) return getAshAsRgb();
   const match = cleanHex.match(/.{2}/g);
-  if (!match) return '128,128,128';
-  return match.map(h => {
+  if (!match) return getAshAsRgb();
+  const ashHex = THEME.colors.ash.replace('#', '');
+  return match.map((h, index) => {
     const parsed = parseInt(h, 16);
-    return isNaN(parsed) ? 128 : parsed;
+    if (isNaN(parsed)) {
+      // Each channel falls back to its proper R, G, or B value from ash
+      const ashStart = index * 2;
+      return parseInt(ashHex.slice(ashStart, ashStart + 2), 16);
+    }
+    return parsed;
   }).join(',');
 }
 

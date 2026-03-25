@@ -76,12 +76,28 @@ export function useOrders(initialSearch: string = '') {
   const handleBulkShiprocket = useCallback(async () => {
     try {
       setBulkLoading(true);
-      const res = await ordersApi.bulkPushShiprocket(selected);
+      
+      // Wrap API call with 30-second timeout (I3-2)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Shiprocket request timed out. Please try again.')), 30000)
+      );
+      
+      const res = await Promise.race([
+        ordersApi.bulkPushShiprocket(selected),
+        timeoutPromise,
+      ]) as any;
+      
       showToast(`Pushed ${res.pushed} orders to Shiprocket`, 'success');
       setSelected([]);
       mutate();
     } catch (e: any) {
-      showToast(mapError(e), 'error');
+      const errorMessage = e.message || mapError(e);
+      showToast(errorMessage, 'error');
+      
+      // For timeout errors, suggest retry
+      if (e.message?.includes('timed out')) {
+        showToast('Check your connection. You can retry the push.', 'info');
+      }
     } finally {
       setBulkLoading(false);
     }

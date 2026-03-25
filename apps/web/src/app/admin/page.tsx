@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { SpiderLoader } from '@/components/atoms/SpiderLoader';
+import { THEME } from '@/lib/admin/theme';
 
 /**
  * Admin root page - redirects to dashboard
@@ -16,11 +18,22 @@ export default function AdminPage() {
     }, [router]);
 
     return (
-        <div className="flex items-center justify-center min-h-screen">
-            <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Loading admin...</p>
-            </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center', 
+          justifyContent: 'center',
+          minHeight: '100vh',
+          background: THEME.colors.bg,
+          padding: '20px'
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <SpiderLoader size="lg" />
+            <p style={{
+              marginTop: '16px',
+              color: THEME.colors.muted,
+              fontFamily: THEME.fonts.ui
+            }}>Loading admin...</p>
+          </div>
         </div>
     );
 }

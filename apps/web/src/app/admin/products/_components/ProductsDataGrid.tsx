@@ -43,7 +43,14 @@ export function ProductsDataGrid({
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
+    <div style={{ 
+      display: 'grid', 
+      gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', 
+      gap: THEME.spacing.sm,
+      overflowX: 'auto',
+      paddingBottom: '10px',
+      WebkitOverflowScrolling: 'touch'
+    }}>
       {products.map(p => (
         <ProductCard
           key={p.id}

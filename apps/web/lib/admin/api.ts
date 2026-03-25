@@ -467,7 +467,10 @@ export const supportApi = {
 // ─── Coupons ─────────────────────────────────────────────────────────────────
 
 export const couponsApi = {
-  list: (signal?: AbortSignal) => getWithCache<Coupon[]>('/admin/coupons', signal),
+  list: (params?: { page?: number; limit?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString(params);
+    return getWithCache<{ items: Coupon[]; total: number; page: number; limit: number; totalPages: number }>(`/admin/coupons?${qs}`, signal);
+  },
   create: async (data: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => {
     const res = await post<Coupon>('/admin/coupons', data);
     invalidateAdminCache('/admin/coupons');

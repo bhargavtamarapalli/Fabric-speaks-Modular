@@ -1,7 +1,7 @@
 'use client';
 // app/admin/products/new/page.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { THEME } from '@/lib/admin/theme';
 import { productsApi, brandsApi, categoriesApi } from '@/lib/admin/api';
@@ -10,15 +10,15 @@ import Image from 'next/image';
 import {
   PageHeader, SectionCard, ActionButton, FormField, TextInput,
   Textarea, Select, Toggle, useToast, ErrorBanner, MonoText,
-  formatCurrency, 
+  formatCurrency,
 } from '@/components/admin/shared';
 import { mapError } from '@/lib/admin/errors';
 
-const SIZES   = ['0.5m','1m','1.5m','2m','2.5m','3m','5m','10m'];
-const COLOURS = ['White','Off-white','Ecru','Beige','Grey','Black','Navy','Olive','Rust','Indigo'];
-const FABRIC_TYPES  = ['Linen','Cotton','Khadi','Silk','Wool','Georgette','Chiffon','Crepe'];
-const WEAVE_TYPES   = ['Plain','Twill','Satin','Dobby','Jacquard'];
-const BREATHABILITY = ['Excellent','Good','Fair','Poor'];
+const SIZES = ['0.5m', '1m', '1.5m', '2m', '2.5m', '3m', '5m', '10m'];
+const COLOURS = ['White', 'Off-white', 'Ecru', 'Beige', 'Grey', 'Black', 'Navy', 'Olive', 'Rust', 'Indigo'];
+const FABRIC_TYPES = ['Linen', 'Cotton', 'Khadi', 'Silk', 'Wool', 'Georgette', 'Chiffon', 'Crepe'];
+const WEAVE_TYPES = ['Plain', 'Twill', 'Satin', 'Dobby', 'Jacquard'];
+const BREATHABILITY = ['Excellent', 'Good', 'Fair', 'Poor'];
 
 const INITIAL_FORM = {
   name: '',
@@ -42,8 +42,8 @@ interface MatrixCell {
 type Matrix = Record<string, Record<string, MatrixCell>>;
 
 function generateSku(productName: string, colour: string, size: string): string {
-  const p = (productName.slice(0,3).toUpperCase().replace(/\s/g,'') || 'PRD');
-  return `${p}-${colour.slice(0,3).toUpperCase()}-${size.replace('.','').replace('m','M')}`;
+  const p = (productName.slice(0, 3).toUpperCase().replace(/\s/g, '') || 'PRD');
+  return `${p}-${colour.slice(0, 3).toUpperCase()}-${size.replace('.', '').replace('m', 'M')}`;
 }
 
 function VariantMatrix({ productName, sizes, colours, matrix, onChange }: { productName: string; sizes: string[]; colours: string[]; matrix: Matrix; onChange: (m: Matrix) => void }) {
@@ -89,24 +89,24 @@ function VariantMatrix({ productName, sizes, colours, matrix, onChange }: { prod
                       {cell.enabled && (
                         <>
                           <label className="sr-only" htmlFor={`price-${cellId}`}>Price for {colour} {size}</label>
-                          <input 
+                          <input
                             id={`price-${cellId}`}
-                            type="number" 
-                            placeholder="₹ Price" 
-                            value={cell.price} 
-                            onChange={e => update(colour, size, 'price', e.target.value)} 
+                            type="number"
+                            placeholder="₹ Price"
+                            value={cell.price}
+                            onChange={e => update(colour, size, 'price', e.target.value)}
                             aria-label={`Price for ${colour} ${size}`}
-                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ivory, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} 
+                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ivory, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }}
                           />
                           <label className="sr-only" htmlFor={`stock-${cellId}`}>Stock for {colour} {size}</label>
-                          <input 
+                          <input
                             id={`stock-${cellId}`}
-                            type="number" 
-                            placeholder="Stock" 
-                            value={cell.stockQty} 
+                            type="number"
+                            placeholder="Stock"
+                            value={cell.stockQty}
                             onChange={e => update(colour, size, 'stockQty', e.target.value)}
                             aria-label={`Stock for ${colour} ${size}`}
-                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ash, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }} 
+                            style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${THEME.colors.ghost}`, color: THEME.colors.ash, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, padding: '2px 0', outline: 'none', marginBottom: '3px' }}
                           />
                           <div style={{ fontSize: '9px', color: THEME.colors.muted, fontFamily: THEME.fonts.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} aria-label={`SKU: ${cell.sku}`}>{cell.sku}</div>
                         </>
@@ -126,13 +126,15 @@ function VariantMatrix({ productName, sizes, colours, matrix, onChange }: { prod
 export default function NewProductPage() {
   const router = useRouter();
   const { showToast, ToastComponent } = useToast();
-  const [brands,     setBrands]     = useState<Brand[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [saving,     setSaving]     = useState(false);
+  const [brandsLoading, setBrandsLoading] = useState(true);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [selectedSizes,   setSelectedSizes]   = useState(['1m','2m','3m']);
-  const [selectedColours, setSelectedColours] = useState(['White','Ecru']);
+  const [selectedSizes, setSelectedSizes] = useState(['1m', '2m', '3m']);
+  const [selectedColours, setSelectedColours] = useState(['White', 'Ecru']);
   const [matrix, setMatrix] = useState<Matrix>({});
   const [form, setForm] = useState<ProductForm>(INITIAL_FORM);
   const [errors, setErrors] = useState<Partial<Record<keyof ProductForm, string>>>({});
@@ -140,16 +142,30 @@ export default function NewProductPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([
-      brandsApi.list(controller.signal), 
-      categoriesApi.list(controller.signal)
-    ]).then(([b,c]) => { 
-      setBrands(b); 
-      setCategories(c); 
-    }).catch(err => {
-      if (err.name === 'AbortError' || err.name === 'CanceledError') return;
-      console.error('Failed to load initial data', err);
-    });
+
+    const loadData = async () => {
+      try {
+        const [b, c] = await Promise.all([
+          brandsApi.list(controller.signal),
+          categoriesApi.list(controller.signal),
+        ]);
+        if (!controller.signal.aborted) {
+          setBrands(b);
+          setBrandsLoading(false);
+        }
+        if (!controller.signal.aborted) {
+          setCategories(c);
+          setCategoriesLoading(false);
+        }
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
+        console.error('Failed to load initial data', err);
+        setBrandsLoading(false);
+        setCategoriesLoading(false);
+      }
+    };
+
+    loadData();
     return () => controller.abort();
   }, []);
 
@@ -186,19 +202,19 @@ export default function NewProductPage() {
 
   const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    setImageFiles(p => [...p, ...files].slice(0,6));
-    files.forEach(f => { const r = new FileReader(); r.onload = ev => setImagePreviews(p => [...p, ev.target?.result as string].slice(0,6)); r.readAsDataURL(f); });
+    setImageFiles(p => [...p, ...files].slice(0, 6));
+    files.forEach(f => { const r = new FileReader(); r.onload = ev => setImagePreviews(p => [...p, ev.target?.result as string].slice(0, 6)); r.readAsDataURL(f); });
   };
 
-  const buildVariants = () => {
+  const buildVariants = useMemo(() => {
     const vars: Variant[] = [];
     for (const colour of selectedColours) for (const size of selectedSizes) {
       const cell = matrix[colour]?.[size];
       if (!cell?.enabled || !cell.price) continue;
-      vars.push({ id: `var-${Date.now()}-${Math.random().toString(36).substr(2,9)}`, size, colour, sku: cell.sku, price: parseFloat(cell.price), comparePrice: cell.comparePrice ? parseFloat(cell.comparePrice) : null, stockQty: parseInt(cell.stockQty,10)||0, colourImageUrl: null, version: 1 });
+      vars.push({ id: `var-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, size, colour, sku: cell.sku, price: parseFloat(cell.price), comparePrice: cell.comparePrice ? parseFloat(cell.comparePrice) : null, stockQty: parseInt(cell.stockQty, 10) || 0, colourImageUrl: null, version: 1 });
     }
     return vars;
-  };
+  }, [selectedColours, selectedSizes, matrix]);
 
   const handleSave = async () => {
     const validationErrors = validate(form);
@@ -206,14 +222,35 @@ export default function NewProductPage() {
       setErrors(validationErrors);
       return;
     }
-    const variants = buildVariants();
+    // Check for images - if not, show toast error
+    if (!imageFiles.length) {
+      showToast('At least one image is required', 'error');
+      return;
+    }
+    const variants = buildVariants;
     if (!variants.length) { setVariantError('Enable at least one variant with a price'); return; }
     setVariantError('');
     try {
       setSaving(true);
       const imageUrls: string[] = [];
-      for (const file of imageFiles) imageUrls.push(await productsApi.uploadImage(file));
-      await productsApi.create({ ...form, gsmWeight: parseInt(form.gsmWeight,10), brandName: brands.find(b=>b.id===form.brandId)?.name??'', categoryName: categories.find(c=>c.id===form.categoryId)?.name??'', variants, images: imageUrls });
+      for (const file of imageFiles) {
+        try {
+          // uploadImage returns Promise<string> - the image URL directly
+          const imageUrl = await productsApi.uploadImage(file);
+
+          // Validate upload response (I3-3)
+          if (!imageUrl || typeof imageUrl !== 'string') {
+            console.error('Upload response missing URL:', imageUrl);
+            throw new Error(`Failed to upload ${file.name}: server did not return image URL`);
+          }
+
+          imageUrls.push(imageUrl);
+        } catch (uploadError: any) {
+          throw new Error(`Image upload failed: ${uploadError.message || 'unknown error'}`);
+        }
+      }
+
+      await productsApi.create({ ...form, gsmWeight: parseInt(form.gsmWeight, 10), brandName: brands.find(b => b.id === form.brandId)?.name ?? '', categoryName: categories.find(c => c.id === form.categoryId)?.name ?? '', variants, images: imageUrls });
       showToast('Product created', 'success');
       router.push('/admin/products');
     } catch (e: any) { showToast(mapError(e), 'error'); }
@@ -232,7 +269,7 @@ export default function NewProductPage() {
           <ActionButton onClick={handleSave} loading={saving}>Save product</ActionButton>
         </div>
       } />
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '10px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <SectionCard title="Product information">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -247,15 +284,16 @@ export default function NewProductPage() {
               <FormField label="Description">
                 <Textarea value={form.description} onChange={e => updateField('description', e.target.value)} rows={3} />
               </FormField>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '10px' }}>
                 <FormField label="Brand" required error={errors.brandId} errorId="product-brand-error">
                   <Select
                     value={form.brandId}
                     onChange={e => updateField('brandId', e.target.value)}
+                    disabled={brandsLoading}
                     aria-invalid={!!errors.brandId}
                     aria-describedby={errors.brandId ? 'product-brand-error' : undefined}
                   >
-                    <option value="">Select brand</option>
+                    <option value="">{brandsLoading ? 'Loading brands...' : 'Select brand'}</option>
                     {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </Select>
                 </FormField>
@@ -263,10 +301,11 @@ export default function NewProductPage() {
                   <Select
                     value={form.categoryId}
                     onChange={e => updateField('categoryId', e.target.value)}
+                    disabled={categoriesLoading}
                     aria-invalid={!!errors.categoryId}
                     aria-describedby={errors.categoryId ? 'product-category-error' : undefined}
                   >
-                    <option value="">Select category</option>
+                    <option value="">{categoriesLoading ? 'Loading categories...' : 'Select category'}</option>
                     {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </Select>
                 </FormField>
@@ -274,7 +313,7 @@ export default function NewProductPage() {
             </div>
           </SectionCard>
           <SectionCard title="Fabric details">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '12px' }}>
               <FormField label="Fabric type">
                 <Select value={form.fabricType} onChange={e => updateField('fabricType', e.target.value)}>
                   {FABRIC_TYPES.map(t => <option key={t}>{t}</option>)}
@@ -338,8 +377,8 @@ export default function NewProductPage() {
             </div>
           </SectionCard>
           <SectionCard title={`Images (${imagePreviews.length}/6)`}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-              {imagePreviews.map((src,i) => (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '8px', marginBottom: '8px' }}>
+              {imagePreviews.map((src, i) => (
                 <div key={i} style={{ aspectRatio: '1', borderRadius: THEME.radius.md, overflow: 'hidden', border: `1px solid ${THEME.colors.border}`, position: 'relative' }}>
                   <Image
                     src={src}
@@ -348,18 +387,19 @@ export default function NewProductPage() {
                     unoptimized
                     style={{ objectFit: 'cover' }}
                   />
-                  <button onClick={() => { setImagePreviews(p=>p.filter((_,j)=>j!==i)); setImageFiles(p=>p.filter((_,j)=>j!==i)); }} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 12, zIndex: 1 }}>×</button>
+                  <button onClick={() => { setImagePreviews(p => p.filter((_, j) => j !== i)); setImageFiles(p => p.filter((_, j) => j !== i)); }} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 12, zIndex: 1 }}>×</button>
                 </div>
               ))}
               {imagePreviews.length < 6 && (
-                <label style={{ aspectRatio: '1', borderRadius: THEME.radius.md, border: `1px dashed ${THEME.colors.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexDirection: 'column', gap: 4 }}>
+                <label htmlFor="product-images" style={{ aspectRatio: '1', borderRadius: THEME.radius.md, border: `1px dashed ${THEME.colors.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexDirection: 'column', gap: 4 }}>
                   <span style={{ color: THEME.colors.muted, fontSize: 20 }} aria-hidden="true">+</span>
                   <span style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui }}>Add image</span>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    multiple 
-                    onChange={handleImageAdd} 
+                  <input
+                    id="product-images"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageAdd}
                     style={{ display: 'none' }}
                     aria-label="Upload product images"
                   />
@@ -368,9 +408,9 @@ export default function NewProductPage() {
             </div>
             <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>JPG, PNG, WebP. Converted to WebP on upload.</div>
           </SectionCard>
-          {buildVariants().length > 0 && (
-            <SectionCard title={`Variant summary (${buildVariants().length})`} noPadding>
-              {buildVariants().slice(0,6).map(v => (
+          {buildVariants.length > 0 && (
+            <SectionCard title={`Variant summary (${buildVariants.length})`} noPadding>
+              {buildVariants.slice(0, 6).map((v: Variant) => (
                 <div key={v.sku} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', borderBottom: `1px solid ${THEME.colors.ghost}20` }}>
                   <div>
                     <MonoText color={THEME.colors.muted}>{v.sku}</MonoText>
@@ -379,7 +419,7 @@ export default function NewProductPage() {
                   <span style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontSize: THEME.fontSizes.sm }}>{formatCurrency(v.price)}</span>
                 </div>
               ))}
-              {buildVariants().length > 6 && <div style={{ padding: '8px 14px', fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>+{buildVariants().length-6} more variants</div>}
+              {buildVariants.length > 6 && <div style={{ padding: '8px 14px', fontSize: THEME.fontSizes.xs, color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>+{buildVariants.length - 6} more variants</div>}
             </SectionCard>
           )}
         </div>

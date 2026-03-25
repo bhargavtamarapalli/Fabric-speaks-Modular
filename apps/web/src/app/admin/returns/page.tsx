@@ -4,6 +4,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAdminAuth } from '@/context/AdminAuthContext';
 import { THEME } from '@/lib/admin/theme';
 import { returnsApi } from '@/lib/admin/api';
 import type { Return } from '@/lib/admin/types';
@@ -36,34 +37,62 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function ReturnsPage() {
+  // ===== ALL HOOKS MUST BE AT THE TOP, BEFORE ANY CONDITIONAL LOGIC =====
+  
   const router = useRouter();
+  const { role, loading: authLoading } = useAdminAuth();
   const { showToast, ToastComponent } = useToast();
 
   const [returns,  setReturns]  = useState<Return[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
-  const [filter,   setFilter]   = useState('');
-  const [search,   setSearch]   = useState('');
+  const [filters,  setFilters]  = useState({ status: '', search: '' });
 
   const load = useCallback(async () => {
     try {
       setError(null);
       setLoading(true);
-      const res = await returnsApi.list({ status: filter || undefined });
+      const res = await returnsApi.list({ status: filters.status || undefined });
       setReturns(res.items);
     } catch (e: any) {
       setError(mapError(e));
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filters.status]);
 
   useEffect(() => { load(); }, [load]);
 
+  // ===== NOW SAFE TO DO CONDITIONAL LOGIC =====
+
+  const isAuthorized = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
+
+  if (authLoading) {
+    return (
+      <div style={{ padding: THEME.spacing.lg, textAlign: 'center', color: THEME.colors.muted }}>
+        Checking authorization...
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div style={{ padding: THEME.spacing.lg }}>
+        <ErrorBanner message="You do not have permission to access this page." />
+        <ActionButton
+          onClick={() => router.push('/admin/dashboard')}
+          style={{ marginTop: THEME.spacing.md }}
+        >
+          Back to Dashboard
+        </ActionButton>
+      </div>
+    );
+  }
+
   const filtered = returns.filter(r =>
-    !search ||
-    r.customer.name.toLowerCase().includes(search.toLowerCase()) ||
-    r.orderNumber.toLowerCase().includes(search.toLowerCase())
+    !filters.search ||
+    r.customer.name.toLowerCase().includes(filters.search.toLowerCase()) ||
+    r.orderNumber.toLowerCase().includes(filters.search.toLowerCase())
   );
 
   const columns = [
@@ -159,23 +188,38 @@ export default function ReturnsPage() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
         {STATUS_FILTERS.map(f => (
-          <FilterChip key={f.value} label={f.label} active={filter === f.value} onClick={() => setFilter(f.value)} />
+          <FilterChip key={f.value} label={f.label} active={filters.status === f.value} onClick={() => setFilters(p => ({ ...p, status: f.value }))} />
         ))}
         <div style={{ flex: 1, minWidth: '200px' }}>
-          <SearchInput placeholder="Search by customer or order..." value={search} onChange={setSearch} />
+          <SearchInput placeholder="Search by customer or order..." value={filters.search} onChange={(v) => setFilters(p => ({ ...p, search: v }))} />
         </div>
       </div>
 
       {/* Table */}
-      <div style={{ background: THEME.colors.surface3, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
-        <DataTable
-          columns={columns}
-          data={filtered}
-          loading={loading}
-          empty="No returns found"
-          onRowClick={r => router.push(`/admin/returns/${r.id}`)}
-          rowKey={r => r.id}
-        />
+      <div style={{ 
+        background: THEME.colors.surface3, 
+        border: `1px solid ${THEME.colors.border}`, 
+        borderRadius: THEME.radius.lg, 
+        overflow: 'hidden',
+        maxWidth: '100%'
+      }}>
+        <div style={{ 
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'thin',
+          scrollbarColor: `${THEME.colors.muted} transparent`
+        }}>
+          <div style={{ minWidth: '900px' }}>
+            <DataTable
+              columns={columns}
+              data={filtered}
+              loading={loading}
+              empty="No returns found"
+              onRowClick={r => router.push(`/admin/returns/${r.id}`)}
+              rowKey={r => r.id}
+            />
+          </div>
+        </div>
       </div>
 
       {ToastComponent}

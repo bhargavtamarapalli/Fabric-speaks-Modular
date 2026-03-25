@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAdminAuth } from '@/context/AdminAuthContext';
 import { returnsApi } from '@/lib/admin/api';
 import type { Return, ReturnTimeline, RefundStatus } from '@/lib/admin/types';
 import { THEME } from '@/lib/admin/theme';
@@ -34,7 +35,10 @@ const RETURN_BADGE: Record<string, string> = {
 };
 
 export default function ReturnDetailPage() {
+  // ===== ALL HOOKS MUST BE AT THE TOP, BEFORE ANY CONDITIONAL LOGIC =====
+  
   const router = useRouter();
+  const { role, loading: authLoading } = useAdminAuth();
   const params = useParams();
   const { showToast, ToastComponent } = useToast();
 
@@ -71,6 +75,32 @@ export default function ReturnDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ===== NOW SAFE TO DO CONDITIONAL LOGIC =====
+
+  const isAuthorized = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
+
+  if (authLoading) {
+    return (
+      <div style={{ padding: THEME.spacing.lg, textAlign: 'center', color: THEME.colors.muted }}>
+        Checking authorization...
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div style={{ padding: THEME.spacing.lg }}>
+        <ErrorBanner message="You do not have permission to access this page." />
+        <ActionButton
+          onClick={() => router.push('/admin/dashboard')}
+          style={{ marginTop: THEME.spacing.md }}
+        >
+          Back to Dashboard
+        </ActionButton>
+      </div>
+    );
+  }
+
   const handleCopyRefundId = async () => {
     if (!refund?.razorpayRefundId) return;
     try {
@@ -95,7 +125,7 @@ export default function ReturnDetailPage() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1.4fr 1fr',
+        gridTemplateColumns: 'minmax(0, 1fr)',
         gap: THEME.spacing.lg,
         alignItems: 'start',
       }}>

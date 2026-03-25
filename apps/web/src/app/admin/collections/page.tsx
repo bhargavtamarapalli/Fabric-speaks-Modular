@@ -66,7 +66,21 @@ export default function CollectionsPage() {
     { key: 'name', label: 'Collection', render: (c: Collection) => (
       <div>
         <div style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>{c.name}</div>
-        <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, marginTop: '1px' }}>{c.description?.slice(0, 60)}...</div>
+        <div 
+          style={{ 
+            color: THEME.colors.muted, 
+            fontSize: THEME.fontSizes.xs, 
+            fontFamily: THEME.fonts.ui, 
+            marginTop: '1px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '300px',
+          }} 
+          title={c.description || undefined}
+        >
+          {c.description || '—'}
+        </div>
       </div>
     )},
     { key: 'products', label: 'Products', width: '90px', render: (c: Collection) => <span style={{ color: THEME.colors.ash, fontFamily: THEME.fonts.ui }}>{c.productCount}</span> },

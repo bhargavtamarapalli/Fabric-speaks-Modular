@@ -59,7 +59,7 @@ export default function OrdersPage() {
         }
       />
 
-      {error && (
+{error && (
         <div style={{ marginBottom: THEME.spacing.md }}>
           <ErrorBanner message={error} onRetry={load} />
         </div>

@@ -52,12 +52,12 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
   };
 
   const nextImage = () => {
-    if (!product) return;
+    if (!product?.images?.length) return;
     setCurrentImageIdx((prev) => (prev + 1) % product.images.length);
   };
 
   const prevImage = () => {
-    if (!product) return;
+    if (!product?.images?.length) return;
     setCurrentImageIdx((prev) => (prev === 0 ? product.images.length - 1 : prev - 1));
   };
 
@@ -81,28 +81,34 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
     );
   }
 
-  const selectedVariant = product.variants.find(v => v.id === selectedVariantId);
-  const displayPrice = product.isSaleActive && selectedVariant?.salePrice ? selectedVariant.salePrice : (selectedVariant?.price || product.price);
+  const selectedVariant = product?.variants?.find(v => v.id === selectedVariantId);
+  const displayPrice = product?.isSaleActive && selectedVariant?.salePrice ? selectedVariant.salePrice : (selectedVariant?.price || product?.price);
 
   return (
     <div className="min-h-screen bg-[var(--fs-surface)] flex flex-col pt-16 md:pt-24 pb-24 md:pb-0">
       <NavBar />
 
       <main className="flex-1 max-w-[1280px] w-full mx-auto md:px-8 flex flex-col md:flex-row gap-8 lg:gap-16">
-        
+
         {/* Left Column: Image Gallery */}
         <div className="w-full md:w-1/2 flex flex-col gap-4">
           <div className="relative w-full aspect-[4/5] md:aspect-auto md:h-[calc(100vh-140px)] bg-[var(--fs-surface-2)] overflow-hidden group">
             <AnimatePresence mode="wait">
-              <motion.img
-                key={currentImageIdx}
-                src={product.images[currentImageIdx]}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
-                className="absolute inset-0 w-full h-full object-cover"
-              />
+              {product?.images?.[currentImageIdx] ? (
+                <motion.img
+                  key={currentImageIdx}
+                  src={product.images[currentImageIdx]}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-[var(--fs-surface-2)] text-[var(--fs-ash)]">
+                  No image available
+                </div>
+              )}
             </AnimatePresence>
 
             <div className="absolute inset-0 flex items-center justify-between p-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
@@ -114,11 +120,11 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
               </button>
             </div>
           </div>
-          
+
           <div className="hidden md:flex gap-4 overflow-x-auto pb-4 hide-scrollbar">
             {product.images.map((img, idx) => (
-              <button 
-                key={idx} 
+              <button
+                key={idx}
                 onClick={() => setCurrentImageIdx(idx)}
                 className={`flex-shrink-0 relative w-20 h-24 overflow-hidden border-2 transition-colors ${idx === currentImageIdx ? 'border-[var(--fs-linen)]' : 'border-transparent'}`}
               >
@@ -130,7 +136,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
 
         {/* Right Column: Details */}
         <div className="w-full md:w-1/2 px-4 md:px-0 py-4 md:py-8 flex flex-col h-auto md:h-[calc(100vh-140px)] md:overflow-y-auto hide-scrollbar">
-          
+
           <div className="mb-2 flex items-center justify-between">
             <span className="font-sans text-[12px] uppercase tracking-widest text-[var(--fs-ash)]">
               {product.brandName}
@@ -175,8 +181,8 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 <dd className="text-[14px] font-sans text-[var(--fs-ivory)]">{product.weaveType}</dd>
               </div>
               <div>
-                  <dt className="text-[11px] font-mono text-[var(--fs-ash)] uppercase tracking-wider mb-1">Category</dt>
-                  <dd className="text-[14px] font-sans text-[var(--fs-ivory)]">{product.categoryName}</dd>
+                <dt className="text-[11px] font-mono text-[var(--fs-ash)] uppercase tracking-wider mb-1">Category</dt>
+                <dd className="text-[14px] font-sans text-[var(--fs-ivory)]">{product.categoryName}</dd>
               </div>
             </div>
           </div>
@@ -187,7 +193,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
             <div>
               <div className="flex justify-between items-end mb-3">
                 <span className="font-sans text-[13px] uppercase tracking-widest text-[var(--fs-ivory)]">Options</span>
-                <button 
+                <button
                   onClick={() => setIsSizeGuideOpen(true)}
                   className="font-sans text-[12px] text-[var(--fs-ash)] hover:text-[var(--fs-linen)] underline underline-offset-4"
                 >
@@ -202,10 +208,10 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                     disabled={variant.stockQty === 0}
                     className={`
                       py-3 text-center font-mono text-[12px] uppercase tracking-wider border transition-colors
-                      ${variant.stockQty === 0 
-                        ? 'opacity-30 border-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed' 
-                        : selectedVariantId === variant.id 
-                          ? 'border-[var(--fs-linen)] bg-[var(--fs-linen)] text-[var(--fs-void)]' 
+                      ${variant.stockQty === 0
+                        ? 'opacity-30 border-[var(--fs-wire)] text-[var(--fs-ash)] cursor-not-allowed'
+                        : selectedVariantId === variant.id
+                          ? 'border-[var(--fs-linen)] bg-[var(--fs-linen)] text-[var(--fs-void)]'
                           : 'border-[var(--fs-wire)] text-[var(--fs-ivory)] hover:border-[var(--fs-linen)]'}
                     `}
                   >
@@ -226,7 +232,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
           </div>
 
           <div className="hidden md:block w-full">
-            <MagneticButton 
+            <MagneticButton
               className="w-full py-5 text-[14px]"
               onClick={handleAddToCart}
               disabled={addingToCart || !selectedVariantId}
@@ -239,7 +245,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
       </main>
 
       <div className="md:hidden fixed bottom-0 left-0 w-full bg-[var(--fs-surface)]/90 backdrop-blur-md border-t border-[var(--fs-wire)] p-4 z-40">
-        <MagneticButton 
+        <MagneticButton
           className="w-full py-4 text-[13px]"
           onClick={handleAddToCart}
           disabled={addingToCart || !selectedVariantId}
@@ -248,9 +254,9 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
         </MagneticButton>
       </div>
 
-      <SizeGuideModal 
-        isOpen={isSizeGuideOpen} 
-        onClose={() => setIsSizeGuideOpen(false)} 
+      <SizeGuideModal
+        isOpen={isSizeGuideOpen}
+        onClose={() => setIsSizeGuideOpen(false)}
         fabricType={product.fabricType}
       />
     </div>

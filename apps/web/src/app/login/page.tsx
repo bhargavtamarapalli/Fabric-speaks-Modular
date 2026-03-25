@@ -13,6 +13,11 @@ import { Mail, Smartphone, Chrome } from "lucide-react";
 
 type LoginMethod = "otp" | "email";
 type LoginState = "idle" | "sending-otp" | "otp-sent" | "verifying" | "success" | "forgot-password" | "resetting-password";
+type FormState =
+  | { status: 'idle'; error: null; successMsg: null }
+  | { status: 'loading'; error: null; successMsg: null }
+  | { status: 'error'; error: string; successMsg: null }
+  | { status: 'success'; error: null; successMsg: string };
 
 function AuthPopup({ type, message, onClose }: { type: 'error' | 'success', message: string, onClose: () => void }) {
   if (!message) return null;
@@ -52,14 +57,12 @@ export default function LoginPage() {
   const { login, loginWithGoogle, refreshUser, error: authError } = useAuth();
   const [method, setMethod] = useState<LoginMethod>("otp");
   const [state, setState] = useState<LoginState>("idle");
+  const [formState, setFormState] = useState<FormState>({ status: 'idle', error: null, successMsg: null });
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
   const [timer, setTimer] = useState(120);
   const handledFirebaseUserRef = useRef(false);
   const isLoggingInRef = useRef(false);
@@ -72,22 +75,28 @@ export default function LoginPage() {
     return () => clearInterval(interval);
   }, [state, timer]);
 
-  // Redirect result handling is removed in favor of signInWithPopup
+  // Helper functions for form state management
+  const setLoading = () => setFormState({ status: 'loading', error: null, successMsg: null });
+  const setIdle = () => setFormState({ status: 'idle', error: null, successMsg: null });
+  const setError = (error: string) => setFormState({ status: 'error', error, successMsg: null });
+  const setSuccess = (successMsg: string) => setFormState({ status: 'success', error: null, successMsg });
+  const resetForm = () => setFormState({ status: 'idle', error: null, successMsg: null });
 
+  // Redirect result handling is removed in favor of signInWithPopup
 
   // Handle session expiry and auth errors from AuthContext
   useEffect(() => {
     // Check for expired session
     const searchParams = new URLSearchParams(window.location.search);
     if (searchParams.get('expired') === 'true') {
-      setErrorMsg('Your session has expired. Please log in again.');
+      setError('Your session has expired. Please log in again.');
       // Clean up URL
       window.history.replaceState({}, '', '/login');
     }
 
     // Show auth errors from AuthContext
     if (authError) {
-      setErrorMsg(authError.message);
+      setError(authError.message);
     }
   }, [authError]);
 
@@ -96,124 +105,117 @@ export default function LoginPage() {
       console.warn("[LOGIN_PAGE] Google Login already in progress, ignoring click");
       return;
     }
-    
+
     isLoggingInRef.current = true;
-    setLoading(true);
-    setErrorMsg("");
-    console.log("[LOGIN_PAGE] Triggering handleGoogleLogin with signInWithPopup...");
+    setLoading();
     try {
       console.log("[LOGIN_PAGE] Calling signInWithPopup...");
       const result = await signInWithPopup(auth, googleProvider);
       console.log("[LOGIN_PAGE] signInWithPopup matched user:", result.user.uid);
-      
+
       const idToken = await result.user.getIdToken();
       console.log("[LOGIN_PAGE] Calling loginWithGoogle with idToken");
       await loginWithGoogle(idToken);
       console.log("[LOGIN_PAGE] Login sequence completed successfully");
     } catch (err: any) {
       console.error("[LOGIN_PAGE] signInWithPopup/login error:", err);
-      // We only show error if it's NOT a manual cancellation OR if it's something else
-      if (err.code !== 'auth/popup-closed-by-user' || !errorMsg) {
-        setErrorMsg(err.message || "Google login failed. Please try again.");
+      // We only show error if it's NOT a manual cancellation
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setError(err.message || "Google login failed. Please try again.");
       }
     } finally {
       isLoggingInRef.current = false;
-      setLoading(false);
     }
   };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setErrorMsg("");
+    setLoading();
     try {
       const returnUrl = new URLSearchParams(window.location.search).get("returnUrl") || undefined;
       await login({ email, password, returnUrl });
       // AuthContext will handle redirect automatically based on role
     } catch (err: any) {
-      setErrorMsg(err.message || "Invalid email or password.");
+      setError(err.message || "Invalid email or password.");
     } finally {
-      setLoading(false);
+      setIdle();
     }
   };
 
   const sendOtp = async () => {
     if (mobile.length < 10) {
-      setErrorMsg("Enter a valid 10-digit mobile number");
+      setError("Enter a valid 10-digit mobile number");
       return;
     }
-    setErrorMsg("");
     setState("sending-otp");
+    setLoading();
     try {
       await apiFetch("/auth/customer/login-otp", {
         method: "POST",
         data: { mobile }
       });
       setState("otp-sent");
+      resetForm();
       setTimer(120);
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to send OTP.");
       setState("idle");
+      setError(err.message || "Failed to send OTP.");
     }
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      setErrorMsg("Please enter your email address.");
+      setError("Please enter your email address.");
       return;
     }
-    setLoading(true);
-    setErrorMsg("");
-    setSuccessMsg("");
+    setLoading();
     try {
       await apiFetch("/auth/forgot-password", {
         method: "POST",
         data: { email }
       });
       setState("resetting-password");
+      resetForm();
       setTimer(900); // 15 mins for reset
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to send reset code.");
-    } finally {
-      setLoading(false);
+      setError(err.message || "Failed to send reset code.");
     }
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!otp || otp.length < 6) {
-      setErrorMsg("Enter the 6-digit code sent to your email.");
+      setError("Enter the 6-digit code sent to your email.");
       return;
     }
     if (newPassword.length < 8) {
-      setErrorMsg("New password must be at least 8 characters.");
+      setError("New password must be at least 8 characters.");
       return;
     }
 
-    setLoading(true);
-    setErrorMsg("");
+    setLoading();
     try {
       await apiFetch("/auth/reset-password", {
         method: "POST",
         data: { email, otp, password: newPassword }
       });
-      setSuccessMsg("Password reset successfully. You can now log in.");
-      setState("idle");
-      setMethod("email");
-      setPassword("");
-      setNewPassword("");
-      setOtp("");
+      setSuccess("Password reset successfully. You can now log in.");
+      setTimeout(() => {
+        setState("idle");
+        setMethod("email");
+        setPassword("");
+        setNewPassword("");
+        setOtp("");
+      }, 2000);
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to reset password.");
-    } finally {
-      setLoading(false);
+      setError(err.message || "Failed to reset password.");
     }
   };
 
   const verifyOtp = async (code: string) => {
     setState("verifying");
-    setErrorMsg("");
+    setLoading();
     try {
       const res = await apiFetch<{ accessToken: string }>("/auth/customer/otp-verify", {
         method: "POST",
@@ -223,22 +225,25 @@ export default function LoginPage() {
         // I'll stick to the backend's verifyFirebaseToken for now, assuming client handles Firebase OTP.
       });
       setState("success");
+      setSuccess("Login successful");
       await refreshUser();
       const returnUrl = new URLSearchParams(window.location.search).get("returnUrl") || "/";
       router.push(returnUrl);
     } catch (err: any) {
-      setErrorMsg(err.message || "Invalid code.");
+      setError(err.message || "Invalid code.");
       setState("otp-sent");
       setOtp("");
     }
   };
 
+  const isLoading = formState.status === 'loading';
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[100vh] px-4 w-full bg-[var(--fs-void)]">
-      <AuthPopup 
-        type={errorMsg ? "error" : "success"} 
-        message={errorMsg || successMsg} 
-        onClose={() => { setErrorMsg(""); setSuccessMsg(""); }} 
+      <AuthPopup
+        type={formState.error ? "error" : "success"}
+        message={formState.error || formState.successMsg || ""}
+        onClose={() => { resetForm(); }}
       />
       <div className="w-full max-w-md bg-[var(--fs-surface)] shadow-2xl rounded-2xl p-8 border border-[var(--fs-wire)]">
         <div className="mb-8 text-center">
@@ -250,15 +255,15 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {false && (
+        {formState.status === 'error' && (
           <div className="mb-6 p-4 rounded-lg bg-[var(--fs-error)]/10 border border-[var(--fs-error)] text-[var(--fs-error)] text-center text-sm">
-            {errorMsg}
+            {formState.error}
           </div>
         )}
 
-        {false && (
+        {formState.status === 'success' && (
           <div className="mb-6 p-4 rounded-lg bg-[var(--fs-success)]/10 border border-[var(--fs-success)] text-[var(--fs-success)] text-center text-sm">
-            {successMsg}
+            {formState.successMsg}
           </div>
         )}
 
@@ -336,7 +341,7 @@ export default function LoginPage() {
                     </label>
                     <button
                       type="button"
-                      onClick={() => { setState("forgot-password"); setErrorMsg(""); setSuccessMsg(""); }}
+                      onClick={() => { setState("forgot-password"); resetForm(); }}
                       className="text-[10px] text-[var(--fs-ash)] hover:text-[var(--fs-linen)] transition"
                     >
                       Forgot Password?
@@ -353,10 +358,10 @@ export default function LoginPage() {
                 </div>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={isLoading}
                   className="w-full h-12 bg-[var(--fs-linen)] hover:bg-[var(--fs-linen-dk)] text-[var(--fs-void)] font-bold rounded-lg transition-all disabled:opacity-50"
                 >
-                  {loading ? <SpiderLoader size="sm" color="var(--fs-void)" /> : "Log In"}
+                  {isLoading ? <SpiderLoader size="sm" color="var(--fs-void)" /> : "Log In"}
                 </button>
               </form>
             )}
@@ -372,7 +377,7 @@ export default function LoginPage() {
 
             <button
               onClick={handleGoogleLogin}
-              disabled={loading}
+              disabled={isLoading}
               className="w-full h-12 border border-[var(--fs-wire)] hover:border-[var(--fs-linen)] bg-transparent text-[var(--fs-ivory)] font-medium rounded-lg flex items-center justify-center gap-3 transition-all"
             >
               <Chrome size={20} className="text-[var(--fs-linen)]" />
@@ -403,14 +408,14 @@ export default function LoginPage() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={isLoading}
               className="w-full h-12 bg-[var(--fs-linen)] hover:bg-[var(--fs-linen-dk)] text-[var(--fs-void)] font-bold rounded-lg transition-all disabled:opacity-50"
             >
-              {loading ? <SpiderLoader size="sm" color="var(--fs-void)" /> : "Send Reset Code"}
+              {isLoading ? <SpiderLoader size="sm" color="var(--fs-void)" /> : "Send Reset Code"}
             </button>
             <button
               type="button"
-              onClick={() => { setState("idle"); setErrorMsg(""); setSuccessMsg(""); }}
+              onClick={() => { setState("idle"); resetForm(); }}
               className="text-center text-sm text-[var(--fs-ash)] hover:text-[var(--fs-ivory)] transition"
             >
               Back to Login
@@ -431,8 +436,8 @@ export default function LoginPage() {
                 length={6}
                 value={otp}
                 onChange={setOtp}
-                disabled={loading}
-                error={!!errorMsg}
+                disabled={isLoading}
+                error={!!formState.error}
                 autoFocus
               />
             </div>
@@ -451,10 +456,10 @@ export default function LoginPage() {
             </div>
             <button
               type="submit"
-              disabled={loading || otp.length < 6 || newPassword.length < 8}
+              disabled={isLoading || otp.length < 6 || newPassword.length < 8}
               className="w-full h-12 bg-[var(--fs-linen)] hover:bg-[var(--fs-linen-dk)] text-[var(--fs-void)] font-bold rounded-lg transition-all disabled:opacity-50"
             >
-              {loading ? <SpiderLoader size="sm" color="var(--fs-void)" /> : "Update Password"}
+              {isLoading ? <SpiderLoader size="sm" color="var(--fs-void)" /> : "Update Password"}
             </button>
             <div className="text-center">
               <p className="text-xs text-[var(--fs-ash)]">
@@ -466,7 +471,7 @@ export default function LoginPage() {
               </p>
               <button
                 type="button"
-                onClick={() => { setState("idle"); setErrorMsg(""); setSuccessMsg(""); }}
+                onClick={() => { setState("idle"); resetForm(); }}
                 className="mt-4 text-xs text-[var(--fs-ash)] hover:text-[var(--fs-ivory)] underline"
               >
                 Cancel
@@ -493,7 +498,7 @@ export default function LoginPage() {
                 onChange={setOtp}
                 onComplete={verifyOtp}
                 disabled={false}
-                error={!!errorMsg}
+                error={!!formState.error}
                 autoFocus
               />
             )}

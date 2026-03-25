@@ -9,10 +9,28 @@ export interface ApiResponse<T = unknown> {
   };
 }
 
+/**
+ * Typed API error with status code and human-readable messaging
+ */
 export class ApiError extends Error {
-  constructor(public code: string, message: string) {
+  statusCode: number;
+  errorCode: string;
+
+  constructor(code: string, message: string, statusCode?: number) {
     super(message);
     this.name = "ApiError";
+    this.errorCode = code;
+    this.statusCode = statusCode || 0;
+    
+    // Ensure proper prototype chain for instanceof checks
+    Object.setPrototypeOf(this, ApiError.prototype);
+  }
+
+  /**
+   * Backwards compatibility: expose errorCode as 'code' for existing code
+   */
+  get code(): string {
+    return this.errorCode;
   }
 }
 
@@ -60,18 +78,19 @@ apiClient.interceptors.response.use(
   (response) => {
     const resData = response.data as ApiResponse;
     if (resData && typeof resData.success === 'boolean' && !resData.success) {
-      throw new ApiError(resData.error?.code || 'UNKNOWN_ERROR', resData.error?.message || 'API request failed');
+      throw new ApiError(resData.error?.code || 'UNKNOWN_ERROR', resData.error?.message || 'API request failed', 400);
     }
     return resData.data as any;
   },
   async (error: AxiosError) => {
     const originalRequest = error.config;
+    const statusCode = error.response?.status || 0;
 
     // @ts-expect-error - AxiosRequestConfig doesn't include _retry by default.
     // This is a common pattern for token refresh logic. A proper fix would require
     // module augmentation to extend AxiosRequestConfig, but that adds complexity.
     // Alternative: Use a WeakMap to store retry state externally.
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (statusCode === 401 && !originalRequest._retry) {
       // @ts-expect-error - Adding custom property to AxiosRequestConfig
       originalRequest._retry = true;
 
@@ -107,11 +126,18 @@ apiClient.interceptors.response.use(
     if (error.response?.data) {
       const resData = error.response.data as ApiResponse;
       if (resData.error) {
-        return Promise.reject(new ApiError(resData.error.code, resData.error.message));
+        return Promise.reject(new ApiError(resData.error.code, resData.error.message, statusCode));
       }
     }
 
-    return Promise.reject(error);
+    // Network error or timeout
+    if (!error.response) {
+      const errorCode = error.code === 'ECONNABORTED' ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR';
+      return Promise.reject(new ApiError(errorCode, error.message || 'Network request failed', 0));
+    }
+
+    // Generic error fallback
+    return Promise.reject(new ApiError('HTTP_ERROR', `HTTP ${statusCode}: ${error.message}`, statusCode));
   }
 );
 

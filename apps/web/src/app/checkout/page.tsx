@@ -71,8 +71,8 @@ export default function AuthCheckoutPage() {
     }
   }, [cart, fetchingData, router]);
 
-  function goNext() { setDir(1); setStep(s => s + 1); }
-  function goBack() { setDir(-1); setStep(s => s - 1); }
+  const goNext = useCallback(() => { setDir(1); setStep(s => s + 1); }, []);
+  const goBack = useCallback(() => { setDir(-1); setStep(s => s - 1); }, []);
 
   async function handlePlaceOrder() {
     if (!paymentMethod || !cart) return;
@@ -123,7 +123,6 @@ export default function AuthCheckoutPage() {
       new Rzp(options).open();
     } catch (err: any) {
       showToast(err.message || "Failed to place order", "error");
-    } finally {
       setLoading(false);
     }
   }

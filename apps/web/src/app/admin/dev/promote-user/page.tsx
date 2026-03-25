@@ -1,29 +1,52 @@
 'use client';
 import { useState } from 'react';
-import { apiFetch } from '@/lib/apiClient';
+import { useRouter } from 'next/navigation';
+import { authApi, type AdminRole, type PromoteUserResponse } from '@/lib/admin/authApi';
 import { useToast } from '@/context/ToastContext';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const ROLES = [
-  { value: 'superAdmin', label: 'Super Admin', color: '#e5c97e' },
-  { value: 'inventoryManager', label: 'Inventory Manager', color: '#7ec9e5' },
-  { value: 'supportAgent', label: 'Support Agent', color: '#7ee5b4' },
-  { value: 'customer', label: 'Customer', color: '#9b9b9b' },
+  { value: 'superAdmin' as AdminRole, label: 'Super Admin', color: '#e5c97e' },
+  { value: 'inventoryManager' as AdminRole, label: 'Inventory Manager', color: '#7ec9e5' },
+  { value: 'supportAgent' as AdminRole, label: 'Support Agent', color: '#7ee5b4' },
+  { value: 'customer' as AdminRole, label: 'Customer', color: '#9b9b9b' },
 ];
 
-interface PromoteResult {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-}
+interface PromoteResult extends PromoteUserResponse {}
 
 export default function PromoteUserPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('superAdmin');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PromoteResult | null>(null);
   const { showToast } = useToast();
+
+  // Development-only page — must be disabled in production
+  if (process.env.NODE_ENV !== 'development') {
+    return (
+      <div style={{ maxWidth: '600px', margin: '0 auto', padding: '40px 20px', textAlign: 'center' }}>
+        <div style={{ marginBottom: '20px', color: '#e5c97e', fontSize: '14px' }}>
+          ⚠️ This tool is only available in development
+        </div>
+        <button
+          onClick={() => router.push('/admin/dashboard')}
+          style={{
+            padding: '12px 24px',
+            backgroundColor: '#7ec9e5',
+            color: '#000',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '500',
+          }}
+        >
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   const handlePromote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,9 +54,9 @@ export default function PromoteUserPage() {
     setLoading(true);
     setResult(null);
     try {
-      const data = await apiFetch<PromoteResult>('/auth/dev/promote-user', {
-        method: 'POST',
-        data: { email: email.trim(), role },
+      const data = await authApi.promoteUser({
+        email: email.trim(),
+        role: role as AdminRole,
       });
       setResult(data);
       showToast(`✓ ${email} is now ${role}`, 'success');
@@ -62,10 +85,11 @@ export default function PromoteUserPage() {
 
       <form onSubmit={handlePromote} className="space-y-6">
         <div>
-          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--fs-ash)] mb-2">
+          <label htmlFor="promote-email" className="block text-xs font-mono uppercase tracking-widest text-[var(--fs-ash)] mb-2">
             User Email
           </label>
           <input
+            id="promote-email"
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
@@ -76,10 +100,10 @@ export default function PromoteUserPage() {
         </div>
 
         <div>
-          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--fs-ash)] mb-2">
+          <label htmlFor="promote-role" className="block text-xs font-mono uppercase tracking-widest text-[var(--fs-ash)] mb-2">
             Assign Role
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div id="promote-role" className="grid grid-cols-2 gap-3">
             {ROLES.map(r => (
               <button
                 key={r.value}

@@ -3,6 +3,7 @@
 // app/admin/dashboard/page.tsx
 
 import React from 'react';
+import { WithRoleGuard } from '@/components/admin/WithRoleGuard';
 import { THEME } from '@/lib/admin/theme';
 import dynamic from 'next/dynamic';
 import { dashboardApi } from '@/lib/admin/api';
@@ -33,6 +34,14 @@ import useSWR from 'swr';
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  return (
+    <WithRoleGuard allowedRoles={['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT']}>
+      <DashboardContent />
+    </WithRoleGuard>
+  );
+}
+
+function DashboardContent() {
 
   const {
     data,

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
+import { ConfirmModal } from '@/components/organisms/ConfirmModal';
 import { getAddresses, deleteAddress, setDefaultAddress, Address } from '@/lib/api/addresses';
 import { Plus, Trash2, MapPin, CheckCircle } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
@@ -20,17 +21,33 @@ const itemVars = {
 export default function AddressesPage() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const { showToast } = useToast();
+  const isMountedRef = useRef(true);
+
+  // Cleanup callback to mark component as unmounted
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
+      if (!isMountedRef.current) return;
       setLoading(true);
       const res = await getAddresses();
+      if (!isMountedRef.current) return;
       setAddresses(res);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       showToast(err.message || "Failed to load addresses", "error");
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [showToast]);
 
@@ -41,9 +58,12 @@ export default function AddressesPage() {
   const handleSetDefault = async (id: string) => {
     try {
       await setDefaultAddress(id);
+      if (!isMountedRef.current) return;
       showToast("Default address updated", "success");
+      // Sequential await: first update, then reload
       await loadData();
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       showToast(err.message || 'Failed to update default address', 'error');
     }
   };
@@ -53,14 +73,31 @@ export default function AddressesPage() {
         showToast('Cannot delete default address.', 'error');
         return;
     }
-    if (!confirm("Are you sure you want to remove this address?")) return;
+    // Show confirmation modal
+    setDeleteAddressId(id);
+    setDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteAddressId) return;
 
     try {
-      await deleteAddress(id);
-      setAddresses(prev => prev.filter(a => a.id !== id));
+      setDeleteLoading(true);
+      await deleteAddress(deleteAddressId);
+      if (!isMountedRef.current) return;
+      setAddresses(prev => prev.filter(a => a.id !== deleteAddressId));
       showToast("Address removed", "success");
+      setDeleteConfirm(false);
+      setDeleteAddressId(null);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       showToast(err.message || 'Failed to delete address', 'error');
+      setDeleteConfirm(false);
+      setDeleteAddressId(null);
+    } finally {
+      if (isMountedRef.current) {
+        setDeleteLoading(false);
+      }
     }
   };
 
@@ -135,6 +172,22 @@ export default function AddressesPage() {
           ))}
         </motion.div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        open={deleteConfirm}
+        title="Delete Address"
+        message="Are you sure you want to permanently delete this address? This action cannot be undone."
+        confirmText="Delete Address"
+        cancelText="Cancel"
+        isDestructive={true}
+        loading={deleteLoading}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          setDeleteConfirm(false);
+          setDeleteAddressId(null);
+        }}
+      />
     </div>
   );
 }

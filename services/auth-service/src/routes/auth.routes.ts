@@ -5,7 +5,7 @@ import { UserRepository } from '../repositories/user.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { AdminLoginAttemptRepository } from '../repositories/admin-login-attempt.repository';
 import { RefreshTokenRepository } from '../repositories/refresh-token.repository';
-import { getDbPool, requireAuth, csrfProtection } from '@fs/shared';
+import { getDbPool, requireAuth, requireRole, csrfProtection } from '@fs/shared';
 import { otpRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
@@ -47,6 +47,7 @@ router.delete('/delete-account', authController.deleteAccount);
 router.post('/admin/login/failed', otpRateLimiter, authController.recordAdminLoginFailure);
 
 // DEV ONLY - User role promotion (disabled in production inside the controller)
-router.post('/dev/promote-user', authController.promoteUser);
+// Protected with requireRole to ensure only SUPER_ADMIN can use
+router.post('/dev/promote-user', requireRole('superAdmin'), authController.promoteUser);
 
 export { router as authRouter };
