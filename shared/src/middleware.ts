@@ -242,15 +242,17 @@ export const setAuthCookie = (res: Response, accessToken: string, refreshToken: 
   res.cookie('jwt', accessToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict',
+    sameSite: 'lax', // Use 'lax' for better cross-port compatibility on localhost
     maxAge: 15 * 60 * 1000, // 15 minutes for access token
+    path: '/', // Ensure cookie is available to all routes (Critical for Next.js middleware)
   });
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict',
+    sameSite: 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days for refresh token
+    path: '/',
   });
 };
 

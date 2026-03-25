@@ -8,6 +8,14 @@ interface UseUsersFormProps {
   onReload?: () => void;
 }
 
+import { z } from 'zod';
+
+const userFormSchema = z.object({
+  name: z.string().min(1, 'Full name is required'),
+  email: z.string().email('Enter a valid email address'),
+  role: z.enum(['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT'] as const),
+});
+
 export function useUsersForm({ onSuccess, onReload }: UseUsersFormProps = {}) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'SUPPORT_AGENT' as AdminRole });
@@ -24,14 +32,16 @@ export function useUsersForm({ onSuccess, onReload }: UseUsersFormProps = {}) {
   );
 
   const validate = useCallback(() => {
+    const result = userFormSchema.safeParse(form);
+    if (result.success) return {};
+    
     const next: Partial<Record<'name' | 'email' | 'role', string>> = {};
-    if (!form.name.trim()) next.name = 'Full name is required';
-    if (!form.email.trim()) next.email = 'Email address is required';
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      next.email = 'Enter a valid email address';
-    }
+    result.error.errors.forEach(err => {
+      const field = err.path[0] as keyof typeof form;
+      if (!next[field]) next[field] = err.message;
+    });
     return next;
-  }, [form.name, form.email]);
+  }, [form]);
 
   const handleCreate = useCallback(async () => {
     const validationErrors = validate();

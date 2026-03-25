@@ -20,10 +20,20 @@ const BADGE_MAP: Record<AdminRole, string> = {
 interface UsersTableProps {
   users: AdminUser[];
   loading: boolean;
+  currentUser: { id: string } | null;
+  currentUserRole: AdminRole;
   onDeactivate: (userId: string) => void;
 }
 
-export const UsersTable = memo(function UsersTable({ users, loading, onDeactivate }: UsersTableProps) {
+export const UsersTable = memo(function UsersTable({ 
+  users, 
+  loading, 
+  currentUser,
+  currentUserRole,
+  onDeactivate 
+}: UsersTableProps) {
+  const isSuperAdmin = currentUserRole === 'SUPER_ADMIN';
+
   const columns = useMemo(() => [
     {
       key: 'name',
@@ -71,27 +81,34 @@ export const UsersTable = memo(function UsersTable({ users, loading, onDeactivat
       key: 'actions',
       label: '',
       width: '100px',
-      render: (u: AdminUser) => (
-        <button
-          onClick={e => {
-            e.stopPropagation();
-            onDeactivate(u.id);
-          }}
-          disabled={!u.isActive}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: u.isActive ? THEME.colors.error : THEME.colors.ghost,
-            fontSize: THEME.fontSizes.sm,
-            cursor: u.isActive ? 'pointer' : 'not-allowed',
-            fontFamily: THEME.fonts.ui,
-          }}
-        >
-          Deactivate
-        </button>
-      ),
+      render: (u: AdminUser) => {
+        const isSelf = currentUser?.id === u.id;
+        const canDeactivate = isSuperAdmin && !isSelf && u.isActive;
+
+        return (
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              onDeactivate(u.id);
+            }}
+            disabled={!canDeactivate}
+            title={isSelf ? "You cannot deactivate yourself" : !isSuperAdmin ? "Only Super Admins can deactivate users" : !u.isActive ? "User is already inactive" : ""}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: canDeactivate ? THEME.colors.error : THEME.colors.ghost,
+              fontSize: THEME.fontSizes.sm,
+              cursor: canDeactivate ? 'pointer' : 'not-allowed',
+              fontFamily: THEME.fonts.ui,
+              opacity: canDeactivate ? 1 : 0.5,
+            }}
+          >
+            Deactivate
+          </button>
+        );
+      },
     },
-  ], [onDeactivate]);
+  ], [onDeactivate, isSuperAdmin, currentUser?.id]);
 
   return (
     <div
@@ -106,7 +123,29 @@ export const UsersTable = memo(function UsersTable({ users, loading, onDeactivat
         columns={columns}
         data={users}
         loading={loading}
-        empty="No admin users"
+        renderEmpty={() => (
+          <div style={{ textAlign: 'center', padding: '20px' }}>
+            <div style={{ color: THEME.colors.muted, marginBottom: '12px', fontFamily: THEME.fonts.ui }}>
+              No admin users found.
+            </div>
+            {isSuperAdmin && (
+              <div
+                style={{
+                  display: 'inline-block',
+                  background: 'rgba(201,169,110,0.1)',
+                  color: THEME.colors.gold,
+                  border: `1px dashed ${THEME.colors.gold}`,
+                  padding: '8px 16px',
+                  borderRadius: THEME.radius.md,
+                  fontSize: THEME.fontSizes.sm,
+                  fontFamily: THEME.fonts.ui,
+                }}
+              >
+                Use the "+ Add user" button to invite team members
+              </div>
+            )}
+          </div>
+        )}
         rowKey={u => u.id}
       />
     </div>

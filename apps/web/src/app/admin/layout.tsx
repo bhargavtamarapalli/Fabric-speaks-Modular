@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 import { AdminAuthProvider, useAdminAuth } from '@/context/AdminAuthContext';
 import { THEME } from '@/lib/admin/theme';
 import type { AdminRole } from '@/lib/admin/types';
@@ -137,11 +138,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
 // ─── Admin Shell ──────────────────────────────────────────────────────────────
 
+import { useEffectiveRole } from '@/hooks/useEffectiveRole';
+
+import { AdminErrorBoundary } from '@/components/AdminErrorBoundary';
+
 function AdminShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const isMobile = useIsMobile();
-  const { role, name, email, loading } = useAdminAuth();
+  
+  const { 
+    activeRole, 
+    isSyncing, 
+    isLoading, 
+    isAuthenticated,
+    adminRole
+  } = useEffectiveRole();
+
+  const { name: adminName, email: adminEmail } = useAdminAuth();
+  const { user: dbUser } = useAuth();
+  
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -163,21 +179,25 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     if (isMobile) setMobileOpen(false);
   }, [pathname, isMobile]);
 
+  const userEmail = adminEmail || dbUser?.email || '';
+  const userName = adminName || dbUser?.name || 'Admin';
+
   // Redirect if not authenticated
   useEffect(() => {
-    if (mounted && !loading && !role) {
+    if (mounted && !isLoading && !isAuthenticated) {
+      console.log("[AdminShell] Not authenticated, redirecting to login");
       router.replace('/login');
     }
-  }, [role, loading, router, mounted]);
+  }, [isAuthenticated, isLoading, router, mounted]);
 
   const handleNavClick = useCallback((path: string) => {
     router.push(path);
   }, [router]);
 
   const visibleNav = useMemo(() => {
-    if (!role) return [];
-    return NAV_ITEMS.filter(item => item.roles.includes(role as AdminRole));
-  }, [role]);
+    if (!activeRole) return [];
+    return NAV_ITEMS.filter(item => item.roles.includes(activeRole));
+  }, [activeRole]);
 
   const sidebarWidth = useMemo(() =>
     isMobile
@@ -186,7 +206,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     [isMobile, mobileOpen, collapsed]
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div style={{ height: '100vh', background: THEME.colors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ color: THEME.colors.linen, fontFamily: THEME.fonts.display, fontSize: THEME.fontSizes.lg }}>Fabric Speaks</div>
@@ -195,13 +215,14 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      height: '100vh',
-      background: THEME.colors.bg,
-      fontFamily: THEME.fonts.ui,
-      overflow: 'hidden',
-    }}>
+    <AdminErrorBoundary>
+      <div style={{
+        display: 'flex',
+        height: '100vh',
+        background: THEME.colors.bg,
+        fontFamily: THEME.fonts.ui,
+        overflow: 'hidden',
+      }}>
       {/* ── Sidebar Overlay (Mobile) ─────────────── */}
       {isMobile && mobileOpen && (
         <div
@@ -288,22 +309,22 @@ function AdminShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Footer */}
-        {(!collapsed || isMobile) && role && (
+        {(!collapsed || isMobile) && activeRole && (
           <div style={{ padding: '12px 16px', borderTop: `1px solid ${THEME.colors.border}` }}>
             <div style={{ fontSize: '10.5px', color: THEME.colors.muted }}>Signed in as</div>
-            <div style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.linen, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
+            <div style={{ fontSize: THEME.fontSizes.base, color: THEME.colors.linen, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userEmail}</div>
             <span style={{
               display: 'inline-block',
               marginTop: '5px',
-              background: getRgbaFromRole(role, 0.1),
-              border: `1px solid ${getRgbaFromRole(role, 0.2)}`,
-              color: ROLE_COLOR[role],
+              background: getRgbaFromRole(activeRole, 0.1),
+              border: `1px solid ${getRgbaFromRole(activeRole, 0.2)}`,
+              color: ROLE_COLOR[activeRole],
               fontSize: THEME.fontSizes.xs,
               padding: '2px 8px',
               borderRadius: THEME.radius.sm,
               letterSpacing: '0.05em',
             }}>
-              {ROLE_NAME[role]}
+              {ROLE_NAME[activeRole]}
             </span>
           </div>
         )}
@@ -333,11 +354,11 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             )}
             <div>
               <div style={{ color: THEME.colors.ivory, fontSize: isMobile ? THEME.fontSizes.sm : THEME.fontSizes.base }}>
-                Good morning, {name.split(' ')[0] || 'Admin'}
+                Good morning, {userName.split(' ')[0] || 'Admin'}
               </div>
               {!isMobile && (
                 <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, marginTop: '1px' }}>
-                  {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} IST
                 </div>
               )}
             </div>
@@ -362,5 +383,6 @@ function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
       </main>
     </div>
+    </AdminErrorBoundary>
   );
 }

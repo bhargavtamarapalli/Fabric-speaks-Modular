@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useCallback } from 'react';
-import { THEME } from '@/lib/admin/theme';
 import {
   PageHeader,
   ActionButton,
@@ -9,14 +8,19 @@ import {
   ConfirmModal,
   useToast,
 } from '@/components/admin/shared';
+import { useEffectiveRole } from '@/hooks/useEffectiveRole';
+import { useAuth } from '@/context/AuthContext';
 import { useUsers } from './_hooks/useUsers';
 import { useUsersForm } from './_hooks/useUsersForm';
 import { UsersTable } from './_components/UsersTable';
 import { UsersFormDrawer } from './_components/UsersFormDrawer';
-import { mapError } from '@/lib/admin/errors';
 
 export default function UsersPage() {
   const { showToast, ToastComponent } = useToast();
+  const { user: currentUser } = useAuth();
+  const { activeRole } = useEffectiveRole();
+  const isSuperAdmin = activeRole === 'SUPER_ADMIN';
+
   const { users, loading, error, load, deactivate } = useUsers();
   const {
     showForm,
@@ -40,7 +44,7 @@ export default function UsersPage() {
     } else {
       showToast(result.error || 'Failed to deactivate user', 'error');
     }
-  }, [deactId, deactivate, showToast]);
+  }, [deactId, deactivate, showToast, setDeactId]);
 
   const handleCreateUser = useCallback(async () => {
     const result = await handleCreate();
@@ -56,7 +60,7 @@ export default function UsersPage() {
       <PageHeader
         title="Admin users"
         subtitle={`${users.length} members`}
-        action={<ActionButton onClick={openForm}>+ Add user</ActionButton>}
+        action={isSuperAdmin ? <ActionButton onClick={openForm}>+ Add user</ActionButton> : null}
       />
 
       {error && (
@@ -65,7 +69,13 @@ export default function UsersPage() {
         </div>
       )}
 
-      <UsersTable users={users} loading={loading} onDeactivate={setDeactId} />
+      <UsersTable 
+        users={users} 
+        loading={loading} 
+        onDeactivate={setDeactId} 
+        currentUser={currentUser}
+        currentUserRole={activeRole || 'SUPPORT_AGENT'}
+      />
 
       <UsersFormDrawer
         open={showForm}
