@@ -1,9 +1,8 @@
-'use client';
-
 import { useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAdminAuth } from '@/context/AdminAuthContext';
+import { useAuth } from '@/context/AuthContext';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
+import { useEffectiveRole } from '@/hooks/useEffectiveRole';
 import type { AdminRole } from '@/lib/admin/types';
 
 interface WithRoleGuardProps {
@@ -12,22 +11,31 @@ interface WithRoleGuardProps {
 }
 
 export const WithRoleGuard = ({ children, allowedRoles }: WithRoleGuardProps) => {
-  const { role, loading, user } = useAdminAuth();
   const router = useRouter();
+  const { activeRole, isLoading, isAuthenticated, isSyncing } = useEffectiveRole();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user || !role) {
+    if (!isLoading) {
+      if (!isAuthenticated) {
         router.push('/login?redirect=/admin');
         return;
       }
-      if (!allowedRoles.includes(role)) {
+
+      // If we are authenticated but have no active role, and we are NOT currently syncing,
+      // then the user is truly unauthorized for admin.
+      if (!activeRole && !isSyncing) {
+        router.push('/admin/unauthorized');
+        return;
+      }
+
+      // Check specific role permissions if required
+      if (allowedRoles.length > 0 && activeRole && !allowedRoles.includes(activeRole)) {
         router.push('/admin/unauthorized');
       }
     }
-  }, [user, role, loading, allowedRoles, router]);
+  }, [isAuthenticated, activeRole, isLoading, isSyncing, allowedRoles, router]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[var(--fs-void)]">
         <SpiderLoader size="lg" />
@@ -35,7 +43,19 @@ export const WithRoleGuard = ({ children, allowedRoles }: WithRoleGuardProps) =>
     );
   }
 
-  if (!user || !role || !allowedRoles.includes(role)) {
+  // Show a loading state while syncing to prevent protected content from flashing
+  if (isSyncing) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[var(--fs-void)]">
+        <SpiderLoader size="lg" />
+      </div>
+    );
+  }
+
+  // Only render children when authenticated and the role is explicitly permitted
+  const canRender = isAuthenticated && !!activeRole && allowedRoles.includes(activeRole);
+
+  if (!canRender) {
     return null; // Will redirect in useEffect
   }
 

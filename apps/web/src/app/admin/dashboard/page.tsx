@@ -7,8 +7,10 @@ import { WithRoleGuard } from '@/components/admin/WithRoleGuard';
 import { THEME } from '@/lib/admin/theme';
 import dynamic from 'next/dynamic';
 import { dashboardApi } from '@/lib/admin/api';
+import type { DashboardData } from '@/lib/admin/types';
 import { PageHeader, Loader, ErrorBanner, useToast, MetricsGridSkeleton, MetricCardSkeleton, DataTableSkeleton } from '@/components/admin/shared';
 import { mapError } from '@/lib/admin/errors';
+import { ServiceHealthPanel } from './_components/ServiceHealthPanel';
 
 const MetricsGrid = dynamic(
   () => import('./_components/MetricsGrid').then(mod => mod.MetricsGrid),
@@ -42,6 +44,24 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
+  const fallbackData: DashboardData = {
+    revenueToday: 0,
+    revenueDelta: 0,
+    ordersToday: 0,
+    ordersDelta: 0,
+    lowStockCount: 0,
+    openReturns: 0,
+    awaitingShiprocket: 0,
+    codPending: 0,
+    recentOrders: [],
+    stockHealth: {
+      critical: 0,
+      warning: 0,
+      healthy: 0,
+      total: 0,
+      items: [],
+    },
+  };
 
   const {
     data,
@@ -55,6 +75,7 @@ function DashboardContent() {
   });
 
   const error = swrError ? mapError(swrError) : null;
+  const resolvedData = data ?? (error ? fallbackData : null);
 
   if (isLoading && !data) return <Loader />;
 
@@ -68,15 +89,19 @@ function DashboardContent() {
         </div>
       )}
 
-      {data && <PendingActionsGrid data={data} />}
-      {data && <MetricsGrid data={data} />}
+      {resolvedData && <PendingActionsGrid data={resolvedData} />}
+      {resolvedData && <MetricsGrid data={resolvedData} />}
 
-      {data && (
+      {resolvedData && (
         <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: THEME.spacing.sm }}>
-          <RecentOrdersCard data={data} />
-          <StockHealthCard data={data} />
+          <RecentOrdersCard data={resolvedData} />
+          <StockHealthCard data={resolvedData} />
         </div>
       )}
+
+      <div style={{ marginTop: THEME.spacing.lg }}>
+        <ServiceHealthPanel />
+      </div>
 
     </div>
   );

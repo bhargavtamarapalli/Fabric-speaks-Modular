@@ -11,7 +11,9 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { AdminAuthProvider, useAdminAuth } from '@/context/AdminAuthContext';
 import { THEME } from '@/lib/admin/theme';
+import { ActionButton } from '@/components/admin/shared';
 import type { AdminRole } from '@/lib/admin/types';
+import { getServiceHealth, getServiceFromAdminPath } from '@/lib/admin/serviceHealth';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -106,7 +108,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Categories', path: '/admin/categories', icon: '⊞', roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER'] },
   { label: 'Coupons', path: '/admin/coupons', icon: '◈', roles: ['SUPER_ADMIN'] },
   { label: 'Content', path: '/admin/pages', icon: '▤', roles: ['SUPER_ADMIN'] },
-  { label: 'Users', path: '/admin/users', icon: '◉', roles: ['SUPER_ADMIN'] },
+  { label: 'Users', path: '/admin/users', icon: '◉', roles: ['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT'] },
   { label: 'Settings', path: '/admin/config', icon: '◌', roles: ['SUPER_ADMIN'] },
   { label: 'Dev Tools', path: '/admin/dev/promote-user', icon: '⚙', roles: ['SUPER_ADMIN'] },
 ];
@@ -161,6 +163,9 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [serviceDown, setServiceDown] = useState<{ id: string; message?: string } | null>(null);
+  const [showServiceCommands, setShowServiceCommands] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -189,6 +194,39 @@ function AdminShell({ children }: { children: React.ReactNode }) {
       router.replace('/login');
     }
   }, [isAuthenticated, isLoading, router, mounted]);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const check = async () => {
+      const service = getServiceFromAdminPath(pathname);
+      if (!service) {
+        if (!cancelled) setServiceDown(null);
+        return;
+      }
+
+      try {
+        const health = await getServiceHealth(service);
+        if (health.status === 'down') {
+          if (!cancelled) setServiceDown({ id: service, message: health.message });
+        } else {
+          if (!cancelled) setServiceDown(null);
+          if (!cancelled) setShowServiceCommands(false);
+        }
+      } catch {
+        if (!cancelled) setServiceDown({ id: service, message: 'Unreachable' });
+      }
+    };
+
+    check();
+    interval = setInterval(check, 30000);
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [pathname]);
 
   const handleNavClick = useCallback((path: string) => {
     router.push(path);
@@ -326,6 +364,23 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             }}>
               {ROLE_NAME[activeRole]}
             </span>
+            <button
+              onClick={() => router.push('/admin/profile')}
+              style={{
+                marginTop: '8px',
+                display: 'block',
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                color: THEME.colors.linen,
+                fontSize: THEME.fontSizes.xs,
+                fontFamily: THEME.fonts.ui,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              Manage profile
+            </button>
           </div>
         )}
       </aside>
@@ -379,10 +434,103 @@ function AdminShell({ children }: { children: React.ReactNode }) {
           overflowY: 'auto',
           padding: isMobile ? '12px' : THEME.layout.contentPadding
         }}>
+          {serviceDown && (
+            <div style={{
+              marginBottom: THEME.spacing.md,
+              padding: THEME.spacing.md,
+              borderRadius: THEME.radius.md,
+              border: `1px solid ${THEME.colors.error}`,
+              background: 'rgba(223, 95, 95, 0.08)',
+              color: THEME.colors.ivory,
+              display: 'grid',
+              gap: THEME.spacing.xs,
+            }}>
+              <div style={{ fontSize: THEME.fontSizes.base, fontWeight: 600 }}>
+                {serviceDown.id.toUpperCase()} service is not running
+              </div>
+              <div style={{ fontSize: THEME.fontSizes.xs, color: THEME.colors.muted }}>
+                {serviceDown.message ? `Reason: ${serviceDown.message}` : 'This page depends on a service that is offline.'}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: THEME.spacing.sm, alignItems: 'center' }}>
+                <ActionButton
+                  variant="ghost"
+                  onClick={() => setShowServiceCommands((prev) => !prev)}
+                >
+                  {showServiceCommands ? 'Hide start commands' : 'Start required services'}
+                </ActionButton>
+                {showServiceCommands && (
+                  <ActionButton
+                    variant="ghost"
+                    onClick={async () => {
+                      const cmds = getRequiredServiceCommands(pathname).join('\n');
+                      try {
+                        await navigator.clipboard.writeText(cmds);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      } catch {
+                        setCopied(false);
+                      }
+                    }}
+                  >
+                    {copied ? 'Copied' : 'Copy commands'}
+                  </ActionButton>
+                )}
+              </div>
+
+              {showServiceCommands && (
+                <div style={{
+                  marginTop: THEME.spacing.xs,
+                  display: 'grid',
+                  gap: THEME.spacing.xs,
+                  fontFamily: THEME.fonts.mono,
+                  fontSize: THEME.fontSizes.xs,
+                  color: THEME.colors.linen,
+                }}>
+                  {getRequiredServiceCommands(pathname).map((cmd) => (
+                    <div key={cmd} style={{ wordBreak: 'break-word' }}>{cmd}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {children}
         </div>
       </main>
     </div>
     </AdminErrorBoundary>
   );
+}
+
+function getStartCommand(serviceId: string) {
+  switch (serviceId) {
+    case 'gateway':
+      return 'npm run dev:gateway';
+    case 'auth':
+      return 'npm --workspaces=false --prefix services/auth-service run dev';
+    case 'admin':
+      return 'npm run dev:admin';
+    case 'catalog':
+      return 'npm --workspaces=false --prefix services/catalog-service run dev';
+    case 'order':
+      return 'npm --workspaces=false --prefix services/order-service run dev';
+    case 'inventory':
+      return 'npm --workspaces=false --prefix services/inventory-service run dev';
+    case 'returns':
+      return 'npm --workspaces=false --prefix services/return-service run dev';
+    case 'support':
+      return 'npm --workspaces=false --prefix services/support-service run dev';
+    default:
+      return 'npm run dev:services';
+  }
+}
+
+function getRequiredServiceCommands(pathname: string) {
+  const required = new Set<string>();
+  required.add('gateway');
+  required.add('auth');
+
+  const pageService = getServiceFromAdminPath(pathname);
+  if (pageService) required.add(pageService);
+
+  return Array.from(required).map((svc) => getStartCommand(svc));
 }

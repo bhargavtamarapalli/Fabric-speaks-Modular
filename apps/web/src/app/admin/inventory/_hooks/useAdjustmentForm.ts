@@ -57,6 +57,14 @@ export function useAdjustmentForm({ onSuccess }: { onSuccess: () => void }) {
     return next;
   }, [adjQty, adjType, adjReason, adjustItem]);
 
+  const reset = useCallback(() => {
+    setAdjustItem(null);
+    setAdjQty('');
+    setAdjReason('');
+    setAdjErrors({});
+    setAdjType('add');
+  }, []);
+
   const handleAdjust = useCallback(
     async (variantId: string) => {
       const validationErrors = validate();
@@ -88,22 +96,15 @@ export function useAdjustmentForm({ onSuccess }: { onSuccess: () => void }) {
         reset();
         onSuccess?.();
         return { success: true };
-      } catch (e: any) {
-        return { success: false, error: mapError(e) };
+      } catch (e: unknown) {
+        const error = e as Error;
+        return { success: false, error: mapError(error) };
       } finally {
         setAdjLoading(false);
       }
     },
-    [validate, adjQty, adjType, adjustItem?.stockQty, adjReason, onSuccess]
+    [validate, adjQty, adjType, adjustItem?.stockQty, adjReason, onSuccess, reset]
   );
-
-  const reset = useCallback(() => {
-    setAdjustItem(null);
-    setAdjQty('');
-    setAdjReason('');
-    setAdjErrors({});
-    setAdjType('add');
-  }, []);
 
   const openForm = useCallback((item: InventoryItem) => {
     setAdjustItem(item);

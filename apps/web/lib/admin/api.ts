@@ -5,14 +5,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { apiClient } from '@/lib/apiClient';
+import { ensureServiceHealthy } from './serviceHealth';
 import type {
   Order, OrderTimeline, PackingSlip,
   Product, Brand, Category, Collection,
   InventoryItem, StockHealth, InventoryAdjustment, ExpectedStock,
   Return, ReturnTimeline, RefundStatus,
   SupportCase, CustomerProfile,
-  Coupon, StoreSettings, AdminUser,
+  Coupon, StoreSettings, AdminUser, AdminRole,
   AuditLogEntry, DashboardData, ContentPage, AnalyticsData,
+  CustomerSummary,
 } from './types';
 
 // ─── Cache & Deduplication ──────────────────────────────────────────────────
@@ -26,13 +28,27 @@ const CACHE_KEY = 'fs_admin_api_cache';
  * significantly reducing the exposure window for XSS attacks.
  * This is appropriate for admin data that should not persist indefinitely.
  */
+const CACHE_MAX_AGE = 5 * 60 * 1000; // 5 minutes max for storage-to-memory persistence
+
 // Synchronous initial load from sessionStorage if in browser
 const initialCache = (() => {
   if (typeof window === 'undefined') return [];
   try {
     const stored = sessionStorage.getItem(CACHE_KEY);
-    return stored ? Object.entries(JSON.parse(stored)) : [];
-  } catch {
+    if (!stored) return [];
+    
+    // Parse and filter out stale entries (Issue #8)
+    const parsed = JSON.parse(stored);
+    const now = Date.now();
+    const validEntries = Object.entries(parsed).filter(([_, val]) => {
+      const entry = val as { timestamp: number };
+      // Keep only entries that are recent (e.g., last 5 mins) to prevent stale loads
+      return entry && entry.timestamp && (now - entry.timestamp < CACHE_MAX_AGE);
+    });
+    
+    return validEntries;
+  } catch (err) {
+    console.warn('[Admin API] Failed to load initial cache', err);
     return [];
   }
 })();
@@ -62,7 +78,15 @@ function syncToStorage() {
     const obj = Object.fromEntries(cache);
     sessionStorage.setItem(CACHE_KEY, JSON.stringify(obj));
   } catch (err) {
+    // Issue #11: Silent failure check - provide warning
     console.warn('[Admin API] Failed to persist cache', err);
+    
+    // Self-healing: If storage quota is exceeded, clear the oldest entries
+    if (err instanceof Error && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      console.log('[Admin API] Storage quota exceeded, clearing cache...');
+      cache.clear();
+      try { sessionStorage.removeItem(CACHE_KEY); } catch {}
+    }
   }
 }
 
@@ -93,6 +117,31 @@ function buildQueryString(params?: Record<string, string | number | undefined>):
   return new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
 }
 
+const ADMIN_ROLE_TO_API: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'superAdmin',
+  INVENTORY_MANAGER: 'inventoryManager',
+  SUPPORT_AGENT: 'supportAgent',
+};
+
+const ADMIN_ROLE_FROM_API: Record<string, AdminRole> = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  INVENTORY_MANAGER: 'INVENTORY_MANAGER',
+  SUPPORT_AGENT: 'SUPPORT_AGENT',
+  superAdmin: 'SUPER_ADMIN',
+  inventoryManager: 'INVENTORY_MANAGER',
+  supportAgent: 'SUPPORT_AGENT',
+};
+
+function normalizeAdminUser(user: AdminUser): AdminUser {
+  const role = ADMIN_ROLE_FROM_API[(user.role as unknown as string) ?? ''] ?? 'SUPPORT_AGENT';
+  return {
+    ...user,
+    role,
+    email: user.email ?? null,
+    name: user.name ?? 'Unknown',
+  };
+}
+
 /**
  * Invalidates cache entries matching a prefix (e.g., '/admin/orders')
  */
@@ -120,7 +169,10 @@ export function invalidateAdminCache(prefix?: string) {
 // The return type <T> ensures type safety for callers while allowing the internal response
 // to be passed through without additional type casting.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _get = <T>(url: string, signal?: AbortSignal) => apiClient.get<any, T>(url, { signal });
+const _get = async <T>(url: string, signal?: AbortSignal) => {
+  void ensureServiceHealthy(url);
+  return apiClient.get<any, T>(url, { signal });
+};
 
 /**
  * GET wrapper with TTL caching and request deduplication.
@@ -159,20 +211,58 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
 // The generic <T> return type provides type safety for callers while allowing flexibility
 // in the request payload. This is a common pattern for API wrapper functions.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const post = <T>(url: string, data?: any) => apiClient.post<any, T>(url, data);
+const post = async <T>(url: string, data?: any) => {
+  void ensureServiceHealthy(url);
+  return apiClient.post<any, T>(url, data);
+};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const patch = <T>(url: string, data?: any) => apiClient.patch<any, T>(url, data);
+const patch = async <T>(url: string, data?: any) => {
+  void ensureServiceHealthy(url);
+  return apiClient.patch<any, T>(url, data);
+};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const del = <T>(url: string) => apiClient.delete<any, T>(url);
+const del = async <T>(url: string) => {
+  void ensureServiceHealthy(url);
+  return apiClient.delete<any, T>(url);
+};
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export const dashboardApi = {
-  getData: (signal?: AbortSignal) => getWithCache<DashboardData>('/admin/dashboard', signal),
+  getData: async (signal?: AbortSignal) => {
+    const raw = await getWithCache<any>('/admin/dashboard/ops', signal);
+    return normalizeDashboardData(raw);
+  },
   getPendingActions: (signal?: AbortSignal) => getWithCache<DashboardData>('/admin/dashboard/pending-actions', signal),
   getAnalytics: (range: '7d' | '30d' | '90d', signal?: AbortSignal) =>
     getWithCache<AnalyticsData>(`/admin/analytics?range=${range}`, signal),
 };
+
+function normalizeDashboardData(raw: any): DashboardData {
+  const revenue = raw?.revenue ?? {};
+  const comparisons = raw?.comparisons ?? {};
+  const daily = comparisons?.yesterday ?? {};
+  const cod = raw?.cod ?? {};
+
+  return {
+    revenueToday: Number(revenue.totalRevenue ?? 0),
+    revenueDelta: Number(daily.revenueDeltaPct ?? 0),
+    ordersToday: Number(revenue.orderCount ?? 0),
+    ordersDelta: Number(daily.ordersDeltaPct ?? 0),
+    lowStockCount: 0,
+    openReturns: 0,
+    awaitingShiprocket: Number(raw?.shiprocketIssues ?? 0),
+    codPending: Number(cod.pending_confirmation ?? 0),
+    recentOrders: [],
+    stockHealth: {
+      critical: 0,
+      warning: 0,
+      healthy: 0,
+      total: 0,
+      items: [],
+    },
+  };
+}
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
@@ -469,17 +559,83 @@ export const supportApi = {
 export const couponsApi = {
   list: (params?: { page?: number; limit?: number }, signal?: AbortSignal) => {
     const qs = buildQueryString(params);
-    return getWithCache<{ items: Coupon[]; total: number; page: number; limit: number; totalPages: number }>(`/admin/coupons?${qs}`, signal);
+    return getWithCache<any>(`/admin/coupons?${qs}`, signal).then((raw) => {
+        const items = (raw?.items ?? []).map((coupon: any): Coupon => ({
+        id: String(coupon?.id ?? ''),
+        code: String(coupon?.code ?? ''),
+          discountType: coupon?.discountType === 'FIXED' ? 'FLAT' : 'PERCENTAGE',
+          discountValue: Number(coupon?.discountValue ?? 0),
+          maxDiscount: coupon?.maxDiscount !== null && coupon?.maxDiscount !== undefined ? Number(coupon.maxDiscount) : null,
+          minOrderValue: Number(coupon?.minOrderAmount ?? 0),
+        usageLimit: Number(coupon?.maxUsesTotal ?? 0),
+        usedCount: Number(coupon?.usesCount ?? 0),
+        perUserLimit: Number(coupon?.maxUsesPerUser ?? 1),
+        expiresAt: String(coupon?.validUntil ?? coupon?.createdAt ?? new Date().toISOString()),
+        isActive: Boolean(coupon?.isActive),
+        createdAt: String(coupon?.createdAt ?? new Date().toISOString()),
+      }));
+
+      const total = Number(raw?.total ?? items.length);
+      const page = Number(raw?.page ?? params?.page ?? 1);
+      const limit = Number(raw?.limit ?? params?.limit ?? 20);
+      const totalPages = Number(raw?.totalPages ?? Math.max(1, Math.ceil(total / Math.max(limit, 1))));
+
+      return { items, total, page, limit, totalPages };
+    });
   },
   create: async (data: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => {
-    const res = await post<Coupon>('/admin/coupons', data);
+    const nowIso = new Date().toISOString();
+      const payload = {
+        code: data.code,
+        discountType: data.discountType === 'FLAT' ? 'FIXED' : 'PERCENT',
+        discountValue: data.discountValue,
+        maxDiscount: data.discountType === 'PERCENTAGE' && data.maxDiscount && data.maxDiscount > 0 ? data.maxDiscount : undefined,
+        minOrderAmount: data.minOrderValue ?? 0,
+      maxUsesTotal: data.usageLimit > 0 ? data.usageLimit : undefined,
+      maxUsesPerUser: data.perUserLimit > 0 ? data.perUserLimit : 1,
+      validFrom: nowIso,
+      validUntil: data.expiresAt,
+    };
+    const res = await post<any>('/admin/coupons', payload);
     invalidateAdminCache('/admin/coupons');
-    return res;
+    return {
+      id: String(res?.id ?? ''),
+      code: String(res?.code ?? ''),
+        discountType: res?.discountType === 'FIXED' ? 'FLAT' : 'PERCENTAGE',
+        discountValue: Number(res?.discountValue ?? 0),
+        maxDiscount: res?.maxDiscount !== null && res?.maxDiscount !== undefined ? Number(res.maxDiscount) : null,
+        minOrderValue: Number(res?.minOrderAmount ?? 0),
+      usageLimit: Number(res?.maxUsesTotal ?? 0),
+      usedCount: Number(res?.usesCount ?? 0),
+      perUserLimit: Number(res?.maxUsesPerUser ?? 1),
+      expiresAt: String(res?.validUntil ?? nowIso),
+      isActive: Boolean(res?.isActive),
+      createdAt: String(res?.createdAt ?? nowIso),
+    } as Coupon;
   },
   update: async (id: string, data: Partial<Coupon>) => {
-    const res = await patch<Coupon>(`/admin/coupons/${id}`, data);
+    const payload: Record<string, unknown> = {};
+      if (data.isActive !== undefined) payload.isActive = data.isActive;
+      if (data.expiresAt !== undefined) payload.validUntil = data.expiresAt;
+      if (data.usageLimit !== undefined && data.usageLimit > 0) payload.maxUsesTotal = data.usageLimit;
+      if (data.maxDiscount !== undefined) payload.maxDiscount = data.maxDiscount;
+
+    const res = await patch<any>(`/admin/coupons/${id}`, payload);
     invalidateAdminCache('/admin/coupons');
-    return res;
+    return {
+      id: String(res?.id ?? id),
+      code: String(res?.code ?? ''),
+        discountType: res?.discountType === 'FIXED' ? 'FLAT' : 'PERCENTAGE',
+        discountValue: Number(res?.discountValue ?? 0),
+        maxDiscount: res?.maxDiscount !== null && res?.maxDiscount !== undefined ? Number(res.maxDiscount) : null,
+        minOrderValue: Number(res?.minOrderAmount ?? 0),
+      usageLimit: Number(res?.maxUsesTotal ?? 0),
+      usedCount: Number(res?.usesCount ?? 0),
+      perUserLimit: Number(res?.maxUsesPerUser ?? 1),
+      expiresAt: String(res?.validUntil ?? new Date().toISOString()),
+      isActive: Boolean(res?.isActive),
+      createdAt: String(res?.createdAt ?? new Date().toISOString()),
+    } as Coupon;
   },
   deactivate: async (id: string) => {
     const res = await patch<Coupon>(`/admin/coupons/${id}`, { isActive: false });
@@ -503,22 +659,48 @@ export const settingsApi = {
 // ─── Admin Users ──────────────────────────────────────────────────────────────
 
 export const adminUsersApi = {
-  list: (signal?: AbortSignal) => getWithCache<AdminUser[]>('/admin/users', signal),
-  create: async (data: Omit<AdminUser, 'id' | 'lastActiveAt' | 'createdAt'>) => {
-    const res = await post<AdminUser>('/admin/users', data);
+  list: (params?: { role?: string; search?: string; page?: number; limit?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString({
+      ...(params?.role ? { 'filter[role]': params.role } : {}),
+      ...(params?.search ? { 'filter[search]': params.search } : {}),
+      ...(params?.page ? { page: params.page } : {}),
+      ...(params?.limit ? { limit: params.limit } : {}),
+    } as Record<string, string | number | undefined>);
+    return getWithCache<{ items: AdminUser[]; meta?: { total: number; page: number; limit: number } }>(`/admin/users${qs ? `?${qs}` : ''}`, signal)
+      .then((response) => {
+        const items = (response?.items ?? []).map(normalizeAdminUser);
+        const fallbackPage = params?.page ?? 1;
+        const fallbackLimit = params?.limit ?? 20;
+        return {
+          items,
+          meta: response?.meta ?? { total: items.length, page: fallbackPage, limit: fallbackLimit },
+        };
+      });
+  },
+  create: async (data: { name: string; email?: string; mobile: string; role: AdminRole }) => {
+    const payload = {
+      ...data,
+      role: ADMIN_ROLE_TO_API[data.role],
+    };
+    const res = await post<AdminUser>('/admin/users', payload);
     invalidateAdminCache('/admin/users');
-    return res;
+    return normalizeAdminUser(res);
   },
   updateRole: async (id: string, role: string) => {
-    const res = await patch<AdminUser>(`/admin/users/${id}/role`, { role });
+    const res = await patch<AdminUser>(`/admin/users/${id}/role`, { role: ADMIN_ROLE_TO_API[role as AdminRole] ?? role });
     invalidateAdminCache('/admin/users');
-    return res;
+    return normalizeAdminUser(res);
   },
   deactivate: async (id: string) => {
-    const res = await patch<AdminUser>(`/admin/users/${id}`, { isActive: false });
+    const res = await del<AdminUser>(`/admin/users/${id}`);
     invalidateAdminCache('/admin/users');
-    return res;
+    return normalizeAdminUser(res);
   },
+};
+
+export const customersApi = {
+  search: (query: string, signal?: AbortSignal) =>
+    getWithCache<CustomerSummary[]>(`/admin/customers/lookup?q=${encodeURIComponent(query)}`, signal),
 };
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
@@ -533,29 +715,29 @@ export const auditApi = {
 // ─── Content Pages ────────────────────────────────────────────────────────────
 
 export const contentApi = {
-  list: (signal?: AbortSignal) => getWithCache<ContentPage[]>('/admin/pages', signal),
-  getById: (id: string, signal?: AbortSignal) => getWithCache<ContentPage>(`/admin/pages/${id}`, signal),
+  list: (signal?: AbortSignal) => getWithCache<ContentPage[]>('/admin/content/pages', signal),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<ContentPage>(`/admin/content/pages/${id}`, signal),
   create: async (data: Omit<ContentPage, 'id' | 'updatedAt'>) => {
-    const res = await post<ContentPage>('/admin/pages', data);
-    invalidateAdminCache('/admin/pages');
+    const res = await post<ContentPage>('/admin/content/pages', data);
+    invalidateAdminCache('/admin/content/pages');
     return res;
   },
   update: async (id: string, data: Partial<ContentPage>) => {
-    const res = await patch<ContentPage>(`/admin/pages/${id}`, data);
-    invalidateAdminCache('/admin/pages');
-    invalidateAdminCache(`/admin/pages/${id}`);
+    const res = await patch<ContentPage>(`/admin/content/pages/${id}`, data);
+    invalidateAdminCache('/admin/content/pages');
+    invalidateAdminCache(`/admin/content/pages/${id}`);
     return res;
   },
   publish: async (id: string) => {
-    const res = await patch<ContentPage>(`/admin/pages/${id}`, { publishedAt: new Date().toISOString() });
-    invalidateAdminCache('/admin/pages');
-    invalidateAdminCache(`/admin/pages/${id}`);
+    const res = await patch<ContentPage>(`/admin/content/pages/${id}`, { publishedAt: new Date().toISOString() });
+    invalidateAdminCache('/admin/content/pages');
+    invalidateAdminCache(`/admin/content/pages/${id}`);
     return res;
   },
   unpublish: async (id: string) => {
-    const res = await patch<ContentPage>(`/admin/pages/${id}`, { publishedAt: null });
-    invalidateAdminCache('/admin/pages');
-    invalidateAdminCache(`/admin/pages/${id}`);
+    const res = await patch<ContentPage>(`/admin/content/pages/${id}`, { publishedAt: null });
+    invalidateAdminCache('/admin/content/pages');
+    invalidateAdminCache(`/admin/content/pages/${id}`);
     return res;
   },
 };

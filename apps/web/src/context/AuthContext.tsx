@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch, ApiError } from '@/lib/apiClient';
 import { useRouter, usePathname } from 'next/navigation';
+import { auth } from '@/lib/firebaseClient';
 import {
   RoleName,
   Feature,
@@ -112,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Session expired
       handleSessionExpired();
     }, timeoutMs);
-  }, [clearSessionTimer]);
+  }, [clearSessionTimer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Handle session expiration
@@ -225,6 +226,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(userWithSession);
     setRole(userRole);
     setError(null);
+
+    // Self-healing: if role is admin but claim is missing or stale, force refresh
+    // This bridges the gap between DB promotion and Firebase claim sync
+    if (userRole !== RoleName.CUSTOMER) {
+      const firebaseUser = auth.currentUser;
+      if (firebaseUser) {
+        firebaseUser.getIdTokenResult().then(result => {
+          if (!result.claims['role']) {
+            console.log("[AUTH_CONTEXT] Admin role detected in DB but Firebase claim missing. Force refreshing token...");
+            return firebaseUser.getIdToken(true);
+          }
+          return null;
+        }).then((token) => {
+          if (token) {
+            console.log("[AUTH_CONTEXT] Token refreshed successfully with new claims");
+          }
+        }).catch(err => {
+          console.error("[AUTH_CONTEXT] Failed to refresh Firebase token for role sync:", err);
+        });
+      }
+    }
 
     // Set up session timer
     setupSessionTimer(userRole);

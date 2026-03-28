@@ -18,6 +18,8 @@ This guide helps developers set up the Fabric Speaks Admin Panel and deploy it t
 3.  **Environment Variables**
     Copy `.env.example` to `.env` in the root and in `apps/web/.env.local`.
     Ensure the following keys are set:
+    - `APP_JWT_SECRET`: Required. Must be the same value across *all* services and Next.js.
+    - `JWT_SECRET`: Must match `APP_JWT_SECRET` (kept for compatibility).
     - `NEXT_PUBLIC_FIREBASE_CONFIG`: Standard Firebase config JSON
     - `ADMIN_API_BASE_URL`: URL of the backend microservices (e.g., http://localhost:3000)
     - `INTERNAL_AUTH_SECRET`: Shared secret for service-to-service auth

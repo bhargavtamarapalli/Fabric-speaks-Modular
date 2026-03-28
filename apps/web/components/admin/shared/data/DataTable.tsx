@@ -96,7 +96,8 @@ export const DataTable = memo(function DataTable<T>({
   loading, 
   onRowClick, 
   rowKey = 'id' as keyof T, 
-  empty = "No items found." 
+  empty = "No items found.",
+  renderEmpty,
 }: DataTableProps<T>) {
   if (loading) return <DataTableSkeleton />;
   if (!data?.length) {

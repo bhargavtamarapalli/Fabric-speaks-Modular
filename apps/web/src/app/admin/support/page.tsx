@@ -13,7 +13,7 @@ import {
   TextInput, Timeline, MonoText, useToast,
   formatDateTime, formatCurrency, maskMobile,
 } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 export default function SupportPage() {
   const router = useRouter();
@@ -56,7 +56,7 @@ export default function SupportPage() {
       const res = await supportApi.list({ status: filter || undefined });
       setCases(res.items);
     } catch (e: any) {
-      setError(mapError(e));
+      setError(isServiceUnavailableError(e) ? null : mapError(e));
     } finally {
       setLoading(false);
     }

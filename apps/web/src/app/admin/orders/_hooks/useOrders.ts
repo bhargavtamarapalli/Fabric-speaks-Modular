@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import { ordersApi } from '@/lib/admin/api';
 import type { Order } from '@/lib/admin/types';
 import { useToast } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 export interface OrdersFilters {
   search: string;
@@ -55,7 +55,7 @@ export function useOrders(initialSearch: string = '') {
   const page = data?.page ?? currentPage;
   const limit = data?.limit ?? itemsPerPage;
   const totalPages = data?.totalPages ?? Math.ceil(total / limit);
-  const error = swrError ? mapError(swrError) : null;
+  const error = swrError ? (isServiceUnavailableError(swrError) ? null : mapError(swrError)) : null;
 
   const updateFilters = useCallback((patch: Partial<OrdersFilters>) => {
     setFilters(prev => ({ ...prev, ...patch }));

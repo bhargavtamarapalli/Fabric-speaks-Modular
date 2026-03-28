@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fabric Speaks Dev Manager</title>
+    <style>
+      :root {
+        --bg: #0f0f0f;
+        --surface: #151515;
+        --surface-2: #1d1d1d;
+        --border: #2a2a2a;
+        --text: #f0f0f0;
+        --muted: #a3a3a3;
+        --accent: #c9a96e;
+        --success: #3fb950;
+        --danger: #df5f5f;
+        --warning: #e0c36a;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 700px at 20% 10%, rgba(201,169,110,0.08), transparent 60%), var(--bg);
+        color: var(--text);
+        font-family: "Spectral", "Georgia", serif;
+      }
+
+      header {
+        padding: 24px 28px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      header p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-family: "Inter", sans-serif;
+        font-size: 13px;
+      }
+
+      main {
+        padding: 28px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+
+      button {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 8px 12px;
+        border-radius: 10px;
+        font-family: "Inter", sans-serif;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .card {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 16px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-family: "Inter", sans-serif;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+
+      .dot.ok { background: var(--success); }
+      .dot.down { background: var(--danger); }
+      .dot.unknown { background: var(--warning); }
+
+      .meta {
+        display: grid;
+        gap: 4px;
+        font-family: "Inter", sans-serif;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .logs {
+        background: #0b0b0b;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        font-family: "JetBrains Mono", "Courier New", monospace;
+        font-size: 11px;
+        color: var(--muted);
+        max-height: 220px;
+        min-height: 80px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+
+      .log-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .log-controls input {
+        background: #121212;
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-family: "Inter", sans-serif;
+        font-size: 12px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+
+      .tag.ok { color: var(--success); border-color: rgba(63,185,80,0.4); }
+      .tag.down { color: var(--danger); border-color: rgba(223,95,95,0.4); }
+
+      .split {
+        display: grid;
+        gap: 8px;
+      }
+
+      .small {
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Fabric Speaks Dev Manager</h1>
+      <p>Start, stop, and monitor services for local development.</p>
+    </header>
+    <main>
+      <div class="toolbar">
+        <div class="meta small">Local panel — available only on this machine.</div>
+        <div class="actions">
+          <button id="downloadAll">Download All Logs</button>
+          <button id="refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="grid" id="serviceGrid"></div>
+    </main>
+
+    <script>
+      const grid = document.getElementById('serviceGrid');
+      const refreshButton = document.getElementById('refresh');
+      const downloadAllButton = document.getElementById('downloadAll');
+      const logsCache = new Map();
+      const openLogs = new Set();
+      const logFilters = new Map();
+      const autoScrollEnabled = new Map();
+
+      async function request(path, method = 'GET') {
+        const res = await fetch(path, { method });
+        return res.json();
+      }
+
+      async function loadLogs(serviceId) {
+        const data = await request(`/api/services/${serviceId}/logs`);
+        if (data.success) {
+          const logs = (data.data.logs && data.data.logs.length) ? data.data.logs : ['No logs captured yet.'];
+          logsCache.set(serviceId, logs);
+        }
+      }
+
+      function statusLabel(status) {
+        if (status === 'ok') return 'Online';
+        if (status === 'down') return 'Offline';
+        return 'Unknown';
+      }
+
+      function renderServices(services) {
+        grid.innerHTML = '';
+        services.forEach((svc) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+
+          const header = document.createElement('div');
+          header.className = 'card-header';
+          header.innerHTML = `
+            <div>${svc.label}</div>
+            <div class="status">
+              <span class="dot ${svc.status}"></span>
+              ${statusLabel(svc.status)}
+            </div>
+          `;
+
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.innerHTML = `
+            <div>Port: ${svc.port ?? '--'}</div>
+            <div>${svc.message ? `Message: ${svc.message}` : 'Message: --'}</div>
+          `;
+
+          const tags = document.createElement('div');
+          tags.className = 'split';
+          tags.innerHTML = `
+            <span class="tag ${svc.managed ? 'ok' : ''}">${svc.managed ? 'Managed' : 'External/Unknown'}</span>
+            ${svc.pid ? `<span class="tag">PID ${svc.pid}</span>` : ''}
+          `;
+
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          actions.innerHTML = `
+            <button data-action="start" data-id="${svc.id}">Start</button>
+            <button data-action="stop" data-id="${svc.id}">Stop</button>
+            <button data-action="restart" data-id="${svc.id}">Restart</button>
+            <button data-action="logs" data-id="${svc.id}">${openLogs.has(svc.id) ? 'Hide logs' : 'View logs'}</button>
+            <button data-action="download" data-id="${svc.id}">Download logs</button>
+            ${openLogs.has(svc.id) ? `<button data-action="clearLogs" data-id="${svc.id}">Clear logs</button>` : ''}
+          `;
+
+          card.appendChild(header);
+          card.appendChild(meta);
+          card.appendChild(tags);
+          card.appendChild(actions);
+
+          if (openLogs.has(svc.id)) {
+            const controls = document.createElement('div');
+            controls.className = 'log-controls';
+            const filterValue = logFilters.get(svc.id) || '';
+            const autoScroll = autoScrollEnabled.get(svc.id) ?? true;
+            controls.innerHTML = `
+              <input data-action="filter" data-id="${svc.id}" placeholder="Filter logs..." value="${filterValue}" />
+              <label class="tag ${autoScroll ? 'ok' : ''}" style="cursor:pointer;">
+                <input type="checkbox" data-action="autoscroll" data-id="${svc.id}" ${autoScroll ? 'checked' : ''} style="margin-right:6px;" />
+                Auto-scroll
+              </label>
+            `;
+
+            const logPanel = document.createElement('div');
+            logPanel.className = 'logs';
+            const lines = logsCache.get(svc.id) || ['Loading logs...'];
+            const filter = (logFilters.get(svc.id) || '').toLowerCase();
+            const filtered = filter
+              ? lines.filter((line) => line.toLowerCase().includes(filter))
+              : lines;
+            logPanel.textContent = filtered.join('\n');
+
+            card.appendChild(controls);
+            card.appendChild(logPanel);
+
+            if (autoScroll) {
+              logPanel.scrollTop = logPanel.scrollHeight;
+            }
+          }
+
+          grid.appendChild(card);
+        });
+      }
+
+      async function loadServices() {
+        const data = await request('/api/services');
+        if (data.success) {
+          renderServices(data.data);
+        }
+      }
+
+      grid.addEventListener('click', async (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+        if (action === 'logs') {
+          if (openLogs.has(id)) {
+            openLogs.delete(id);
+          } else {
+            openLogs.add(id);
+            await loadLogs(id);
+          }
+          await loadServices();
+          return;
+        }
+        if (action === 'download') {
+          window.open(`/api/services/${id}/logs/download`, '_blank');
+          return;
+        }
+        if (action === 'clearLogs') {
+          await fetch(`/api/services/${id}/logs`, { method: 'DELETE' });
+          logsCache.set(id, []);
+          await loadServices();
+          return;
+        }
+        await request(`/api/services/${id}/${action}`, 'POST');
+        await loadServices();
+      });
+
+      grid.addEventListener('input', async (event) => {
+        const target = event.target;
+        if (!target || !target.dataset) return;
+        const action = target.dataset.action;
+        const id = target.dataset.id;
+        if (action === 'filter') {
+          logFilters.set(id, target.value || '');
+          await loadServices();
+        }
+      });
+
+      grid.addEventListener('change', async (event) => {
+        const target = event.target;
+        if (!target || !target.dataset) return;
+        const action = target.dataset.action;
+        const id = target.dataset.id;
+        if (action === 'autoscroll') {
+          autoScrollEnabled.set(id, !!target.checked);
+          await loadServices();
+        }
+      });
+
+      refreshButton.addEventListener('click', loadServices);
+      downloadAllButton.addEventListener('click', () => {
+        window.open('/api/services/logs/download', '_blank');
+      });
+
+      loadServices();
+      setInterval(async () => {
+        for (const id of openLogs) {
+          await loadLogs(id);
+        }
+        await loadServices();
+      }, 15000);
+    </script>
+  </body>
+</html>

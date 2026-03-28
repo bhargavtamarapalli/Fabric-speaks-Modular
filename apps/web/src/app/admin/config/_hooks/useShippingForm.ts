@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { settingsApi } from '@/lib/admin/api';
 import { mapError } from '@/lib/admin/errors';
 import type { StoreSettings } from '@/lib/admin/types';
@@ -8,17 +8,31 @@ export function useShippingForm({
   initialData,
   onSuccess,
 }: {
-  initialData: Partial<StoreSettings>;
+  initialData?: Partial<StoreSettings> | null;
   onSuccess: () => void;
 }) {
-  const [form, setForm] = useState<ShippingForm>({
-    freeShippingAbove: initialData.freeShippingAbove || 0,
-    codEnabled: initialData.codEnabled !== undefined ? initialData.codEnabled : true,
-  });
+  const [form, setForm] = useState<ShippingForm>(() => ({
+    freeShippingAbove: initialData?.freeShippingAbove || 0,
+    codEnabled: initialData?.codEnabled !== undefined ? initialData.codEnabled : true,
+  }));
 
   const [errors, setErrors] = useState<Partial<Record<keyof ShippingForm, string>>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const nextForm: ShippingForm = {
+      freeShippingAbove: initialData?.freeShippingAbove || 0,
+      codEnabled: initialData?.codEnabled !== undefined ? initialData.codEnabled : true,
+    };
+    setForm(prev => {
+      if (prev.freeShippingAbove === nextForm.freeShippingAbove && prev.codEnabled === nextForm.codEnabled) {
+        return prev;
+      }
+      setDirty(false);
+      return nextForm;
+    });
+  }, [initialData?.freeShippingAbove, initialData?.codEnabled]);
 
   const updateField = useCallback(<K extends keyof ShippingForm>(key: K, value: ShippingForm[K]) => {
     setForm(p => ({ ...p, [key]: value }));

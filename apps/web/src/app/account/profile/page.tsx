@@ -235,7 +235,7 @@ export default function ProfilePage() {
           <div className="space-y-2">
             <div className="flex justify-between">
               <label className="text-[10px] uppercase tracking-widest text-[var(--fs-ash)] font-bold">Mobile Number</label>
-              {profile.mobile && (
+              {profile.mobile?.length === 10 && (
                 <span className="text-[10px] text-[var(--fs-success)] flex items-center gap-1 uppercase tracking-tighter">
                   <Shield className="w-2.5 h-2.5" /> Verified
                 </span>
@@ -244,7 +244,7 @@ export default function ProfilePage() {
             <div>
               <input 
                 type="tel" 
-                disabled={!editMode || !!profile.mobile}
+                disabled={!editMode}
                 value={profile.mobile}
                 placeholder={!profile.mobile ? "Add mobile number" : ""}
                 onChange={e => setProfile({ ...profile, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })}

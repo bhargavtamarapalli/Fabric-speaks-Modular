@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { productsApi } from '@/lib/admin/api';
 import type { Product } from '@/lib/admin/types';
 import { useToast } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 export interface ProductsFilters {
   search: string;
@@ -51,7 +51,7 @@ export function useProducts(initialFilters: ProductsFilters) {
   const page = data?.page ?? currentPage;
   const limit = data?.limit ?? itemsPerPage;
   const totalPages = data?.totalPages ?? Math.ceil(total / limit);
-  const error = swrError ? mapError(swrError) : null;
+  const error = swrError ? (isServiceUnavailableError(swrError) ? null : mapError(swrError)) : null;
 
   const updateFilters = useCallback((patch: Partial<ProductsFilters>) => {
     setFilters(prev => ({ ...prev, ...patch }));

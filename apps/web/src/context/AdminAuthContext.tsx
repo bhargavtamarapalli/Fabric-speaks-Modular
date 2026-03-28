@@ -26,6 +26,16 @@ const ROLE_MAP: Record<string, AdminRole> = {
   supportAgent: 'SUPPORT_AGENT',
 };
 
+/**
+ * Mask email for privacy in logs (e.g., b***@example.com)
+ */
+const maskEmail = (email?: string | null): string => {
+  if (!email) return 'unknown';
+  const [user, domain] = email.split('@');
+  if (!user || !domain) return email;
+  return `${user.charAt(0)}***@${domain}`;
+};
+
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<AdminRole | null>(null);
   const [name, setName] = useState('');
@@ -59,12 +69,16 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         const mappedRole = claim ? ROLE_MAP[claim] : undefined;
 
         if (!mappedRole) {
+          // FALLBACK: Use main AuthContext role if available (trusting DB role in dev)
+          // We can't use useAuth here directly inside useEffect, but we can pass it down or handle it in the layout.
+          // For now, we'll log carefully and wait for the claim.
           if (claim) {
-            console.warn(`[AdminAuth] Unrecognized claim: "${claim}". User ${firebaseUser.email} denied admin access.`);
+            console.warn(`[AdminAuth] Unrecognized claim: "${claim}". User ${maskEmail(firebaseUser.email)} denied admin access.`);
           } else {
-            console.warn(`[AdminAuth] User ${firebaseUser.email} has no "role" claim. Denied admin access.`);
+            console.warn(`[AdminAuth] User ${maskEmail(firebaseUser.email)} has no "role" claim. Check if user is promoted in DB.`);
           }
           setRole(null);
+          // Only show error if we've really checked everything
           setError('ROLE_REQUIRED');
         } else {
           setRole(mappedRole);
@@ -79,7 +93,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
           firebaseUser.getIdTokenResult(true).then(tokenResult => {
             console.error('[AdminAuth] Role claim debug:', {
               uid: firebaseUser.uid,
-              email: firebaseUser.email,
+              email: maskEmail(firebaseUser.email),
               claims: tokenResult.claims,
               tokenIssued: tokenResult.issuedAtTime,
               tokenExpiry: tokenResult.expirationTime

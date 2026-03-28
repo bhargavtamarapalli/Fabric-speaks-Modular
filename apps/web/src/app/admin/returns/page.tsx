@@ -13,7 +13,7 @@ import {
   ActionButton, ErrorBanner, MonoText, useToast,
   formatDateTime,
 } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 const STATUS_FILTERS = [
   { label: 'All',               value: '' },
@@ -55,7 +55,7 @@ export default function ReturnsPage() {
       const res = await returnsApi.list({ status: filters.status || undefined });
       setReturns(res.items);
     } catch (e: any) {
-      setError(mapError(e));
+      setError(isServiceUnavailableError(e) ? null : mapError(e));
     } finally {
       setLoading(false);
     }

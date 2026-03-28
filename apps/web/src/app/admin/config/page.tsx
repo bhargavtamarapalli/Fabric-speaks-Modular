@@ -40,7 +40,7 @@ export default function ConfigPage() {
 
   // Initialize each section's hook
   const identity = useIdentityForm({
-    initialData: settings || {},
+    initialData: settings,
     onSuccess: () => {
       showToast('Store identity saved', 'success');
       load();
@@ -48,7 +48,7 @@ export default function ConfigPage() {
   });
 
   const shipping = useShippingForm({
-    initialData: settings || {},
+    initialData: settings,
     onSuccess: () => {
       showToast('Shipping settings saved', 'success');
       load();
@@ -56,7 +56,7 @@ export default function ConfigPage() {
   });
 
   const alerts = useAlertsForm({
-    initialData: settings || {},
+    initialData: settings,
     onSuccess: () => {
       showToast('Alert threshold saved', 'success');
       load();
@@ -64,7 +64,7 @@ export default function ConfigPage() {
   });
 
   const notifications = useNotificationsForm({
-    initialData: settings || {},
+    initialData: settings,
     onSuccess: () => {
       showToast('Notification preferences saved', 'success');
       load();

@@ -8,15 +8,15 @@ export function useIdentityForm({
   initialData,
   onSuccess,
 }: {
-  initialData: Partial<StoreSettings>;
+  initialData?: Partial<StoreSettings> | null;
   onSuccess: () => void;
 }) {
-  const [form, setForm] = useState<IdentityForm>({
-    storeName: initialData.storeName || '',
-    storeEmail: initialData.storeEmail || '',
-    storePhone: initialData.storePhone || '',
-    gstNumber: initialData.gstNumber || '',
-  });
+  const [form, setForm] = useState<IdentityForm>(() => ({
+    storeName: initialData?.storeName || '',
+    storeEmail: initialData?.storeEmail || '',
+    storePhone: initialData?.storePhone || '',
+    gstNumber: initialData?.gstNumber || '',
+  }));
 
   const [errors, setErrors] = useState<Partial<Record<keyof IdentityForm, string>>>({});
   const [dirty, setDirty] = useState(false);
@@ -24,13 +24,28 @@ export function useIdentityForm({
 
   // Update form when initialData changes (e.g., after settings are loaded)
   useEffect(() => {
-    setForm({
-      storeName: initialData.storeName || '',
-      storeEmail: initialData.storeEmail || '',
-      storePhone: initialData.storePhone || '',
-      gstNumber: initialData.gstNumber || '',
-    });
-  }, [initialData]);
+    const nextForm: IdentityForm = {
+      storeName: initialData?.storeName || '',
+      storeEmail: initialData?.storeEmail || '',
+      storePhone: initialData?.storePhone || '',
+      gstNumber: initialData?.gstNumber || '',
+    };
+
+    setForm(prev => (
+      prev.storeName === nextForm.storeName &&
+      prev.storeEmail === nextForm.storeEmail &&
+      prev.storePhone === nextForm.storePhone &&
+      prev.gstNumber === nextForm.gstNumber
+        ? prev
+        : nextForm
+    ));
+    setDirty(false);
+  }, [
+    initialData?.storeName,
+    initialData?.storeEmail,
+    initialData?.storePhone,
+    initialData?.gstNumber,
+  ]);
 
   const updateField = useCallback(<K extends keyof IdentityForm>(key: K, value: IdentityForm[K]) => {
     setForm(p => ({ ...p, [key]: value }));

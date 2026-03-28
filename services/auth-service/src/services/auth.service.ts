@@ -143,6 +143,38 @@ export class AuthService {
     }
 
     /**
+     * Synchronize user role with Firebase Custom Claims
+     */
+    private async syncFirebaseClaims(firebaseUid: string | null | undefined, role: string): Promise<void> {
+        if (!firebaseUid) return;
+
+        try {
+            const roleName = this.getRoleName(role);
+            // Map our backend RoleName to the string expected by AdminAuthContext.tsx
+            const claimValue = roleName === 'ADMIN' ? 'SUPER_ADMIN' : 
+                               roleName === 'MANAGER' ? 'INVENTORY_MANAGER' : 
+                               roleName === 'SUPPORT_STAFF' ? 'SUPPORT_AGENT' : null;
+
+            // Add background job instead of immediate call
+            await this.eventQueue.add('user.sync_claims', {
+                firebaseUid,
+                role: claimValue
+            }, {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 1000 },
+                removeOnComplete: true
+            });
+            
+            if (env.APP_ENV === 'development') {
+                console.log(`[AuthService] Queued Firebase claims sync for UID ${firebaseUid}: role=${claimValue}`);
+            }
+        } catch (error) {
+            console.error(`[AuthService] Failed to queue Firebase claims sync for UID ${firebaseUid}:`, error);
+            // Don't throw, we don't want to block login if queue sync fails but DB is correct
+        }
+    }
+
+    /**
      * Generates a deterministic hash for the mobile number
      */
     private hashMobile(mobile: string): string {
@@ -257,15 +289,16 @@ export class AuthService {
             throw new AppError(ErrorCode.UNAUTHORIZED, 'Invalid email or password');
         }
 
-        const tokens = await this.generateAuthTokens(user);
+        const activeUser = await this.userRepo.touchLastActive(user.id);
+        const tokens = await this.generateAuthTokens(activeUser);
 
         return {
             user: {
-                id: user.id,
-                role: user.role,
+                id: activeUser.id,
+                role: activeUser.role,
                 isNewUser: false,
-                name: user.name,
-                email: user.email
+                name: activeUser.name,
+                email: activeUser.email
             },
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken
@@ -298,16 +331,20 @@ export class AuthService {
                     isNewUser = true;
                 }
             }
+            
+            // Sync Firebase Custom Claims with Database Role
+            await this.syncFirebaseClaims(uid, user.role);
 
-            const tokens = await this.generateAuthTokens(user);
+            const activeUser = await this.userRepo.touchLastActive(user.id);
+            const tokens = await this.generateAuthTokens(activeUser);
 
             return {
                 user: {
-                    id: user.id,
-                    role: user.role,
+                    id: activeUser.id,
+                    role: activeUser.role,
                     isNewUser,
-                    name: user.name,
-                    email: user.email
+                    name: activeUser.name,
+                    email: activeUser.email
                 },
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken
@@ -363,15 +400,19 @@ export class AuthService {
                 user = existingUser;
             }
 
-            const tokens = await this.generateAuthTokens(user);
+            // Sync Firebase Custom Claims with Database Role
+            await this.syncFirebaseClaims(firebaseUid, user.role);
+
+            const activeUser = await this.userRepo.touchLastActive(user.id);
+            const tokens = await this.generateAuthTokens(activeUser);
 
             return {
                 user: {
-                    id: user.id,
-                    role: user.role,
+                    id: activeUser.id,
+                    role: activeUser.role,
                     isNewUser,
-                    name: user.name,
-                    email: user.email
+                    name: activeUser.name,
+                    email: activeUser.email
                 },
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken
@@ -395,7 +436,7 @@ export class AuthService {
         // In a real app, we would call an SMS service here
         // For development, we log it (but never in production!)
         if (env.APP_ENV === 'development') {
-            console.log(`[DEV] OTP for ${mobile}: ${otp}`);
+            console.log(`[DEV] OTP sent to ${mobile}`); // LOG UPDATED: Removed actual OTP for security
         }
     }
 
@@ -439,15 +480,16 @@ export class AuthService {
             isNewUser = true;
         }
 
-        const tokens = await this.generateAuthTokens(user);
+        const activeUser = await this.userRepo.touchLastActive(user.id);
+        const tokens = await this.generateAuthTokens(activeUser);
 
         return {
             user: {
-                id: user.id,
-                role: user.role,
+                id: activeUser.id,
+                role: activeUser.role,
                 isNewUser,
-                name: user.name,
-                email: user.email
+                name: activeUser.name,
+                email: activeUser.email
             },
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken
@@ -521,8 +563,9 @@ export class AuthService {
 
         await redis.set(key, otp, 'EX', AUTH_CONSTANTS.RESET_OTP_EXPIRY_SECONDS);
 
+        // DEV: do not log the actual OTP — use Redis CLI to inspect if needed
         if (env.APP_ENV === 'development') {
-            console.log(`[DEV] Password Reset OTP for ${email}: ${otp}`);
+            console.log(`[DEV] Password Reset OTP generated for user. Check Redis key: ${AUTH_CONSTANTS.REDIS_RESET_PREFIX}<email>`);
         }
 
         return otp;
@@ -632,9 +675,14 @@ export class AuthService {
             throw new AppError(ErrorCode.NOT_FOUND, `No user found with email: ${email}`);
         }
         const updated = await this.userRepo.updateRole(user.id, role);
+        
+        // Push role update to Firebase Custom Claims if UID exists
+        if (updated.firebase_uid) {
+            await this.syncFirebaseClaims(updated.firebase_uid, updated.role);
+        }
+
         // Invalidate session cache so new role takes effect immediately
         await this.invalidateSessionCache(user.id);
         return { id: updated.id, email: updated.email, name: updated.name, role: updated.role };
     }
 }
-

@@ -58,3 +58,13 @@ DIRECTORY_STRUCTURE_FIX.md
 
 # Environment files - production specific
 apps/web/.env.production
+
+# Local scratch/test scripts — never commit secrets
+tmp/
+
+# Developer skills configuration
+.kilo/
+
+# Temporary Output logs
+tmp_diff*
+apps/eslint-output.txt

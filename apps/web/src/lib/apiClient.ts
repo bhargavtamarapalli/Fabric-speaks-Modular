@@ -124,9 +124,16 @@ apiClient.interceptors.response.use(
     }
 
     if (error.response?.data) {
-      const resData = error.response.data as ApiResponse;
-      if (resData.error) {
-        return Promise.reject(new ApiError(resData.error.code, resData.error.message, statusCode));
+      // Priority 1: Handled server error with specific payload structure
+      const resData = error.response.data as any;
+      const errorObj = resData.error || resData; // Support both {error: {}} and flat structure
+      
+      if (errorObj.code || errorObj.message) {
+        return Promise.reject(new ApiError(
+          errorObj.code || `HTTP_${statusCode}`, 
+          errorObj.message || `Request failed with status ${statusCode}`, 
+          statusCode
+        ));
       }
     }
 
@@ -137,7 +144,8 @@ apiClient.interceptors.response.use(
     }
 
     // Generic error fallback
-    return Promise.reject(new ApiError('HTTP_ERROR', `HTTP ${statusCode}: ${error.message}`, statusCode));
+    const fallbackMessage = error.message || `API Error: ${statusCode}`;
+    return Promise.reject(new ApiError('HTTP_ERROR', fallbackMessage, statusCode));
   }
 );
 

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { settingsApi } from '@/lib/admin/api';
 import { mapError } from '@/lib/admin/errors';
 import type { StoreSettings } from '@/lib/admin/types';
@@ -8,16 +8,27 @@ export function useAlertsForm({
   initialData,
   onSuccess,
 }: {
-  initialData: Partial<StoreSettings>;
+  initialData?: Partial<StoreSettings> | null;
   onSuccess: () => void;
 }) {
-  const [form, setForm] = useState<AlertsForm>({
-    stockAlertThreshold: initialData.stockAlertThreshold || 5,
-  });
+  const [form, setForm] = useState<AlertsForm>(() => ({
+    stockAlertThreshold: initialData?.stockAlertThreshold ?? 5,
+  }));
 
   const [errors, setErrors] = useState<Partial<Record<keyof AlertsForm, string>>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const nextForm: AlertsForm = {
+      stockAlertThreshold: initialData?.stockAlertThreshold ?? 5,
+    };
+    setForm(prev => {
+      if (prev.stockAlertThreshold === nextForm.stockAlertThreshold) return prev;
+      setDirty(false);
+      return nextForm;
+    });
+  }, [initialData?.stockAlertThreshold]);
 
   const updateField = useCallback(<K extends keyof AlertsForm>(key: K, value: AlertsForm[K]) => {
     setForm(p => ({ ...p, [key]: value }));

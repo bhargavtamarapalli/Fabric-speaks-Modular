@@ -12,12 +12,13 @@ import {
   Select, MonoText, ConfirmModal, useToast,
   formatCurrency, formatDate,
 } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 interface CouponForm {
   code: string;
   discountType: DiscountType;
   discountValue: string;
+  maxDiscountValue: string;
   minOrderValue: string;
   usageLimit: string;
   perUserLimit: string;
@@ -26,7 +27,7 @@ interface CouponForm {
 }
 
 const EMPTY_FORM: CouponForm = {
-  code: '', discountType: 'PERCENTAGE', discountValue: '', minOrderValue: '0',
+  code: '', discountType: 'PERCENTAGE', discountValue: '', maxDiscountValue: '', minOrderValue: '0',
   usageLimit: '100', perUserLimit: '1', expiresAt: '', isActive: true,
 };
 
@@ -57,7 +58,7 @@ export default function CouponsPage() {
       setTotal(res.total);
       setTotalPages(res.totalPages);
     } catch (e: any) {
-      setError(mapError(e));
+      setError(isServiceUnavailableError(e) ? null : mapError(e));
     } finally {
       setLoading(false);
     }
@@ -77,6 +78,12 @@ export default function CouponsPage() {
     if (!values.code.trim()) next.code = 'Coupon code is required';
     if (!values.discountValue.trim()) next.discountValue = `${discountLabel} is required`;
     if (values.discountValue && (Number.isNaN(discountValue) || discountValue <= 0)) next.discountValue = `${discountLabel} must be a positive number`;
+    if (values.discountType === 'PERCENTAGE' && values.maxDiscountValue.trim()) {
+      const maxDiscount = Number(values.maxDiscountValue);
+      if (Number.isNaN(maxDiscount) || maxDiscount <= 0) {
+        next.maxDiscountValue = 'Max discount cap must be a positive number';
+      }
+    }
     if (values.minOrderValue && (Number.isNaN(Number(values.minOrderValue)) || Number(values.minOrderValue) < 0)) next.minOrderValue = 'Minimum order value must be a positive number';
     if (values.usageLimit && (Number.isNaN(Number(values.usageLimit)) || parseInt(values.usageLimit, 10) <= 0)) next.usageLimit = 'Total usage limit must be a positive number';
     if (values.perUserLimit && (Number.isNaN(Number(values.perUserLimit)) || parseInt(values.perUserLimit, 10) <= 0)) next.perUserLimit = 'Per user limit must be a positive number';
@@ -104,6 +111,9 @@ export default function CouponsPage() {
         code: form.code.toUpperCase(),
         discountType: form.discountType,
         discountValue: parseFloat(form.discountValue),
+        maxDiscount: form.discountType === 'PERCENTAGE' && form.maxDiscountValue.trim()
+          ? parseFloat(form.maxDiscountValue)
+          : null,
         minOrderValue: parseFloat(form.minOrderValue) || 0,
         usageLimit: parseInt(form.usageLimit, 10) || 100,
         perUserLimit: parseInt(form.perUserLimit, 10) || 1,
@@ -168,7 +178,9 @@ export default function CouponsPage() {
       width: '100px',
       render: (c: Coupon) => (
         <span style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui, fontWeight: 600 }}>
-          {c.discountType === 'PERCENTAGE' ? `${c.discountValue}%` : formatCurrency(c.discountValue)}
+          {c.discountType === 'PERCENTAGE'
+            ? `${c.discountValue}%${c.maxDiscount && c.maxDiscount > 0 ? ` (up to ${formatCurrency(c.maxDiscount)})` : ''}`
+            : formatCurrency(c.discountValue)}
         </span>
       ),
     },
@@ -321,7 +333,16 @@ export default function CouponsPage() {
           </FormField>
 
           <FormField label="Discount type" required>
-            <Select value={form.discountType} onChange={e => updateField('discountType', e.target.value as DiscountType)}>
+            <Select
+              value={form.discountType}
+              onChange={e => {
+                const nextType = e.target.value as DiscountType;
+                updateField('discountType', nextType);
+                if (nextType === 'FLAT') {
+                  updateField('maxDiscountValue', '');
+                }
+              }}
+            >
               <option value="PERCENTAGE">Percentage</option>
               <option value="FLAT">Flat amount</option>
             </Select>
@@ -344,6 +365,25 @@ export default function CouponsPage() {
               </div>
             )}
           </FormField>
+
+          {form.discountType === 'PERCENTAGE' && (
+            <FormField
+              label="Max discount cap (optional)"
+              helper="Upper limit in rupees for percentage discount"
+              error={errors.maxDiscountValue}
+              errorId="coupon-max-discount-error"
+            >
+              <TextInput
+                type="number"
+                min="0"
+                prefix="Rs"
+                value={form.maxDiscountValue}
+                onChange={e => updateField('maxDiscountValue', e.target.value)}
+                aria-invalid={!!errors.maxDiscountValue}
+                aria-describedby={errors.maxDiscountValue ? 'coupon-max-discount-error' : undefined}
+              />
+            </FormField>
+          )}
 
           <FormField label="Minimum order value" helper="Leave 0 for no minimum" error={errors.minOrderValue} errorId="coupon-min-order-error">
             <TextInput
@@ -410,3 +450,4 @@ export default function CouponsPage() {
     </div>
   );
 }
+
