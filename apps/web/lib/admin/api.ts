@@ -4,8 +4,7 @@
 // Never use raw fetch in page components.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { apiClient } from '@/lib/apiClient';
-import { ensureServiceHealthy } from './serviceHealth';
+import { ApiError, apiClient } from '@/lib/apiClient';
 import type {
   Order, OrderTimeline, PackingSlip,
   Product, Brand, Category, Collection,
@@ -117,6 +116,39 @@ function buildQueryString(params?: Record<string, string | number | undefined>):
   return new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
 }
 
+function inferServiceFromAdminApiUrl(url: string): string | null {
+  if (url.startsWith('/admin/orders')) return 'ORDER';
+  if (url.startsWith('/admin/products')) return 'CATALOG';
+  if (url.startsWith('/admin/inventory')) return 'INVENTORY';
+  if (url.startsWith('/admin/returns')) return 'RETURNS';
+  if (url.startsWith('/admin/support')) return 'SUPPORT';
+  if (url.startsWith('/admin/collections')) return 'CATALOG';
+  if (url.startsWith('/admin/categories')) return 'CATALOG';
+  if (url.startsWith('/admin/coupons')) return 'ADMIN';
+  return null;
+}
+
+function normalizeAdminServiceError(url: string, error: unknown): never {
+  if (!(error instanceof ApiError)) throw error;
+
+  const service = inferServiceFromAdminApiUrl(url);
+  if (!service) throw error;
+
+  const status = error.statusCode;
+  const isServiceDownStatus = status === 503 || status === 504;
+  const isSupportRouteMissing = status === 404 && url.startsWith('/admin/support');
+
+  if (isServiceDownStatus || isSupportRouteMissing) {
+    throw new ApiError(
+      'SERVICE_UNAVAILABLE',
+      `${service} service is not running (HTTP ${status})`,
+      status
+    );
+  }
+
+  throw error;
+}
+
 const ADMIN_ROLE_TO_API: Record<AdminRole, string> = {
   SUPER_ADMIN: 'superAdmin',
   INVENTORY_MANAGER: 'inventoryManager',
@@ -170,8 +202,11 @@ export function invalidateAdminCache(prefix?: string) {
 // to be passed through without additional type casting.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _get = async <T>(url: string, signal?: AbortSignal) => {
-  void ensureServiceHealthy(url);
-  return apiClient.get<any, T>(url, { signal });
+  try {
+    return await apiClient.get<any, T>(url, { signal });
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
 };
 
 /**
@@ -212,18 +247,27 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
 // in the request payload. This is a common pattern for API wrapper functions.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const post = async <T>(url: string, data?: any) => {
-  void ensureServiceHealthy(url);
-  return apiClient.post<any, T>(url, data);
+  try {
+    return await apiClient.post<any, T>(url, data);
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const patch = async <T>(url: string, data?: any) => {
-  void ensureServiceHealthy(url);
-  return apiClient.patch<any, T>(url, data);
+  try {
+    return await apiClient.patch<any, T>(url, data);
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const del = async <T>(url: string) => {
-  void ensureServiceHealthy(url);
-  return apiClient.delete<any, T>(url);
+  try {
+    return await apiClient.delete<any, T>(url);
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
 };
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -559,7 +603,14 @@ export const supportApi = {
 export const couponsApi = {
   list: (params?: { page?: number; limit?: number }, signal?: AbortSignal) => {
     const qs = buildQueryString(params);
-    return getWithCache<any>(`/admin/coupons?${qs}`, signal).then((raw) => {
+    const endpoint = `/admin/coupons${qs ? `?${qs}` : ''}`;
+    return getWithCache<any>(endpoint, signal).catch(async (error) => {
+      // Compatibility fallback: some environments reject paginated query params.
+      if (error instanceof ApiError && error.statusCode === 400 && qs) {
+        return getWithCache<any>('/admin/coupons', signal);
+      }
+      throw error;
+    }).then((raw) => {
         const items = (raw?.items ?? []).map((coupon: any): Coupon => ({
         id: String(coupon?.id ?? ''),
         code: String(coupon?.code ?? ''),

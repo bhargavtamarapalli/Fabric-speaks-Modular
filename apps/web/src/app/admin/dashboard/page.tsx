@@ -8,7 +8,7 @@ import { THEME } from '@/lib/admin/theme';
 import dynamic from 'next/dynamic';
 import { dashboardApi } from '@/lib/admin/api';
 import type { DashboardData } from '@/lib/admin/types';
-import { PageHeader, Loader, ErrorBanner, useToast, MetricsGridSkeleton, MetricCardSkeleton, DataTableSkeleton } from '@/components/admin/shared';
+import { PageHeader, Loader, ErrorBanner, MetricsGridSkeleton, MetricCardSkeleton, DataTableSkeleton } from '@/components/admin/shared';
 import { mapError } from '@/lib/admin/errors';
 import { ServiceHealthPanel } from './_components/ServiceHealthPanel';
 
@@ -77,7 +77,9 @@ function DashboardContent() {
   const error = swrError ? mapError(swrError) : null;
   const resolvedData = data ?? (error ? fallbackData : null);
 
-  if (isLoading && !data) return <Loader />;
+  // Do not keep the dashboard trapped in spinner mode when the request errors.
+  // On error we render fallback metrics + banner so the screen remains usable.
+  if (isLoading && !data && !error) return <Loader />;
 
   return (
     <div>

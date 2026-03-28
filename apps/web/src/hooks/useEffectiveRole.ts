@@ -19,20 +19,31 @@ export function useEffectiveRole() {
   const { role: adminRole, loading: adminLoading } = useAdminAuth();
   const { role: dbRole, loading: dbLoading, user: dbUser } = useAuth();
   
-  // Track if we have already attempted a sync/refresh in this session
-  const [syncAttempted, setSyncAttempted] = useState(false);
+  const [syncGraceExpired, setSyncGraceExpired] = useState(false);
 
   // Determine if the DB thinks this user is an admin
   const isDbAdmin = useMemo(() => {
     return !!(dbRole && dbRole !== RoleName.CUSTOMER);
   }, [dbRole]);
 
-  // Determine if we are currently in a "Syncing" state
-  // We are syncing if the DB says Admin, but Firebase hasn't confirmed it yet,
-  // AND we haven't finished a sync cycle.
-  const isSyncing = useMemo(() => {
-    return !!(isDbAdmin && !adminRole && !adminLoading);
+  useEffect(() => {
+    if (!(isDbAdmin && !adminRole && !adminLoading)) {
+      setSyncGraceExpired(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setSyncGraceExpired(true);
+    }, 1500);
+
+    return () => clearTimeout(timeout);
   }, [isDbAdmin, adminRole, adminLoading]);
+
+  // Syncing is temporary only; if Firebase claim does not arrive quickly,
+  // we fall back to DB role so pages do not remain stuck on a loader.
+  const isSyncing = useMemo(() => {
+    return !!(isDbAdmin && !adminRole && !adminLoading && !syncGraceExpired);
+  }, [isDbAdmin, adminRole, adminLoading, syncGraceExpired]);
 
   // The active role is the Firebase claim if present, otherwise the DB role as a fallback
   const activeRole = useMemo((): AdminRole | null => {

@@ -1,6 +1,5 @@
 import { useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 import { useEffectiveRole } from '@/hooks/useEffectiveRole';
 import type { AdminRole } from '@/lib/admin/types';
@@ -44,7 +43,7 @@ export const WithRoleGuard = ({ children, allowedRoles }: WithRoleGuardProps) =>
   }
 
   // Show a loading state while syncing to prevent protected content from flashing
-  if (isSyncing) {
+  if (isSyncing && !activeRole) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[var(--fs-void)]">
         <SpiderLoader size="lg" />
