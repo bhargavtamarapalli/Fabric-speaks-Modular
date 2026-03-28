@@ -195,6 +195,12 @@
       <div class="toolbar">
         <div class="meta small">Local panel — available only on this machine.</div>
         <div class="actions">
+          <button id="startBasic" title="Auth, Admin, Gateway, Frontend">Start Basic</button>
+          <button id="stopBasic">Stop Basic</button>
+          <div style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></div>
+          <button id="startAll">Start All</button>
+          <button id="stopAll">Stop All</button>
+          <div style="width: 1px; height: 20px; background: var(--border); margin: 0 4px;"></div>
           <button id="downloadAll">Download All Logs</button>
           <button id="refresh">Refresh</button>
         </div>
@@ -206,13 +212,26 @@
       const grid = document.getElementById('serviceGrid');
       const refreshButton = document.getElementById('refresh');
       const downloadAllButton = document.getElementById('downloadAll');
+      const startBasicButton = document.getElementById('startBasic');
+      const stopBasicButton = document.getElementById('stopBasic');
+      const startAllButton = document.getElementById('startAll');
+      const stopAllButton = document.getElementById('stopAll');
+
       const logsCache = new Map();
       const openLogs = new Set();
       const logFilters = new Map();
       const autoScrollEnabled = new Map();
+      let allServiceIds = [];
 
-      async function request(path, method = 'GET') {
-        const res = await fetch(path, { method });
+      const BASIC_IDS = ['auth', 'admin', 'gateway', 'frontend'];
+
+      async function request(path, method = 'GET', body = null) {
+        const options = { method };
+        if (body) {
+          options.headers = { 'Content-Type': 'application/json' };
+          options.body = JSON.stringify(body);
+        }
+        const res = await fetch(path, options);
         return res.json();
       }
 
@@ -302,7 +321,9 @@
             card.appendChild(logPanel);
 
             if (autoScroll) {
-              logPanel.scrollTop = logPanel.scrollHeight;
+              requestAnimationFrame(() => {
+                logPanel.scrollTop = logPanel.scrollHeight;
+              });
             }
           }
 
@@ -313,6 +334,7 @@
       async function loadServices() {
         const data = await request('/api/services');
         if (data.success) {
+          allServiceIds = data.data.map(svc => svc.id);
           renderServices(data.data);
         }
       }
@@ -371,6 +393,26 @@
       refreshButton.addEventListener('click', loadServices);
       downloadAllButton.addEventListener('click', () => {
         window.open('/api/services/logs/download', '_blank');
+      });
+
+      startBasicButton.addEventListener('click', async () => {
+        await request('/api/services/batch/start', 'POST', { ids: BASIC_IDS });
+        await loadServices();
+      });
+
+      stopBasicButton.addEventListener('click', async () => {
+        await request('/api/services/batch/stop', 'POST', { ids: BASIC_IDS });
+        await loadServices();
+      });
+
+      startAllButton.addEventListener('click', async () => {
+        await request('/api/services/batch/start', 'POST', { ids: allServiceIds });
+        await loadServices();
+      });
+
+      stopAllButton.addEventListener('click', async () => {
+        await request('/api/services/batch/stop', 'POST', { ids: allServiceIds });
+        await loadServices();
       });
 
       loadServices();

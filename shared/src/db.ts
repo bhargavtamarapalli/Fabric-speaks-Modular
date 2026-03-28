@@ -5,7 +5,7 @@ let pool: Pool | null = null;
 export const getDbPool = (): Pool => {
   if (!pool) {
     const isProd = process.env.APP_ENV === 'production';
-    const isSupabase = process.env.DATABASE_URL?.includes('supabase.co');
+    const isSupabase = process.env.DATABASE_URL?.includes('supabase.co') || process.env.DATABASE_URL?.includes('supabase.com') || process.env.DATABASE_URL?.includes('pooler.supabase.com');
 
     const config: PoolConfig = process.env.DATABASE_URL 
       ? { connectionString: process.env.DATABASE_URL }
@@ -43,3 +43,4 @@ export const getDbPool = (): Pool => {
   }
   return pool;
 };
+

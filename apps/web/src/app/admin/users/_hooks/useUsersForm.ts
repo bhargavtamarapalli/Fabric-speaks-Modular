@@ -13,13 +13,14 @@ import { z } from 'zod';
 const userFormSchema = z.object({
   name: z.string().min(1, 'Full name is required'),
   email: z.string().email('Enter a valid email address'),
+  mobile: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile number'),
   role: z.enum(['SUPER_ADMIN', 'INVENTORY_MANAGER', 'SUPPORT_AGENT'] as const),
 });
 
 export function useUsersForm({ onSuccess, onReload }: UseUsersFormProps = {}) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', role: 'SUPPORT_AGENT' as AdminRole });
-  const [errors, setErrors] = useState<Partial<Record<'name' | 'email' | 'role', string>>>({});
+  const [form, setForm] = useState({ name: '', email: '', mobile: '', role: 'SUPPORT_AGENT' as AdminRole });
+  const [errors, setErrors] = useState<Partial<Record<'name' | 'email' | 'mobile' | 'role', string>>>({});
   const [saving, setSaving] = useState(false);
   const [deactId, setDeactId] = useState<string | null>(null);
 
@@ -35,7 +36,7 @@ export function useUsersForm({ onSuccess, onReload }: UseUsersFormProps = {}) {
     const result = userFormSchema.safeParse(form);
     if (result.success) return {};
     
-    const next: Partial<Record<'name' | 'email' | 'role', string>> = {};
+    const next: Partial<Record<'name' | 'email' | 'mobile' | 'role', string>> = {};
     result.error.errors.forEach(err => {
       const field = err.path[0] as keyof typeof form;
       if (!next[field]) next[field] = err.message;
@@ -51,9 +52,9 @@ export function useUsersForm({ onSuccess, onReload }: UseUsersFormProps = {}) {
     }
     try {
       setSaving(true);
-      await adminUsersApi.create({ ...form, isActive: true });
+      await adminUsersApi.create({ ...form });
       setShowForm(false);
-      setForm({ name: '', email: '', role: 'SUPPORT_AGENT' });
+      setForm({ name: '', email: '', mobile: '', role: 'SUPPORT_AGENT' });
       setErrors({});
       onReload?.();
       onSuccess?.();
@@ -66,7 +67,7 @@ export function useUsersForm({ onSuccess, onReload }: UseUsersFormProps = {}) {
   }, [form, validate, onSuccess, onReload]);
 
   const openForm = useCallback(() => {
-    setForm({ name: '', email: '', role: 'SUPPORT_AGENT' });
+    setForm({ name: '', email: '', mobile: '', role: 'SUPPORT_AGENT' });
     setErrors({});
     setShowForm(true);
   }, []);

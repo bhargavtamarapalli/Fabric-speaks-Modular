@@ -84,6 +84,17 @@ export default function LoginPage() {
 
   // Redirect result handling is removed in favor of signInWithPopup
 
+  // Helper to ensure returnUrl is safe (internal only)
+  const getSafeReturnUrl = () => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const returnUrl = searchParams.get("returnUrl") || "";
+    // Security: Only allow internal redirects (must start with / and not be //)
+    if (returnUrl.startsWith("/") && !returnUrl.startsWith("//")) {
+      return returnUrl;
+    }
+    return null;
+  };
+
   // Handle session expiry and auth errors from AuthContext
   useEffect(() => {
     // Check for expired session
@@ -132,8 +143,8 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading();
     try {
-      const returnUrl = new URLSearchParams(window.location.search).get("returnUrl") || undefined;
-      await login({ email, password, returnUrl });
+      const returnUrl = getSafeReturnUrl();
+      await login({ email, password, returnUrl: returnUrl || undefined });
       // AuthContext will handle redirect automatically based on role
     } catch (err: any) {
       setError(err.message || "Invalid email or password.");
@@ -227,7 +238,7 @@ export default function LoginPage() {
       setState("success");
       setSuccess("Login successful");
       await refreshUser();
-      const returnUrl = new URLSearchParams(window.location.search).get("returnUrl") || "/";
+      const returnUrl = getSafeReturnUrl() || "/";
       router.push(returnUrl);
     } catch (err: any) {
       setError(err.message || "Invalid code.");

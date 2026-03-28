@@ -2,9 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const servicesDir = path.resolve(__dirname, '../services');
-const rootEnv = path.resolve(__dirname, '../.env');
-const sharedDir = path.resolve(__dirname, '../shared');
+const servicesDir = path.resolve(__dirname, '../../services');
+const rootEnv = path.resolve(__dirname, '../../.env');
+const sharedDir = path.resolve(__dirname, '../../shared');
 
 const servicePorts = {
   'admin-service': 8080,

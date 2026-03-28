@@ -55,3 +55,21 @@ export function isNetworkError(error: ApiError | Error | unknown): boolean {
   const parsed = parseError(error);
   return parsed.isNetworkError;
 }
+
+/**
+ * Check if an error represents service-unavailable/dependency-down state.
+ */
+export function isServiceUnavailableError(error: ApiError | Error | unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.statusCode === 503 || error.errorCode === 'SERVICE_UNAVAILABLE';
+  }
+
+  if (error instanceof Error) {
+    const message = error.message || '';
+    return /service is not running/i.test(message) || /http 503/i.test(message);
+  }
+
+  const parsed = parseError(error);
+  const message = parsed.message || '';
+  return parsed.statusCode === 503 || /service is not running/i.test(message) || /http 503/i.test(message);
+}

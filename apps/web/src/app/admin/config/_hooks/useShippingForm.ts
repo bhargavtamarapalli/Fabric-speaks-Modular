@@ -29,9 +29,9 @@ export function useShippingForm({
       if (prev.freeShippingAbove === nextForm.freeShippingAbove && prev.codEnabled === nextForm.codEnabled) {
         return prev;
       }
-      setDirty(false);
       return nextForm;
     });
+    setDirty(false);
   }, [initialData?.freeShippingAbove, initialData?.codEnabled]);
 
   const updateField = useCallback(<K extends keyof ShippingForm>(key: K, value: ShippingForm[K]) => {

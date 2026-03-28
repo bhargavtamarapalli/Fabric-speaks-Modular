@@ -35,7 +35,7 @@ describe('AdminService', () => {
   describe('createAdminUser (ADM-02)', () => {
     it('should successfully create an admin user and append to audit_log (RULE 6)', async () => {
       const mockAdminId = 'admin-123';
-      const mockCreatedUser = { id: 'new-user', name: 'Test', mobile: '9999999999', role: 'supportAgent', isActive: true, createdAt: new Date(), updatedAt: new Date() };
+      const mockCreatedUser = { id: 'new-user', name: 'Test', mobile: '9999999999', email: null, role: 'supportAgent', isDeleted: false, createdAt: new Date(), updatedAt: new Date() };
       
       vi.mocked(adminUserRepo.create).mockResolvedValue(mockCreatedUser);
       vi.mocked(auditLogRepo.insert).mockResolvedValue(undefined);
@@ -77,8 +77,8 @@ describe('AdminService', () => {
     });
 
     it('should update role and write to audit log', async () => {
-      vi.mocked(adminUserRepo.findById).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'supportAgent', isActive: true, createdAt: new Date(), updatedAt: new Date() });
-      vi.mocked(adminUserRepo.updateRole).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', role: 'inventoryManager', isActive: true, createdAt: new Date(), updatedAt: new Date() });
+      vi.mocked(adminUserRepo.findById).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', email: null, role: 'supportAgent', isDeleted: false, createdAt: new Date(), updatedAt: new Date() });
+      vi.mocked(adminUserRepo.updateRole).mockResolvedValue({ id: 'user-456', name: 'User', mobile: '9999999999', email: null, role: 'inventoryManager', isDeleted: false, createdAt: new Date(), updatedAt: new Date() });
       
       const result = await adminService.updateAdminRole('user-456', 'inventoryManager', 'admin-123', 'superAdmin');
       

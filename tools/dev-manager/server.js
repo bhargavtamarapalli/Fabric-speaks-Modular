@@ -7,7 +7,7 @@ const PORT = 5050;
 
 app.use(express.json());
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, '../..');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const SERVICES = [
@@ -16,7 +16,7 @@ const SERVICES = [
     label: 'Gateway',
     port: 4000,
     healthUrl: 'http://localhost:4000/api/v1/health',
-    start: 'node local-gateway.js',
+    start: 'node tools/local-gateway.js',
   },
   {
     id: 'frontend',
@@ -215,6 +215,26 @@ app.get('/api/services', async (_req, res) => {
   }));
 
   res.json({ success: true, data: results });
+});
+
+app.post('/api/services/batch/start', (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ success: false, message: 'Invalid IDs' });
+  ids.forEach(id => {
+    const service = getService(id);
+    if (service) startService(service);
+  });
+  res.json({ success: true });
+});
+
+app.post('/api/services/batch/stop', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ success: false, message: 'Invalid IDs' });
+  await Promise.all(ids.map(async id => {
+    const service = getService(id);
+    if (service) await stopService(service);
+  }));
+  res.json({ success: true });
 });
 
 app.post('/api/services/:id/start', (req, res) => {

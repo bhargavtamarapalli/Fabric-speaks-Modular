@@ -13,11 +13,11 @@ import {
 
 interface UsersFormDrawerProps {
   open: boolean;
-  form: { name: string; email: string; role: AdminRole };
-  errors: Partial<Record<'name' | 'email' | 'role', string>>;
+  form: { name: string; email: string; mobile: string; role: AdminRole };
+  errors: Partial<Record<'name' | 'email' | 'mobile' | 'role', string>>;
   saving: boolean;
   onClose: () => void;
-  onUpdateField: <K extends 'name' | 'email' | 'role'>(key: K, value: any) => void;
+  onUpdateField: <K extends 'name' | 'email' | 'mobile' | 'role'>(key: K, value: any) => void;
   onSubmit: () => void;
 }
 
@@ -48,6 +48,17 @@ export const UsersFormDrawer = memo(function UsersFormDrawer({
             onChange={e => onUpdateField('email', e.target.value)}
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? 'admin-email-error' : undefined}
+          />
+        </FormField>
+        <FormField label="Mobile number" required error={errors.mobile} errorId="admin-mobile-error">
+          <TextInput
+            value={form.mobile}
+            onChange={e => onUpdateField('mobile', e.target.value)}
+            aria-invalid={!!errors.mobile}
+            aria-describedby={errors.mobile ? 'admin-mobile-error' : undefined}
+            placeholder="10-digit mobile number"
+            inputMode="numeric"
+            maxLength={10}
           />
         </FormField>
         <FormField label="Role" required>

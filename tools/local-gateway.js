@@ -12,6 +12,15 @@ app.use(cors({
 
 // Route mappings: path prefix -> target service URL
 const routes = {
+  // Admin sub-routes routed to their owning services (must come before /api/v1/admin)
+  '/api/v1/admin/orders': 'http://localhost:8084',
+  '/api/v1/admin/returns': 'http://localhost:8089',
+  '/api/v1/admin/inventory': 'http://localhost:8086',
+  '/api/v1/admin/products': 'http://localhost:8082',
+  '/api/v1/admin/categories': 'http://localhost:8082',
+  '/api/v1/admin/collections': 'http://localhost:8082',
+  '/api/v1/admin/stories': 'http://localhost:8082',
+
   // Admin service (port 8080)
   '/api/v1/admin': 'http://localhost:8080',
   '/api/v1/homepage': 'http://localhost:8080/api/v1/admin/homepage/public',
@@ -55,6 +64,39 @@ const routes = {
 // Health check
 app.get('/api/v1/health', (req, res) => {
   res.json({ status: 'ok', service: 'local-gateway' });
+});
+
+const healthTargets = {
+  gateway: `http://localhost:${PORT}/api/v1/health`,
+  auth: 'http://localhost:8081/health',
+  admin: 'http://localhost:8080/health',
+  catalog: 'http://localhost:8082/health',
+  order: 'http://localhost:8084/health',
+  inventory: 'http://localhost:8086/health',
+  returns: 'http://localhost:8089/health',
+  support: 'http://localhost:8091/health',
+};
+
+app.get('/api/v1/health/:service', async (req, res) => {
+  const target = healthTargets[req.params.service];
+  if (!target) {
+    return res.status(404).json({ success: false, status: 'unknown', service: req.params.service });
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const resp = await fetch(target, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      return res.status(resp.status).json(data || { success: false, status: 'down', service: req.params.service });
+    }
+    return res.json(data || { success: true, status: 'ok', service: req.params.service });
+  } catch (err) {
+    return res.status(503).json({ success: false, status: 'down', service: req.params.service });
+  }
 });
 
 // Setup proxies

@@ -18,7 +18,9 @@ for (const envPath of possiblePaths) {
   }
 }
 
-console.log('REDIS_URL from env:', process.env.REDIS_URL);
+if (process.env.REDIS_URL) {
+  console.log(`REDIS_URL configured (length: ${process.env.REDIS_URL.length})`);
+}
 
 if (!process.env.APP_JWT_SECRET && process.env.JWT_SECRET) {
   process.env.APP_JWT_SECRET = process.env.JWT_SECRET;
@@ -40,6 +42,7 @@ export const BaseEnvSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.string().default('6379').transform(Number),
   REDIS_URL: z.string().optional(),
+  JWT_SECRET: z.string().optional(),
   APP_JWT_SECRET: z.string().default('test_secret'),
   // Google Cloud Configuration
   GOOGLE_CLOUD_PROJECT: z.string().optional(),
@@ -55,6 +58,13 @@ export type BaseEnv = z.infer<typeof BaseEnvSchema>;
  */
 export function loadEnv<T extends z.ZodRawShape>(serviceSchema: T) {
   const mergedSchema = BaseEnvSchema.extend(serviceSchema).superRefine((env, ctx) => {
+    if (env.JWT_SECRET && env.APP_JWT_SECRET && env.JWT_SECRET !== env.APP_JWT_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'JWT_SECRET must match APP_JWT_SECRET',
+        path: ['JWT_SECRET']
+      });
+    }
     const requireStrongSecret = env.APP_ENV === 'production' || env.APP_ENV === 'staging';
     if (requireStrongSecret) {
       if (!env.APP_JWT_SECRET || env.APP_JWT_SECRET === 'test_secret' || env.APP_JWT_SECRET.length < 32) {

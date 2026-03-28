@@ -4,24 +4,35 @@ import type { AdminUser } from '@/lib/admin/types';
 import { mapError } from '@/lib/admin/errors';
 import { useToast } from '@/components/admin/shared';
 
-export function useUsers() {
+export function useUsers(params?: { role?: string; search?: string; page?: number; limit?: number; enabled?: boolean }) {
   const { showToast } = useToast();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [meta, setMeta] = useState<{ total: number; page: number; limit: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deactivating, setDeactivating] = useState(false);
 
   const load = useCallback(async () => {
+    if (params?.enabled === false) {
+      setError(null);
+      setLoading(false);
+      setUsers([]);
+      setMeta(null);
+      return;
+    }
     try {
       setError(null);
       setLoading(true);
-      setUsers(await adminUsersApi.list());
-    } catch (e: any) {
-      setError(mapError(e));
+      const response = await adminUsersApi.list(params);
+      setUsers(response?.items ?? []);
+      setMeta(response?.meta ?? { total: 0, page: params?.page ?? 1, limit: params?.limit ?? 20 });
+    } catch (e: unknown) {
+      const error = e as Error;
+      setError(mapError(error));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [params?.role, params?.search, params?.page, params?.limit, params?.enabled]);
 
   useEffect(() => {
     load();
@@ -41,7 +52,7 @@ export function useUsers() {
     } finally {
       setDeactivating(false);
     }
-  }, []);
+  }, [showToast]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { users, loading, error, load, deactivate, deactivating };
+  return { users, meta, loading, error, load, deactivate, deactivating };
 }

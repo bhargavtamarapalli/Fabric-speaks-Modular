@@ -20,11 +20,39 @@ export class AdminService {
     this.eventQueue = eventQueue ?? new Queue('platform_events', { connection: getRedisClient() });
   }
 
-  async listAdminUsers(filters: AdminListQueryDto) {
-    return this.adminUserRepo.list(filters);
+  async listAdminUsers(filters: AdminListQueryDto, requesterRole: string) {
+    const mappedFilters = {
+      page: filters.page,
+      limit: filters.limit,
+      role: filters['filter[role]'],
+      search: filters['filter[search]'],
+    };
+
+    if (requesterRole === 'superAdmin') {
+      return this.adminUserRepo.list(mappedFilters);
+    }
+
+    if (requesterRole === 'inventoryManager') {
+      return this.adminUserRepo.list({
+        ...mappedFilters,
+        role: 'inventoryManager',
+      });
+    }
+
+    if (requesterRole === 'supportAgent') {
+      return this.adminUserRepo.list({
+        ...mappedFilters,
+        role: 'supportAgent',
+      });
+    }
+
+    throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Insufficient permissions to view admin users');
   }
 
-  async lookupCustomers(query: string) {
+  async lookupCustomers(query: string, requesterRole: string) {
+    if (!['superAdmin', 'supportAgent', 'inventoryManager'].includes(requesterRole)) {
+      throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Insufficient permissions to lookup customers');
+    }
     return this.customerRepo.lookup(query);
   }
 
@@ -98,7 +126,7 @@ export class AdminService {
   }
 
   async deleteAdminUser(userId: string, adminId: string, requesterRole: string) {
-     // RULE: Only superAdmin can delete users
+    // RULE: Only superAdmin can delete users
     if (requesterRole !== 'superAdmin') {
       throw new AppError(ErrorCode.INSUFFICIENT_ROLE, 'Insufficient permissions to delete users');
     }
@@ -111,8 +139,12 @@ export class AdminService {
     if (!deleted) throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
 
     // Revoke all Firebase refresh tokens to force re-authentication on next request
+    // NOTE: Firebase expects the Firebase UID, not the PostgreSQL user ID
     try {
-      await admin.auth().revokeRefreshTokens(userId);
+      const userToRevoke = await this.adminUserRepo.findById(userId);
+      if (userToRevoke && userToRevoke.firebaseUid) {
+        await admin.auth().revokeRefreshTokens(userToRevoke.firebaseUid);
+      }
     } catch (err) {
       logger.error(`Failed to revoke Firebase tokens for user ${userId}:`, err);
       // Continue anyway - user is already soft deleted
@@ -155,19 +187,28 @@ export class AdminService {
   }
 
   async getDashboardMetrics() {
+    const safe = async <T>(fn: () => Promise<T>, fallback: T, label: string): Promise<T> => {
+      try {
+        return await fn();
+      } catch (error) {
+        logger.warn(`[AdminService] Dashboard metric failed (${label})`, error);
+        return fallback;
+      }
+    };
+
     const [revenue, trends, topProducts, topFabrics, codStats, failedPayments, funnel, health, abandonedRate, dailyComparison, weeklyComparison, shiprocketIssues] = await Promise.all([
-      this.dashboardRepo.getRevenueMetrics(30),
-      this.dashboardRepo.getOrderTrends(30),
-      this.dashboardRepo.getTopProducts(5),
-      this.dashboardRepo.getTopFabrics(5),
-      this.dashboardRepo.getCODStats(),
-      this.dashboardRepo.getFailedPaymentsCount(),
-      this.dashboardRepo.getConversionFunnel(30),
-      this.dashboardRepo.getSystemHealth(),
-      this.dashboardRepo.getAbandonedCartRate(),
-      this.dashboardRepo.getPeriodComparison(1),
-      this.dashboardRepo.getPeriodComparison(7),
-      this.dashboardRepo.getShiprocketIssues(6)
+      safe(() => this.dashboardRepo.getRevenueMetrics(30), { totalRevenue: 0, avgOrderValue: 0, orderCount: 0, revenueByStatus: {} }, 'revenue'),
+      safe(() => this.dashboardRepo.getOrderTrends(30), [], 'trends'),
+      safe(() => this.dashboardRepo.getTopProducts(5), [], 'topProducts'),
+      safe(() => this.dashboardRepo.getTopFabrics(5), [], 'topFabrics'),
+      safe(() => this.dashboardRepo.getCODStats(), { pending_confirmation: 0, fraud_flagged: 0 }, 'codStats'),
+      safe(() => this.dashboardRepo.getFailedPaymentsCount(), 0, 'failedPayments'),
+      safe(() => this.dashboardRepo.getConversionFunnel(30), { views: 0, addToCarts: 0, checkouts: 0, purchases: 0 }, 'funnel'),
+      safe(() => this.dashboardRepo.getSystemHealth(), { errorRate: 0, avgLatency: 0, activeSessions: 0 }, 'health'),
+      safe(() => this.dashboardRepo.getAbandonedCartRate(), 0, 'abandonedRate'),
+      safe(() => this.dashboardRepo.getPeriodComparison(1), { currentOrders: 0, previousOrders: 0, ordersDeltaPct: 0, currentRevenue: 0, previousRevenue: 0, revenueDeltaPct: 0 }, 'dailyComparison'),
+      safe(() => this.dashboardRepo.getPeriodComparison(7), { currentOrders: 0, previousOrders: 0, ordersDeltaPct: 0, currentRevenue: 0, previousRevenue: 0, revenueDeltaPct: 0 }, 'weeklyComparison'),
+      safe(() => this.dashboardRepo.getShiprocketIssues(6), 0, 'shiprocketIssues')
     ]);
     
     return {

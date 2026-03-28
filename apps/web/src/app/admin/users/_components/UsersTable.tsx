@@ -41,10 +41,10 @@ export const UsersTable = memo(function UsersTable({
       render: (u: AdminUser) => (
         <div>
           <div style={{ color: THEME.colors.ivory, fontSize: THEME.fontSizes.base, fontFamily: THEME.fonts.ui }}>
-            {u.name}
+            {u.name || '--'}
           </div>
           <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.mono }}>
-            {u.email}
+            {u.email || '--'}
           </div>
         </div>
       ),
@@ -54,7 +54,9 @@ export const UsersTable = memo(function UsersTable({
       label: 'Role',
       width: '160px',
       render: (u: AdminUser) => {
-        return <Badge type={BADGE_MAP[u.role] as any}>{ROLE_LABELS[u.role]}</Badge>;
+        const badge = BADGE_MAP[u.role] ?? 'support';
+        const label = ROLE_LABELS[u.role] ?? 'Staff';
+        return <Badge type={badge as any}>{label}</Badge>;
       },
     },
     {

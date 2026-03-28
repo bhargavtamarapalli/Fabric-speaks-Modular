@@ -1,4 +1,4 @@
-import { BaseRepository } from '@fs/shared';
+import { BaseRepository, AppError, ErrorCode } from '@fs/shared';
 
 export interface AdminUser {
     id: string;
@@ -6,7 +6,9 @@ export interface AdminUser {
     mobile: string;
     email: string | null;
     role: string;
+    firebaseUid?: string | null;
     isDeleted: boolean;
+    lastActiveAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -25,7 +27,7 @@ export class AdminUserRepository extends BaseRepository {
         const offset = (page - 1) * limit;
         
         // Filter: only show admin-capable roles, excluding 'customer'
-        let query = "SELECT *, NOT is_deleted as is_active FROM users WHERE role != 'customer' AND is_deleted = false";
+        let query = "SELECT *, updated_at AS last_active_at, NOT is_deleted as is_active FROM users WHERE role != 'customer' AND is_deleted = false";
         const params: unknown[] = [];
         
         if (filters.role) {
@@ -48,7 +50,11 @@ export class AdminUserRepository extends BaseRepository {
         const countParams: unknown[] = [];
         if (filters.role) {
             countParams.push(filters.role);
-            countQuery += ' AND role = $1';
+            countQuery += ` AND role = $${countParams.length}`;
+        }
+        if (filters.search) {
+            countParams.push(`%${filters.search}%`);
+            countQuery += ` AND (name ILIKE $${countParams.length} OR email ILIKE $${countParams.length} OR mobile ILIKE $${countParams.length})`;
         }
         const countRes = await this.query(countQuery, countParams);
 
@@ -81,7 +87,7 @@ export class AdminUserRepository extends BaseRepository {
     async updateRole(id: string, role: string): Promise<AdminUser> {
         const query = 'UPDATE users SET role = $2, updated_at = now() WHERE id = $1 RETURNING *';
         const { rows } = await this.query(query, [id, role]);
-        if (!rows.length) throw new Error('User not found');
+        if (!rows.length) throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
         return this.mapToCamelCase<AdminUser>(rows[0]);
     }
 
@@ -102,7 +108,7 @@ export class AdminUserRepository extends BaseRepository {
         `;
         const { rows } = await this.query(query, [id]);
         if (!rows.length) {
-            throw new Error('User not found');
+            throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
         }
         return rows[0];
     }

@@ -1,4 +1,5 @@
 @echo off
+cd %~dp0..
 echo ============================================
 echo Fabric Speaks Local Development Startup
 echo ============================================

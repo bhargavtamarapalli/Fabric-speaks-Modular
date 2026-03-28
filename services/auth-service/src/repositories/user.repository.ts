@@ -26,6 +26,7 @@ export interface IUserRepository {
     createWithEmail(data: { email: string, name?: string, passwordHash: string }): Promise<User>;
     updateProfile(id: string, data: Partial<User>): Promise<User>;
     updateRole(id: string, role: string): Promise<User>;
+    touchLastActive(id: string): Promise<User>;
     softDeleteCustomer(id: string): Promise<void>;
 }
 
@@ -100,6 +101,17 @@ export class UserRepository extends BaseRepository implements IUserRepository {
             [id, role]
         );
         return result.rows[0]!;
+    }
+
+    async touchLastActive(id: string): Promise<User> {
+        const result = await this.db.query<User>(
+            `UPDATE users SET updated_at = now() WHERE id = $1 AND is_deleted = false RETURNING *`,
+            [id]
+        );
+        if (!result.rows[0]) {
+            throw new Error(`User not found: ${id}`);
+        }
+        return result.rows[0];
     }
 
     async softDeleteCustomer(id: string): Promise<void> {

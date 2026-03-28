@@ -1,6 +1,6 @@
 @echo off
 setlocal
-
+cd %~dp0..
 echo ============================================
 echo Fabric Speaks Basic Services Startup
 echo ============================================

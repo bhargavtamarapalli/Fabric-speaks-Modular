@@ -1,5 +1,13 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    if (process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production') {
+      const appJwt = process.env.APP_JWT_SECRET;
+      const jwt = process.env.JWT_SECRET;
+      if (appJwt && jwt && appJwt !== jwt) {
+        throw new Error('JWT_SECRET must match APP_JWT_SECRET');
+      }
+    }
+
     const Sentry = await import('@sentry/nextjs');
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
