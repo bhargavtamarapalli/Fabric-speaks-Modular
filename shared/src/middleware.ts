@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { AppError, ErrorCode } from './errors';
 import { Role, JwtPayload } from './types';
 import pino from 'pino';
@@ -9,6 +9,15 @@ import * as Sentry from '@sentry/node';
 import crypto from 'crypto';
 
 const logger = pino();
+
+/**
+ * Universal wrapper for async Express middleware to catch errors and pass to next()
+ */
+export const catchAsync = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>): RequestHandler => {
+  return (req, res, next) => {
+    fn(req, res, next).catch(next);
+  };
+};
 
 // Initialize Sentry for backend services
 const initializeSentry = () => {
@@ -59,7 +68,16 @@ const extractJwtToken = (req: Request): string | null => {
   return null;
 };
 
-export const attachAuthUser = async (req: Request, _res: Response, next: NextFunction) => {
+export const attachAuthUser = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const cookieToken = (req as any).cookies?.jwt;
+  
+  if (process.env.APP_ENV === 'development') {
+    console.log(`[Auth Debug] Request ${req.method} ${req.path}`, {
+      hasCookie: !!cookieToken,
+      allCookies: (req as any).cookies ? Object.keys((req as any).cookies) : 'No Cookies',
+       authHeader: !!req.headers.authorization
+    });
+  }
   const token = extractJwtToken(req);
   if (!token) {
     return next();
@@ -121,7 +139,7 @@ export const attachAuthUser = async (req: Request, _res: Response, next: NextFun
   }
 
   next();
-};
+});
 
 export const requireRole = (...roles: Role[]) => {
   return (req: Request, _res: Response, next: NextFunction) => {
@@ -135,14 +153,6 @@ export const requireRole = (...roles: Role[]) => {
       );
     }
     next();
-  };
-};
-
-export const catchAsync = (
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
-) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    fn(req, res, next).catch(next);
   };
 };
 
@@ -273,25 +283,43 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   
   if (safeMethods.includes(req.method)) {
-    // Generate a cryptographically secure token for GET/HEAD/OPTIONS
-    const token = crypto.randomBytes(32).toString('hex');
+    // Reuse existing token if present in cookies, otherwise generate a new one
+    let token = (req as any).cookies?.['csrf-token'];
+    
+    if (!token) {
+      // Generate a cryptographically secure token for GET/HEAD/OPTIONS
+      token = crypto.randomBytes(32).toString('hex');
+      
+      // Set the token in both the header (for JS to read) and a cookie (for server to compare later)
+      res.cookie('csrf-token', token, {
+        httpOnly: true,
+        secure: process.env.APP_ENV === 'production',
+        sameSite: 'lax',
+        path: '/'
+      });
+    }
+    
     res.setHeader('X-CSRF-Token', token);
     return next();
   }
 
   // For state-changing methods (POST, PUT, PATCH, DELETE), validate token
-  const tokenInHeader = req.headers['x-csrf-token'] as string | undefined;
-  const tokenInBody = (req.body as any)?.csrfToken as string | undefined;
-  const token = tokenInHeader || tokenInBody;
+  const headerToken = req.headers['x-csrf-token'] as string | undefined;
+  const cookieToken = (req as any).cookies?.['csrf-token'];
 
-  if (!token) {
-    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token missing'));
+  if (process.env.APP_ENV === 'development') {
+    console.log(`[CSRF Debug] VALIDATION for ${req.method} ${req.path}`, {
+      headerToken: headerToken ? `${headerToken.substring(0, 8)}...` : 'MISSING',
+      cookieToken: cookieToken ? `${cookieToken.substring(0, 8)}...` : 'MISSING',
+      match: headerToken === cookieToken
+    });
   }
 
-  // In production, validate token against stored value in Redis or session
-  // For now, just ensure token exists and has valid format
-  if (!/^[a-f0-9]{64}$/.test(token)) {
-    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token invalid'));
+  if (!headerToken || !cookieToken || headerToken !== cookieToken) {
+    if (process.env.APP_ENV === 'development') {
+      console.error(`[CSRF Debug] REJECTED: Mismatch found or token missing for ${req.method} ${req.path}`);
+    }
+    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF security token mismatch or missing. Refresh might be required.'));
   }
 
   next();

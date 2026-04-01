@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
 import { PriceChangeService } from '../services/price-change.service';
-import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, UpdateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, ReorderCollectionProductsSchema, IdParamSchema, BulkUpdateVariantsSchema, CreateVariantSchema, UpdateVariantSchema, VariantIdParamSchema, BulkPriceUpdateSchema, SchedulePriceChangeSchema, PriceChangeListQuerySchema } from '../schemas/catalog.schemas';
+import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, UpdateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, ReorderCollectionProductsSchema, IdParamSchema, BulkUpdateVariantsSchema, CreateVariantSchema, UpdateVariantSchema, VariantIdParamSchema, BulkPriceUpdateSchema, SchedulePriceChangeSchema, PriceChangeListQuerySchema, CreateVariantTemplateSchema, AddCollectionProductsSchema, VariantTemplateQuerySchema } from '../schemas/catalog.schemas';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class CatalogController {
@@ -25,23 +25,27 @@ export class CatalogController {
     });
 
     listBrands = catchAsync(async (req: Request, res: Response) => {
+        const query = { page: 1, limit: 1000, ...req.query };
         const result = await this.catalogService.listBrands();
-        res.json({ success: true, data: result });
+        res.json({ success: true, data: { items: result.items }, meta: { total: result.total, page: Number(query.page), limit: Number(query.limit) } });
     });
 
-    adminListBrands = catchAsync(async (_req: Request, res: Response) => {
+    adminListBrands = catchAsync(async (req: Request, res: Response) => {
+        const query = { page: 1, limit: 1000, ...req.query };
         const result = await this.catalogService.adminListBrands();
-        res.json({ success: true, data: result });
+        res.json({ success: true, data: { items: result.items }, meta: { total: result.total, page: Number(query.page), limit: Number(query.limit) } });
     });
 
     listCategories = catchAsync(async (req: Request, res: Response) => {
+        const query = { page: 1, limit: 1000, ...req.query };
         const result = await this.catalogService.listCategories();
-        res.json({ success: true, data: result });
+        res.json({ success: true, data: { items: result.items }, meta: { total: result.total, page: Number(query.page), limit: Number(query.limit) } });
     });
 
-    adminListCategories = catchAsync(async (_req: Request, res: Response) => {
+    adminListCategories = catchAsync(async (req: Request, res: Response) => {
+        const query = { page: 1, limit: 1000, ...req.query };
         const result = await this.catalogService.adminListCategories();
-        res.json({ success: true, data: result });
+        res.json({ success: true, data: { items: result.items }, meta: { total: result.total, page: Number(query.page), limit: Number(query.limit) } });
     });
 
     getCollection = catchAsync(async (req: Request, res: Response) => {
@@ -49,9 +53,10 @@ export class CatalogController {
         res.json({ success: true, data: result });
     });
 
-    adminListCollections = catchAsync(async (_req: Request, res: Response) => {
+    adminListCollections = catchAsync(async (req: Request, res: Response) => {
+        const query = { page: 1, limit: 1000, ...req.query };
         const result = await this.catalogService.adminListCollections();
-        res.json({ success: true, data: result });
+        res.json({ success: true, data: { items: result.items }, meta: { total: result.total, page: Number(query.page), limit: Number(query.limit) } });
     });
 
     adminListProducts = catchAsync(async (req: Request, res: Response) => {
@@ -200,7 +205,7 @@ export class CatalogController {
 
     addCollectionProducts = catchAsync(async (req: Request, res: Response) => {
         const { id } = IdParamSchema.parse(req.params);
-        const { productIds } = req.body;
+        const { productIds } = AddCollectionProductsSchema.parse(req.body);
         const result = await this.catalogService.addCollectionProducts(id, productIds, req.user!.userId);
         res.json({ success: true, data: result });
     });
@@ -217,5 +222,17 @@ export class CatalogController {
         const { productIds } = ReorderCollectionProductsSchema.parse(req.body);
         await this.catalogService.reorderCollectionProducts(id, productIds, req.user!.userId);
         res.json({ success: true, data: { collectionId: id, productIds } });
+    });
+
+    listVariantTemplates = catchAsync(async (req: Request, res: Response) => {
+        const query = VariantTemplateQuerySchema.parse(req.query);
+        const result = await this.catalogService.listVariantTemplates();
+        res.json({ success: true, data: { items: result.items }, meta: { total: result.total, page: query.page, limit: query.limit } });
+    });
+
+    createVariantTemplate = catchAsync(async (req: Request, res: Response) => {
+        const dto = CreateVariantTemplateSchema.parse(req.body);
+        const result = await this.catalogService.createVariantTemplate(dto, req.user!.userId);
+        res.status(201).json({ success: true, data: result });
     });
 }

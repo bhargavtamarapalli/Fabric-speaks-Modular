@@ -41,6 +41,21 @@ export class RefreshTokenRepository extends BaseRepository {
         );
     }
 
+    async findAllActiveForUser(userId: string): Promise<RefreshToken[]> {
+        const result = await this.db.query<RefreshToken>(
+            'SELECT * FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at DESC',
+            [userId]
+        );
+        return result.rows;
+    }
+
+    async revokeOthers(userId: string, currentToken: string): Promise<void> {
+        await this.db.query(
+            'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND token != $2 AND revoked_at IS NULL',
+            [userId, currentToken]
+        );
+    }
+
     async deleteExpired(): Promise<number> {
         const result = await this.db.query(
             'DELETE FROM refresh_tokens WHERE expires_at < now() OR revoked_at IS NOT NULL'

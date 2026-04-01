@@ -10,8 +10,8 @@ export const VariantItemSchema = z.object({
     salePrice: z.number().positive().optional(),
     saleActive: z.boolean().default(false),
     qty: z.number().int().nonnegative(),
-    badges: z.record(z.any()).optional(),
-    images: z.array(z.union([z.string().url(), z.record(z.any())])).default([]),
+    badges: z.record(z.unknown()).optional(),
+    images: z.array(z.union([z.string().url(), z.record(z.unknown())])).default([]),
     isActive: z.boolean().default(true),
 });
 
@@ -58,7 +58,7 @@ export const CreateProductSchema = z.object({
     breathabilityRating: z.string().min(1),
     careInstructions: z.string().min(1),
     fabricOrigin: z.string().min(1),
-    attributes: z.record(z.any()).default({}),
+    attributes: z.record(z.unknown()).default({}),
     manualBadgesJson: z.array(z.object({ type: z.string() })).optional(),
     variants: z.array(VariantItemSchema).min(1),
 });
@@ -81,7 +81,7 @@ export const CreateCollectionSchema = z.object({
     name: z.string().min(2).max(100),
     slug: z.string().regex(/^[a-z0-9-]+$/),
     type: z.enum(['smart', 'manual']),
-    rules_json: z.record(z.any()).optional(),
+    rules_json: z.record(z.unknown()).optional(),
     heroImageMobileUrl: z.string().url().optional().or(z.string().length(0)),
     heroImageDesktopUrl: z.string().url().optional().or(z.string().length(0)),
     description: z.string().optional(),
@@ -102,8 +102,8 @@ export const BulkUpdateVariantItemSchema = z.object({
     salePrice: z.number().positive().optional(),
     saleActive: z.boolean().optional(),
     qty: z.number().int().nonnegative().optional(),
-    badges: z.record(z.any()).optional(),
-    images: z.array(z.union([z.string().url(), z.record(z.any())])).optional(),
+    badges: z.record(z.unknown()).optional(),
+    images: z.array(z.union([z.string().url(), z.record(z.unknown())])).optional(),
     isActive: z.boolean().optional(),
 }).refine(
     data => Object.keys(data).some(key => key !== 'variantId'),
@@ -143,6 +143,10 @@ export const ReorderCollectionProductsSchema = z.object({
     productIds: z.array(z.string().uuid()).min(1)
 });
 
+export const AddCollectionProductsSchema = z.object({
+    productIds: z.array(z.string().uuid()).min(1)
+});
+
 export const BulkPriceUpdateBaseSchema = z.object({
     targetType: z.enum(['product', 'variant', 'collection', 'brand', 'global']),
     targetIds: z.array(z.string().uuid()).optional().default([]),
@@ -163,6 +167,12 @@ export const SchedulePriceChangeSchema = BulkPriceUpdateBaseSchema.extend({
     scheduledAt: z.string().datetime()
 });
 
+export const CreateVariantTemplateSchema = z.object({
+    name: z.string().min(2).max(100),
+    sizes: z.array(z.string()).min(1),
+    colours: z.array(z.string()).min(1),
+});
+
 export const PriceChangeListQuerySchema = z.object({
     status: z.enum(['scheduled', 'processing', 'applied', 'failed', 'cancelled']).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -177,6 +187,13 @@ export type UpdateBrandDto = z.infer<typeof UpdateBrandSchema>;
 export type BulkPriceUpdateDto = z.infer<typeof BulkPriceUpdateSchema>;
 export type SchedulePriceChangeDto = z.infer<typeof SchedulePriceChangeSchema>;
 export type PriceChangeListQueryDto = z.infer<typeof PriceChangeListQuerySchema>;
+export type CreateVariantTemplateDto = z.infer<typeof CreateVariantTemplateSchema>;
+
+export const VariantTemplateQuerySchema = z.object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+});
+export type VariantTemplateQueryDto = z.infer<typeof VariantTemplateQuerySchema>;
 
 export const BulkUploadSchema = z.array(z.object({
     name: z.string().min(1, 'Product name required'),

@@ -7,58 +7,70 @@ const PORT = 4000;
 
 app.use(cors({
   origin: 'http://localhost:3000',
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+  exposedHeaders: ['X-CSRF-Token']
 }));
 
 // Route mappings: path prefix -> target service URL
 const routes = {
   // Admin sub-routes routed to their owning services (must come before /api/v1/admin)
-  '/api/v1/admin/orders': 'http://localhost:8084',
-  '/api/v1/admin/returns': 'http://localhost:8089',
-  '/api/v1/admin/inventory': 'http://localhost:8086',
-  '/api/v1/admin/products': 'http://localhost:8082',
-  '/api/v1/admin/categories': 'http://localhost:8082',
-  '/api/v1/admin/collections': 'http://localhost:8082',
-  '/api/v1/admin/stories': 'http://localhost:8082',
+  '/api/v1/admin/orders': 'http://127.0.0.1:8084',
+  '/api/v1/admin/returns': 'http://127.0.0.1:8089',
+  '/api/v1/admin/inventory': 'http://127.0.0.1:8086',
+  '/api/v1/admin/products': 'http://127.0.0.1:8082',
+  '/api/v1/admin/brands': 'http://127.0.0.1:8082',
+  '/api/v1/admin/categories': 'http://127.0.0.1:8082',
+  '/api/v1/admin/collections': 'http://127.0.0.1:8082',
+  '/api/v1/admin/catalog': 'http://127.0.0.1:8082',
+  '/api/v1/admin/stories': 'http://127.0.0.1:8082',
+  '/api/v1/admin/support': 'http://127.0.0.1:8091',
 
   // Admin service (port 8080)
-  '/api/v1/admin': 'http://localhost:8080',
-  '/api/v1/homepage': 'http://localhost:8080/api/v1/admin/homepage/public',
-  '/api/v1/banners': 'http://localhost:8080/api/v1/admin/content/banners/active',
+  '/api/v1/admin': 'http://127.0.0.1:8080',
+  '/api/v1/homepage': 'http://127.0.0.1:8080/api/v1/admin/homepage/public',
+  '/api/v1/banners': 'http://127.0.0.1:8080/api/v1/admin/content/banners/active',
 
   // Auth service (port 8081)
-  '/api/v1/auth': 'http://localhost:8081',
+  '/api/v1/auth': 'http://127.0.0.1:8081',
 
   // Catalog service (port 8082)
-  '/api/v1/products': 'http://localhost:8082',
-  '/api/v1/categories': 'http://localhost:8082',
-  '/api/v1/collections': 'http://localhost:8082',
-  '/api/v1/stories': 'http://localhost:8082',
+  '/api/v1/products': 'http://127.0.0.1:8082',
+  '/api/v1/categories': 'http://127.0.0.1:8082',
+  '/api/v1/brands': 'http://127.0.0.1:8082',
+  '/api/v1/collections': 'http://127.0.0.1:8082',
+  '/api/v1/stories': 'http://127.0.0.1:8082',
 
   // Cart service (port 8083)
-  '/api/v1/cart': 'http://localhost:8083',
+  '/api/v1/cart': 'http://127.0.0.1:8083',
 
   // Order service (port 8084)
-  '/api/v1/orders': 'http://localhost:8084',
+  '/api/v1/orders': 'http://127.0.0.1:8084',
 
   // Payment service (port 8085)
-  '/api/v1/payments': 'http://localhost:8085',
+  '/api/v1/payments': 'http://127.0.0.1:8085',
 
   // Inventory service (port 8086)
-  '/api/v1/inventory': 'http://localhost:8086',
+  '/api/v1/inventory': 'http://127.0.0.1:8086',
+
+  // Notification service (port 8087)
+  '/api/v1/notifications': 'http://127.0.0.1:8087',
 
   // Pincode service (port 8088)
-  '/api/v1/pincode': 'http://localhost:8088',
+  '/api/v1/pincode': 'http://127.0.0.1:8088',
 
   // Return service (port 8089)
-  '/api/v1/returns': 'http://localhost:8089',
+  '/api/v1/returns': 'http://127.0.0.1:8089',
 
   // Search service (port 8090)
-  '/api/v1/search': 'http://localhost:8090',
+  '/api/v1/search': 'http://127.0.0.1:8090',
+
+  // Support service (port 8091)
+  '/api/v1/support': 'http://127.0.0.1:8091',
 
   // Customer/Addresses (use auth service for now)
-  '/api/v1/addresses': 'http://localhost:8081',
-  '/api/v1/customer': 'http://localhost:8081',
+  '/api/v1/addresses': 'http://127.0.0.1:8081',
+  '/api/v1/customer': 'http://127.0.0.1:8081',
 };
 
 // Health check
@@ -67,14 +79,15 @@ app.get('/api/v1/health', (req, res) => {
 });
 
 const healthTargets = {
-  gateway: `http://localhost:${PORT}/api/v1/health`,
-  auth: 'http://localhost:8081/health',
-  admin: 'http://localhost:8080/health',
-  catalog: 'http://localhost:8082/health',
-  order: 'http://localhost:8084/health',
-  inventory: 'http://localhost:8086/health',
-  returns: 'http://localhost:8089/health',
-  support: 'http://localhost:8091/health',
+  gateway: `http://127.0.0.1:${PORT}/api/v1/health`,
+  auth: 'http://127.0.0.1:8081/health',
+  admin: 'http://127.0.0.1:8080/health',
+  catalog: 'http://127.0.0.1:8082/health',
+  order: 'http://127.0.0.1:8084/health',
+  inventory: 'http://127.0.0.1:8086/health',
+  notifications: 'http://127.0.0.1:8087/health',
+  returns: 'http://127.0.0.1:8089/health',
+  support: 'http://127.0.0.1:8091/health',
 };
 
 app.get('/api/v1/health/:service', async (req, res) => {
@@ -85,7 +98,7 @@ app.get('/api/v1/health/:service', async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
+    const timeout = setTimeout(() => controller.abort(), 5000); // Increased timeout to 5s
     const resp = await fetch(target, { signal: controller.signal });
     clearTimeout(timeout);
 

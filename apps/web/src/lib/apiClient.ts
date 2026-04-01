@@ -1,167 +1,142 @@
-import axios, { AxiosError } from "axios";
+export interface ApiFetchOptions extends RequestInit {
+  data?: unknown;
+  signal?: AbortSignal;
+  _retry?: boolean; // Internal flag to prevent refresh loops
+}
 
-export interface ApiResponse<T = unknown> {
-  success: boolean;
-  data: T;
-  error?: {
-    code: string;
-    message: string;
+export class ApiError extends Error {
+  code?: string;
+  statusCode?: number;
+  
+  constructor(code: string, message: string, statusCode?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.statusCode = statusCode || 0;
+  }
+}
+
+function isFormData(body: BodyInit | null | undefined): body is FormData {
+  return typeof FormData !== 'undefined' && body instanceof FormData;
+}
+
+// NEXT_PUBLIC_API_URL is expected to be something like 'http://localhost:4000/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+
+/**
+ * Registry to store the CSRF token received from the server.
+ */
+let csrfToken: string | null = null;
+
+let refreshPromise: Promise<boolean> | null = null;
+
+async function performRefresh(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  
+  refreshPromise = (async () => {
+    try {
+      const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      return refreshRes.ok;
+    } catch (e) {
+      console.error('[API Client] Token refresh network error', e);
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  
+  return refreshPromise;
+}
+
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  const { data, headers, body, signal, method = 'GET', _retry = false, ...rest } = options;
+  
+  const resolvedBody =
+    body ??
+    (data === undefined
+      ? undefined
+      : typeof data === 'string'
+        ? data
+        : JSON.stringify(data));
+
+  const mergedHeaders: Record<string, string> = {
+    ...((headers as Record<string, string>) || {}),
+    ...(isFormData(resolvedBody) ? {} : { 'Content-Type': 'application/json' }),
   };
+
+  const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
+  if (isMutating) {
+    const token = csrfToken || (typeof document !== 'undefined' && document.cookie.match(new RegExp('(^| )csrf-token=([^;]+)'))?.[2]);
+    if (token) {
+      mergedHeaders['X-CSRF-Token'] = token;
+    }
+  }
+
+  let cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const url = `${API_BASE_URL}${cleanPath}`;
+
+  const res = await fetch(url, {
+    ...rest,
+    method,
+    body: resolvedBody,
+    headers: mergedHeaders,
+    credentials: 'include',
+    signal,
+  });
+
+  const newToken = res.headers.get('X-CSRF-Token');
+  if (newToken) {
+    csrfToken = newToken;
+  }
+
+  if (res.status === 401 && !_retry && !path.includes('/auth/login') && !path.includes('/auth/refresh')) {
+    const refreshed = await performRefresh();
+    if (refreshed) {
+      return await apiFetch<T>(path, { ...options, _retry: true });
+    }
+  }
+
+  if (res.status === 204) return null as T;
+
+  const contentType = res.headers.get('content-type');
+  const isJson = contentType?.includes('application/json');
+
+  if (!isJson) {
+    if (!res.ok) throw new ApiError('HTTP_ERROR', `Request failed with status ${res.status}`, res.status);
+    return (await res.text()) as any;
+  }
+
+  const payload: { success?: boolean; data?: T; error?: { message?: string; code?: string } } = await res.json();
+
+  if (!res.ok || !payload.success) {
+    throw new ApiError(payload.error?.code || 'API_ERROR', payload.error?.message || 'API Error', res.status);
+  }
+  
+  return payload.data as T;
 }
 
 /**
- * Typed API error with status code and human-readable messaging
+ * Unified API Client
  */
-export class ApiError extends Error {
-  statusCode: number;
-  errorCode: string;
-
-  constructor(code: string, message: string, statusCode?: number) {
-    super(message);
-    this.name = "ApiError";
-    this.errorCode = code;
-    this.statusCode = statusCode || 0;
+export const apiClient = {
+  get: <T>(path: string, options?: ApiFetchOptions) => 
+    apiFetch<T>(path, { ...options, method: 'GET' }),
     
-    // Ensure proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, ApiError.prototype);
-  }
+  post: <T_Req, T_Res = any>(path: string, data?: T_Req, options?: ApiFetchOptions) => 
+    apiFetch<T_Res>(path, { ...options, method: 'POST', data }),
+    
+  put: <T_Req, T_Res = any>(path: string, data?: T_Req, options?: ApiFetchOptions) => 
+    apiFetch<T_Res>(path, { ...options, method: 'PUT', data }),
+    
+  patch: <T_Req, T_Res = any>(path: string, data?: T_Req, options?: ApiFetchOptions) => 
+    apiFetch<T_Res>(path, { ...options, method: 'PATCH', data }),
+    
+  delete: <T_Res = any>(path: string, options?: ApiFetchOptions) => 
+    apiFetch<T_Res>(path, { ...options, method: 'DELETE' }),
 
-  /**
-   * Backwards compatibility: expose errorCode as 'code' for existing code
-   */
-  get code(): string {
-    return this.errorCode;
-  }
-}
-
-export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "https://api.fabricspeaks.com/api/v1",
-  withCredentials: true,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
-apiClient.interceptors.request.use((config) => {
-  if (typeof document !== "undefined") {
-    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-    if (csrfMeta) {
-      config.headers["X-CSRF-Token"] = csrfMeta.getAttribute("content");
-    } else {
-      const match = document.cookie.match(new RegExp('(^| )csrfToken=([^;]+)'));
-      if (match) {
-        config.headers["X-CSRF-Token"] = match[2];
-      }
-    }
-  }
-  return config;
-});
-
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (value?: unknown) => void;
-  reject: (reason?: unknown) => void;
-}> = [];
-
-const processQueue = (error: unknown, token: string | null = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
-  });
-  failedQueue = [];
-};
-
-apiClient.interceptors.response.use(
-  (response) => {
-    const resData = response.data as ApiResponse;
-    if (resData && typeof resData.success === 'boolean' && !resData.success) {
-      throw new ApiError(resData.error?.code || 'UNKNOWN_ERROR', resData.error?.message || 'API request failed', 400);
-    }
-    return resData.data as any;
-  },
-  async (error: AxiosError) => {
-    const originalRequest = error.config;
-    const statusCode = error.response?.status || 0;
-
-    // @ts-expect-error - AxiosRequestConfig doesn't include _retry by default.
-    // This is a common pattern for token refresh logic. A proper fix would require
-    // module augmentation to extend AxiosRequestConfig, but that adds complexity.
-    // Alternative: Use a WeakMap to store retry state externally.
-    if (statusCode === 401 && !originalRequest._retry) {
-      // @ts-expect-error - Adding custom property to AxiosRequestConfig
-      originalRequest._retry = true;
-
-      if (isRefreshing) {
-        return new Promise(function (resolve, reject) {
-          failedQueue.push({ resolve, reject });
-        })
-          .then(() => {
-            return apiClient(originalRequest!);
-          })
-          .catch((err) => {
-            return Promise.reject(err);
-          });
-      }
-
-      isRefreshing = true;
-
-      try {
-        await apiClient.post("/auth/refresh");
-        processQueue(null);
-        return apiClient(originalRequest!);
-      } catch (err) {
-        processQueue(err, null);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("unauthorized"));
-        }
-        return Promise.reject(err);
-      } finally {
-        isRefreshing = false;
-      }
-    }
-
-    if (error.response?.data) {
-      // Priority 1: Handled server error with specific payload structure
-      const resData = error.response.data as any;
-      const errorObj = resData.error || resData; // Support both {error: {}} and flat structure
-      
-      if (errorObj.code || errorObj.message) {
-        return Promise.reject(new ApiError(
-          errorObj.code || `HTTP_${statusCode}`, 
-          errorObj.message || `Request failed with status ${statusCode}`, 
-          statusCode
-        ));
-      }
-    }
-
-    // Network error or timeout
-    if (!error.response) {
-      const errorCode = error.code === 'ECONNABORTED' ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR';
-      return Promise.reject(new ApiError(errorCode, error.message || 'Network request failed', 0));
-    }
-
-    // Generic error fallback
-    const fallbackMessage = error.message || `API Error: ${statusCode}`;
-    return Promise.reject(new ApiError('HTTP_ERROR', fallbackMessage, statusCode));
-  }
-);
-
-export interface ApiFetchOptions {
-  method?: string;
-  data?: unknown;
-  headers?: Record<string, string>;
-  params?: Record<string, string>;
-  signal?: AbortSignal;
-}
-
-export const apiFetch = async <T>(path: string, options: ApiFetchOptions = {}): Promise<T> => {
-  const { signal, ...rest } = options;
-  return apiClient.request<unknown, T>({
-    url: path,
-    signal,
-    ...rest,
-  });
+  request: <T_Req, T_Res = any>(config: { url: string; method?: string; data?: T_Req; signal?: AbortSignal }) =>
+    apiFetch<T_Res>(config.url, { method: config.method, data: config.data, signal: config.signal })
 };

@@ -163,6 +163,15 @@ export interface Collection {
   productCount: number;
 }
 
+export interface VariantTemplate {
+  id: string;
+  name: string;
+  sizes: string[];
+  colours: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Inventory ────────────────────────────────────────────────────────────────
 
 export type StockStatus = 'CRITICAL' | 'WARNING' | 'HEALTHY';

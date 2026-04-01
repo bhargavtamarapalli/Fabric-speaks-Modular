@@ -2,19 +2,20 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // app/admin/layout.tsx
+'use client';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// app/admin/layout.tsx
 // Admin shell — sidebar + topbar. Wraps all admin pages.
 // Role gating happens here: non-admin users are redirected.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { AdminAuthProvider, useAdminAuth } from '@/context/AdminAuthContext';
+import React, { useCallback, useEffect, useState } from 'react';
+import { authApi as profileApi } from '@/lib/authApi';
 import { THEME } from '@/lib/admin/theme';
 import { ActionButton } from '@/components/admin/shared';
 import type { AdminRole } from '@/lib/admin/types';
 import { getServiceHealth, getServiceFromAdminPath } from '@/lib/admin/serviceHealth';
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ROLE_NAME: Record<AdminRole, string> = {
@@ -190,7 +191,6 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   // Redirect if not authenticated
   useEffect(() => {
     if (mounted && !isLoading && !isAuthenticated) {
-      console.log("[AdminShell] Not authenticated, redirecting to login");
       router.replace('/login');
     }
   }, [isAuthenticated, isLoading, router, mounted]);

@@ -12,6 +12,7 @@ export interface User {
     firebase_uid?: string | null;
     role: string;
     whatsapp_enabled: boolean;
+    preferences: Record<string, any>;
     is_deleted: boolean;
     session_version?: number;
     session_revoked_at?: Date | null;

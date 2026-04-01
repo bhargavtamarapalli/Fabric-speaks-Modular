@@ -87,6 +87,21 @@ export function useProductDetail(productId: string | undefined) {
     return nextErrors;
   }, [edits]);
 
+  const adjustVariantStock = useCallback((variantId: string, delta: number) => {
+    setEdits(prev => prev.map(v => {
+      if (v.variantId !== variantId) return v;
+      const current = Number(v.stockQty) || 0;
+      return { ...v, stockQty: String(Math.max(0, current + delta)) };
+    }));
+  }, []);
+
+  const batchAdjustStock = useCallback((delta: number) => {
+    setEdits(prev => prev.map(v => {
+      const current = Number(v.stockQty) || 0;
+      return { ...v, stockQty: String(Math.max(0, current + delta)) };
+    }));
+  }, []);
+
   const handleBulkUpdate = useCallback(async () => {
     if (!product) return;
     const validationErrors = validate();
@@ -125,6 +140,8 @@ export function useProductDetail(productId: string | undefined) {
     errors,
     saving,
     handleBulkUpdate,
+    adjustVariantStock,
+    batchAdjustStock,
     load,
   };
 }

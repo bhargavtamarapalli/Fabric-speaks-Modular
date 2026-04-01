@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
-import { VerifyOtpSchema, LoginOtpSchema, VerifyOtpCodeSchema, AdminLoginFailureSchema, RegisterSchema, LoginSchema, GoogleLoginSchema, ForgotPasswordSchema, ResetPasswordSchema } from '../schemas/auth.schemas';
-import { catchAsync, setAuthCookie, clearAuthCookie, AppError, ErrorCode } from '@fs/shared';
+import { VerifyOtpSchema, LoginOtpSchema, VerifyOtpCodeSchema, AdminLoginFailureSchema, RegisterSchema, LoginSchema, GoogleLoginSchema, ForgotPasswordSchema, ResetPasswordSchema, UpdateProfileSchema, ChangePasswordSchema } from '../schemas/auth.schemas';
+import { catchAsync, setAuthCookie, clearAuthCookie, AppError, ErrorCode, responseList } from '@fs/shared';
 import * as bcrypt from 'bcryptjs';
 
 export class AuthController {
@@ -62,19 +62,12 @@ export class AuthController {
     register = catchAsync(async (req: Request, res: Response) => {
         const dto = RegisterSchema.parse(req.body);
 
-        // Hash password before service
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(dto.password, salt);
-
         const result = await this.authService.registerWithEmail({
             email: dto.email,
             name: dto.name,
-            passwordHash
+            passwordRaw: dto.password,
+            mobile: dto.mobile
         });
-
-        if (dto.mobile) {
-            await this.authService.updateProfile(result.user.id, { mobile: dto.mobile });
-        }
 
         setAuthCookie(res, result.accessToken, result.refreshToken);
 
@@ -192,7 +185,9 @@ export class AuthController {
                 name: user.name,
                 email: user.email,
                 mobile: user.mobile,
-                whatsapp_enabled: user.whatsapp_enabled
+                whatsapp_enabled: user.whatsapp_enabled,
+                preferences: user.preferences,
+                role: user.role
             }
         });
     });
@@ -203,7 +198,8 @@ export class AuthController {
             throw new AppError(ErrorCode.UNAUTHORIZED, 'Not authenticated');
         }
 
-        const updated = await this.authService.updateProfile(userId, req.body);
+        const dto = UpdateProfileSchema.parse(req.body);
+        const updated = await this.authService.updateProfile(userId, dto);
 
         return res.status(200).json({
             success: true,
@@ -211,7 +207,9 @@ export class AuthController {
                 name: updated.name,
                 email: updated.email,
                 mobile: updated.mobile,
-                whatsapp_enabled: updated.whatsapp_enabled
+                whatsapp_enabled: updated.whatsapp_enabled,
+                preferences: updated.preferences,
+                role: updated.role
             }
         });
     });
@@ -220,10 +218,7 @@ export class AuthController {
         const userId = req.user?.userId;
         if (!userId) throw new AppError(ErrorCode.UNAUTHORIZED, 'Not authenticated');
 
-        const { currentPassword, newPassword } = req.body;
-        if (!currentPassword || !newPassword) {
-            throw new AppError(ErrorCode.VALIDATION_ERROR, 'Current and new passwords are required');
-        }
+        const { currentPassword, newPassword } = ChangePasswordSchema.parse(req.body);
 
         await this.authService.changePassword(userId, currentPassword, newPassword);
 
@@ -289,7 +284,7 @@ export class AuthController {
 
         return res.status(200).json({
             success: true,
-            message: 'Password as been reset successfully. Please login with your new password.'
+            message: 'Password has been reset successfully. Please login with your new password.'
         });
     });
 
@@ -317,6 +312,78 @@ export class AuthController {
             success: true,
             data: { id: user.id, email: user.email, name: user.name, role: user.role }
         });
+    });
+
+    getSessions = catchAsync(async (req: Request, res: Response) => {
+        const userId = req.user?.userId;
+        if (!userId) throw new AppError(ErrorCode.UNAUTHORIZED);
+
+        // Fallback for manual cookie parsing if middleware lags or is bypassed on proxy
+        const currentToken = req.cookies?.refreshToken || req.headers.cookie?.split(';')
+            .find(c => c.trim().startsWith('refreshToken='))?.split('=')[1];
+
+        const sessions = await this.authService.getSessions(userId);
+        return res.status(200).json({
+            success: true,
+            data: {
+                sessions: sessions.map(s => ({
+                    id: s.id,
+                    createdAt: s.created_at,
+                    expiresAt: s.expires_at,
+                    isCurrent: !!(currentToken && s.token === currentToken)
+                }))
+            }
+        });
+    });
+
+    getAuditLogs = catchAsync(async (req: Request, res: Response) => {
+        const userId = req.user?.userId;
+        if (!userId) throw new AppError(ErrorCode.UNAUTHORIZED);
+
+        const page = Math.max(1, parseInt(req.query.page as string) || 1);
+        const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 30));
+
+        const logs = await this.authService.getAuditLogs(userId, limit);
+        
+        // Since we don't have a count query in audit log repo yet, we'll return what we have
+        // Standard list envelope
+        return res.status(200).json({ 
+            success: true, 
+            data: { items: logs }, 
+            meta: { page, limit, total: logs.length } 
+        });
+    });
+
+    revokeOtherSessions = catchAsync(async (req: Request, res: Response) => {
+        const userId = req.user?.userId;
+        if (!userId) throw new AppError(ErrorCode.UNAUTHORIZED);
+
+        const currentToken = req.cookies?.refreshToken || req.headers.cookie?.split(';')
+            .find(c => c.trim().startsWith('refreshToken='))?.split('=')[1];
+
+        if (!currentToken) {
+            throw new AppError(ErrorCode.VALIDATION_ERROR, 'Session context (refreshToken) missing from request cookies');
+        }
+
+        await this.authService.revokeOtherSessions(userId, currentToken);
+        return res.status(200).json({ success: true, message: 'All other sessions revoked' });
+    });
+
+    revokeSession = catchAsync(async (req: Request, res: Response) => {
+        const userId = req.user?.userId;
+        if (!userId) throw new AppError(ErrorCode.UNAUTHORIZED);
+
+        const { sessionId } = req.params;
+        const { token } = req.body;
+
+        // Revoke by token if provided, fallback to sessionId if passed as a param/body
+        const targetToken = token || sessionId;
+        if (!targetToken) {
+            throw new AppError(ErrorCode.VALIDATION_ERROR, 'Session ID or token is required for revocation');
+        }
+
+        await this.authService.revokeSession(userId, targetToken);
+        return res.status(200).json({ success: true, message: 'Session revoked' });
     });
 }
 

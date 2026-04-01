@@ -5,9 +5,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ApiError, apiClient } from '@/lib/apiClient';
+import { fetchListWithAuthFallback } from './listFetch';
 import type {
   Order, OrderTimeline, PackingSlip,
-  Product, Brand, Category, Collection,
+  Product, Brand, Category, Collection, VariantTemplate,
   InventoryItem, StockHealth, InventoryAdjustment, ExpectedStock,
   Return, ReturnTimeline, RefundStatus,
   SupportCase, CustomerProfile,
@@ -15,6 +16,8 @@ import type {
   AuditLogEntry, DashboardData, ContentPage, AnalyticsData,
   CustomerSummary,
 } from './types';
+
+export type { CustomerProfile };
 
 // ─── Cache & Deduplication ──────────────────────────────────────────────────
 
@@ -63,6 +66,7 @@ const cache = new Map<string, { data: any; timestamp: number }>(initialCache as 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pendingRequests = new Map<string, Promise<any>>();
 const CACHE_TTL = 30_000; // 30 seconds
+const TAXONOMY_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 /**
  * Persists the current cache to sessionStorage.
@@ -212,11 +216,12 @@ const _get = async <T>(url: string, signal?: AbortSignal) => {
 /**
  * GET wrapper with TTL caching and request deduplication.
  */
-async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TTL): Promise<T> {
+export async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TTL): Promise<T> {
   const key = normalizeUrl(url);
+  const allowDeduping = !signal;
 
   // 1. Deduplicate concurrent identical requests
-  if (pendingRequests.has(key)) {
+  if (allowDeduping && pendingRequests.has(key)) {
     return pendingRequests.get(key);
   }
 
@@ -237,7 +242,9 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
     throw err;
   });
 
-  pendingRequests.set(key, requestPromise);
+  if (allowDeduping) {
+    pendingRequests.set(key, requestPromise);
+  }
   return requestPromise;
 }
 
@@ -246,7 +253,7 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
 // The generic <T> return type provides type safety for callers while allowing flexibility
 // in the request payload. This is a common pattern for API wrapper functions.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const post = async <T>(url: string, data?: any) => {
+export const post = async <T>(url: string, data?: any) => {
   try {
     return await apiClient.post<any, T>(url, data);
   } catch (error) {
@@ -254,7 +261,7 @@ const post = async <T>(url: string, data?: any) => {
   }
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const patch = async <T>(url: string, data?: any) => {
+export const patch = async <T>(url: string, data?: any) => {
   try {
     return await apiClient.patch<any, T>(url, data);
   } catch (error) {
@@ -421,6 +428,20 @@ export const productsApi = {
     return res;
   },
 
+  createVariant: async (productId: string, data: { 
+    size: string; 
+    colour: string; 
+    sku: string; 
+    price: number; 
+    comparePrice?: number; 
+    stockQty?: number;
+  }) => {
+    const res = await post<any>(`/admin/products/${productId}/variants`, data);
+    invalidateAdminCache(`/admin/products/${productId}`);
+    invalidateAdminCache('/admin/products');
+    return res;
+  },
+
   uploadImage: async (file: File): Promise<string> => {
     const form = new FormData();
     form.append('file', file);
@@ -434,15 +455,38 @@ export const productsApi = {
 // ─── Brands ───────────────────────────────────────────────────────────────────
 
 export const brandsApi = {
-  list: (signal?: AbortSignal) => getWithCache<Brand[]>('/admin/brands', signal),
+  list: (signal?: AbortSignal) =>
+    fetchListWithAuthFallback<Brand>({
+      loadAdmin: () => getWithCache('/admin/brands', signal, TAXONOMY_CACHE_TTL),
+      loadPublic: () => getWithCache('/brands', signal, TAXONOMY_CACHE_TTL),
+      debugKey: 'brands',
+      mapItem: (b: unknown) => {
+        const item = b as Partial<Brand>;
+        return {
+          id: String(item.id ?? ''),
+          name: String(item.name ?? ''),
+          slug: String(item.slug ?? ''),
+          logoUrl: item.logoUrl ?? null,
+          isActive: item.isActive !== false,
+        };
+      },
+    }),
   create: async (data: Omit<Brand, 'id'>) => {
     const res = await post<Brand>('/admin/brands', data);
     invalidateAdminCache('/admin/brands');
+    invalidateAdminCache('/brands');
     return res;
   },
   update: async (id: string, data: Partial<Brand>) => {
     const res = await patch<Brand>(`/admin/brands/${id}`, data);
     invalidateAdminCache('/admin/brands');
+    invalidateAdminCache('/brands');
+    return res;
+  },
+  deactivate: async (id: string) => {
+    const res = await patch<Brand>(`/admin/brands/${id}`, { isActive: false });
+    invalidateAdminCache('/admin/brands');
+    invalidateAdminCache('/brands');
     return res;
   },
 };
@@ -450,15 +494,47 @@ export const brandsApi = {
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 export const categoriesApi = {
-  list: (signal?: AbortSignal) => getWithCache<Category[]>('/admin/categories', signal),
+  list: (signal?: AbortSignal) =>
+    fetchListWithAuthFallback<Category>({
+      loadAdmin: () => getWithCache('/admin/categories', signal, TAXONOMY_CACHE_TTL),
+      loadPublic: () => getWithCache('/categories', signal, TAXONOMY_CACHE_TTL),
+      debugKey: 'categories',
+      mapItem: (c: unknown) => {
+        const item = c as Partial<Category>;
+        return {
+          id: String(item.id ?? ''),
+          name: String(item.name ?? ''),
+          slug: String(item.slug ?? ''),
+          parentId: item.parentId ?? null,
+          isActive: item.isActive !== false,
+        };
+      },
+    }),
   create: async (data: Omit<Category, 'id'>) => {
     const res = await post<Category>('/admin/categories', data);
     invalidateAdminCache('/admin/categories');
+    invalidateAdminCache('/categories');
     return res;
   },
   update: async (id: string, data: Partial<Category>) => {
     const res = await patch<Category>(`/admin/categories/${id}`, data);
     invalidateAdminCache('/admin/categories');
+    invalidateAdminCache('/categories');
+    return res;
+  },
+  deactivate: async (id: string) => {
+    const res = await patch<Category>(`/admin/categories/${id}`, { isActive: false });
+    invalidateAdminCache('/admin/categories');
+    invalidateAdminCache('/categories');
+    return res;
+  },
+};
+
+export const templatesApi = {
+  list: (signal?: AbortSignal) => getWithCache<VariantTemplate[]>('/admin/catalog/templates', signal),
+  create: async (data: { name: string; sizes: string[]; colours: string[] }) => {
+    const res = await post<VariantTemplate>('/admin/catalog/templates', data);
+    invalidateAdminCache('/admin/catalog/templates');
     return res;
   },
 };
@@ -495,35 +571,178 @@ export const collectionsApi = {
 
 export const inventoryApi = {
   list: (params?: { status?: string; search?: string }, signal?: AbortSignal) => {
-    const qs = buildQueryString(params);
-    return getWithCache<InventoryItem[]>(`/admin/inventory?${qs}`, signal);
+    return getWithCache<any[]>('/admin/inventory/velocity', signal).then((rows) => {
+      const mapped = (rows ?? []).map((row): InventoryItem => {
+        const stockQty = Number(row?.stockQty ?? 0);
+        const thresholdQty = Number(row?.thresholdQty ?? 5);
+        const healthStatus = String(row?.healthStatus ?? '').toUpperCase();
+        const status = (healthStatus === 'CRITICAL' || healthStatus === 'WARNING' || healthStatus === 'HEALTHY')
+          ? healthStatus
+          : (stockQty <= 0 ? 'CRITICAL' : stockQty < thresholdQty ? 'WARNING' : 'HEALTHY');
+
+        return {
+          variantId: String(row?.variantId ?? ''),
+          productName: String(row?.productName ?? 'Unknown product'),
+          fabricType: 'N/A',
+          size: String(row?.size ?? '—'),
+          colour: String(row?.colour ?? '—'),
+          sku: String(row?.sku ?? '—'),
+          stockQty,
+          avgDailySales: Number(row?.avgDailySales ?? 0),
+          daysRemaining: row?.daysRemaining === undefined || row?.daysRemaining === null ? null : Number(row.daysRemaining),
+          status,
+        };
+      });
+
+      return mapped.filter((item) => {
+        const statusMatch = !params?.status || item.status === params.status;
+        const search = (params?.search ?? '').trim().toLowerCase();
+        const searchMatch = !search
+          || item.productName.toLowerCase().includes(search)
+          || item.sku.toLowerCase().includes(search)
+          || item.colour.toLowerCase().includes(search)
+          || item.size.toLowerCase().includes(search);
+        return statusMatch && searchMatch;
+      });
+    });
   },
 
-  getHealth: (signal?: AbortSignal) => getWithCache<StockHealth>('/admin/inventory/stock-health', signal),
+  getHealth: async (signal?: AbortSignal) => {
+    const [summaryRows, velocityRows] = await Promise.all([
+      getWithCache<{ status: string; count: number }[]>('/admin/inventory/health', signal),
+      getWithCache<any[]>('/admin/inventory/velocity', signal),
+    ]);
+
+    const items = (velocityRows ?? []).map((row): InventoryItem => {
+      const stockQty = Number(row?.stockQty ?? 0);
+      const thresholdQty = Number(row?.thresholdQty ?? 5);
+      const healthStatus = String(row?.healthStatus ?? '').toUpperCase();
+      const status = (healthStatus === 'CRITICAL' || healthStatus === 'WARNING' || healthStatus === 'HEALTHY')
+        ? healthStatus
+        : (stockQty <= 0 ? 'CRITICAL' : stockQty < thresholdQty ? 'WARNING' : 'HEALTHY');
+
+      return {
+        variantId: String(row?.variantId ?? ''),
+        productName: String(row?.productName ?? 'Unknown product'),
+        fabricType: 'N/A',
+        size: String(row?.size ?? '—'),
+        colour: String(row?.colour ?? '—'),
+        sku: String(row?.sku ?? '—'),
+        stockQty,
+        avgDailySales: Number(row?.avgDailySales ?? 0),
+        daysRemaining: row?.daysRemaining === undefined || row?.daysRemaining === null ? null : Number(row.daysRemaining),
+        status,
+      };
+    });
+
+    const summaryMap = new Map<string, number>();
+    for (const row of summaryRows ?? []) {
+      summaryMap.set(String(row.status).toUpperCase(), Number(row.count ?? 0));
+    }
+
+    const fallbackCritical = items.filter(i => i.status === 'CRITICAL').length;
+    const fallbackWarning = items.filter(i => i.status === 'WARNING').length;
+    const fallbackHealthy = items.filter(i => i.status === 'HEALTHY').length;
+
+    return {
+      critical: summaryMap.get('CRITICAL') ?? fallbackCritical,
+      warning: summaryMap.get('WARNING') ?? fallbackWarning,
+      healthy: summaryMap.get('HEALTHY') ?? fallbackHealthy,
+      total: items.length,
+      items,
+    } satisfies StockHealth;
+  },
 
   adjust: async (variantId: string, data: {
-    adjustmentQty: number;
+    newQty: number;
     reason: string;
   }) => {
-    const res = await post<InventoryItem>('/admin/inventory/adjust', { variantId, ...data });
+    const res = await patch<any>(`/admin/inventory/${variantId}`, data);
     invalidateAdminCache('/admin/inventory');
     invalidateAdminCache('/admin/products'); // Stock adjustments affect products
-    return res;
+    return {
+      variantId: String(res?.variantId ?? variantId),
+      productName: String(res?.productName ?? 'Unknown product'),
+      fabricType: 'N/A',
+      size: String(res?.size ?? '—'),
+      colour: String(res?.colour ?? '—'),
+      sku: String(res?.sku ?? '—'),
+      stockQty: Number(res?.stockQty ?? 0),
+      avgDailySales: Number(res?.avgDailySales ?? 0),
+      daysRemaining: res?.daysRemaining === undefined || res?.daysRemaining === null ? null : Number(res.daysRemaining),
+      status: (String(res?.healthStatus ?? '').toUpperCase() as 'CRITICAL' | 'WARNING' | 'HEALTHY') || 'HEALTHY',
+    } as InventoryItem;
   },
 
-  getAdjustments: (variantId: string, signal?: AbortSignal) =>
-    getWithCache<InventoryAdjustment[]>(`/admin/inventory/${variantId}/adjustments`, signal),
+  getAdjustments: (_variantId: string, _signal?: AbortSignal) =>
+    Promise.resolve<InventoryAdjustment[]>([]),
 
-  getExpected: (signal?: AbortSignal) => getWithCache<ExpectedStock[]>('/admin/inventory/expected-stock', signal),
-  addExpected: async (data: Omit<ExpectedStock, 'id'>) => {
-    const res = await post<ExpectedStock>('/admin/inventory/expected-stock', data);
-    invalidateAdminCache('/admin/inventory/expected-stock');
-    return res;
+  getExpected: (signal?: AbortSignal) =>
+    getWithCache<any[]>('/admin/inventory/expected', signal).then((rows) =>
+      (rows ?? []).map((row): ExpectedStock => ({
+        id: String(row?.id ?? ''),
+        variantId: String(row?.variant_id ?? ''),
+        productName: String(row?.product_name ?? 'Unknown product'),
+        size: String(row?.size ?? '—'),
+        colour: String(row?.colour ?? '—'),
+        sku: String(row?.sku ?? '—'),
+        supplierName: String(row?.supplier_name ?? ''),
+        qtyExpected: Number(row?.expected_qty ?? 0),
+        expectedArrival: row?.expected_date ? new Date(row.expected_date).toISOString() : new Date().toISOString(),
+        status: row?.is_received ? 'RECEIVED' : 'ORDERED',
+        notes: row?.notes ?? null,
+      }))
+    ),
+  addExpected: async (data: {
+    variantId: string;
+    qtyExpected: number;
+    expectedArrival: string;
+    notes?: string | null;
+  }) => {
+    const payload = {
+      variant_id: data.variantId,
+      expected_qty: data.qtyExpected,
+      expected_date: data.expectedArrival.slice(0, 10),
+      notes: data.notes ?? undefined,
+    };
+    const res = await post<any>('/admin/inventory/expected', payload);
+    invalidateAdminCache('/admin/inventory/expected');
+    return {
+      id: String(res?.id ?? ''),
+      variantId: String(res?.variant_id ?? ''),
+      productName: String(res?.product_name ?? 'Unknown product'),
+      size: String(res?.size ?? '—'),
+      colour: String(res?.colour ?? '—'),
+      sku: String(res?.sku ?? '—'),
+      supplierName: String(res?.supplier_name ?? ''),
+      qtyExpected: Number(res?.expected_qty ?? 0),
+      expectedArrival: res?.expected_date ? new Date(res.expected_date).toISOString() : new Date().toISOString(),
+      status: res?.is_received ? 'RECEIVED' : 'ORDERED',
+      notes: res?.notes ?? null,
+    } as ExpectedStock;
   },
   updateExpectedStatus: async (id: string, status: string) => {
-    const res = await patch<ExpectedStock>(`/admin/inventory/expected-stock/${id}/status`, { status });
-    invalidateAdminCache('/admin/inventory/expected-stock');
-    return res;
+    if (status !== 'RECEIVED') {
+      throw new ApiError('VALIDATION_ERROR', 'Only marking a shipment as RECEIVED is supported.');
+    }
+    await patch<void>(`/admin/inventory/expected/${id}/receive`);
+    invalidateAdminCache('/admin/inventory/expected');
+    return;
+  },
+
+  bulkAdjust: async (file: File): Promise<{ success: number; failed: number; errors: Array<{ row: Record<string, unknown>; error: string }> }> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiClient.post<any>('/admin/inventory/adjustment/bulk', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    invalidateAdminCache('/admin/inventory');
+    invalidateAdminCache('/admin/products');
+    return {
+      success: Number(res?.success ?? 0),
+      failed: Number(res?.failed ?? 0),
+      errors: Array.isArray(res?.errors) ? res.errors : [],
+    };
   },
 };
 
@@ -792,3 +1011,8 @@ export const contentApi = {
     return res;
   },
 };
+
+// ─── Profile & Personal ───────────────────────────────────────────────────────
+// Moved to @/lib/authApi.ts per Batch 4 hardening plan.
+import { authApi } from '@/lib/authApi';
+export { authApi as profileApi };

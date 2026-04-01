@@ -2,12 +2,13 @@ import { useState, useCallback } from 'react';
 import { inventoryApi } from '@/lib/admin/api';
 import type { InventoryItem } from '@/lib/admin/types';
 import { mapError } from '@/lib/admin/errors';
+import type { AdjustmentReason } from '../_utils/inventoryHelpers';
 
 export function useAdjustmentForm({ onSuccess }: { onSuccess: () => void }) {
   const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
   const [adjType, setAdjType] = useState<'add' | 'remove' | 'set'>('add');
   const [adjQty, setAdjQty] = useState('');
-  const [adjReason, setAdjReason] = useState('');
+  const [adjReason, setAdjReason] = useState<AdjustmentReason>('correction');
   const [adjLoading, setAdjLoading] = useState(false);
   const [adjErrors, setAdjErrors] = useState<{ qty?: string; reason?: string }>({});
 
@@ -49,18 +50,13 @@ export function useAdjustmentForm({ onSuccess }: { onSuccess: () => void }) {
       }
     }
     
-    if (!adjReason.trim()) {
-      next.reason = 'Reason is required';
-    } else if (adjReason.trim().length < 10) {
-      next.reason = 'Reason must be at least 10 characters';
-    }
     return next;
-  }, [adjQty, adjType, adjReason, adjustItem]);
+  }, [adjQty, adjType, adjustItem]);
 
   const reset = useCallback(() => {
     setAdjustItem(null);
     setAdjQty('');
-    setAdjReason('');
+    setAdjReason('correction');
     setAdjErrors({});
     setAdjType('add');
   }, []);
@@ -74,10 +70,9 @@ export function useAdjustmentForm({ onSuccess }: { onSuccess: () => void }) {
       }
       try {
         setAdjLoading(true);
-        const q = parseInt(adjQty, 10);
-        const adjustment = adjType === 'set' ? q - (adjustItem?.stockQty || 0) : adjType === 'remove' ? -q : q;
+        const nextQty = newTotal();
         const response = await inventoryApi.adjust(variantId, {
-          adjustmentQty: adjustment,
+          newQty: nextQty,
           reason: adjReason,
         });
         
@@ -103,14 +98,14 @@ export function useAdjustmentForm({ onSuccess }: { onSuccess: () => void }) {
         setAdjLoading(false);
       }
     },
-    [validate, adjQty, adjType, adjustItem?.stockQty, adjReason, onSuccess, reset]
+    [validate, newTotal, adjReason, onSuccess, reset]
   );
 
   const openForm = useCallback((item: InventoryItem) => {
     setAdjustItem(item);
     setAdjType('add');
     setAdjQty('');
-    setAdjReason('');
+    setAdjReason('correction');
     setAdjErrors({});
   }, []);
 

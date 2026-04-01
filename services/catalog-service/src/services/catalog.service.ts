@@ -21,6 +21,8 @@ import {
     UpdateVariantDto,
 } from '@fs/shared';
 import { CreateBrandDto, CreateCollectionDto, AdminProductQueryDto, CreateCategoryDto, UpdateCategoryDto, UpdateCollectionDto, CreateVariantInputDto, UpdateVariantInputDto, UpdateBrandDto } from '../schemas/catalog.schemas';
+import { VariantTemplateRepository, VariantTemplate } from '../repositories/variant_template.repository';
+import { CreateVariantTemplateDto } from '../schemas/catalog.schemas';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { logger } from '@fs/shared/logger';
 
@@ -31,6 +33,7 @@ export class CatalogService {
         private readonly brandRepo: IBrandRepository,
         private readonly categoryRepo: ICategoryRepository,
         private readonly collectionRepo: ICollectionRepository,
+        private readonly variantTemplateRepo: VariantTemplateRepository,
         private readonly auditLogRepo: AuditLogRepository,
         private readonly redis: Redis
     ) {}
@@ -123,8 +126,8 @@ export class CatalogService {
 
     async createProduct(dto: CreateProductDto, adminId: string): Promise<Product> {
         const { variants, ...productPayload } = dto;
-        const product = await (this.productRepo as any).withTransaction(async (client: any) => {
-            const createdProduct = await (this.productRepo as any).create(productPayload, client);
+        const product = await this.productRepo.withTransaction(async (client: any) => {
+            const createdProduct = await this.productRepo.create(productPayload, client);
             await this.variantRepo.bulkCreate(createdProduct.id, variants, client);
             return createdProduct;
         });
@@ -265,7 +268,7 @@ export class CatalogService {
             throw new AppError(ErrorCode.VARIANT_NOT_FOUND, 'One or more variants do not belong to this product');
         }
 
-        const updated = await (this.variantRepo as any).withTransaction(async (client: any) => {
+        const updated = await this.variantRepo.withTransaction(async (client: any) => {
             return this.variantRepo.bulkUpdate(updates, client);
         });
 
@@ -292,7 +295,7 @@ export class CatalogService {
     }
 
     async bulkUpdatePrices(dto: { targetType: 'product' | 'variant' | 'collection' | 'brand' | 'global'; targetIds: string[]; adjustmentType: 'PERCENT' | 'FIXED'; adjustmentValue: number; applyTo: 'base_price' | 'price_override' }, adminId: string) {
-        const updatedCount = await (this.variantRepo as any).bulkAdjustPrices({
+        const updatedCount = await this.variantRepo.bulkAdjustPrices({
             targetType: dto.targetType,
             targetIds: dto.targetIds,
             adjustmentType: dto.adjustmentType,
@@ -450,24 +453,29 @@ export class CatalogService {
         };
     }
 
-    async listBrands(): Promise<Brand[]> {
-        return this.brandRepo.findAllActive();
+    async listBrands(): Promise<{ items: Brand[]; total: number }> {
+        const items = await this.brandRepo.findAllActive();
+        return { items, total: items.length };
     }
 
-    async adminListBrands(): Promise<Brand[]> {
-        return this.brandRepo.findAll(true);
+    async adminListBrands(): Promise<{ items: Brand[]; total: number }> {
+        const items = await this.brandRepo.findAll(true);
+        return { items, total: items.length };
     }
 
-    async listCategories(): Promise<Category[]> {
-        return this.categoryRepo.findAllActive();
+    async listCategories(): Promise<{ items: Category[]; total: number }> {
+        const items = await this.categoryRepo.findAllActive();
+        return { items, total: items.length };
     }
 
-    async adminListCategories(): Promise<Category[]> {
-        return this.categoryRepo.findAll(true);
+    async adminListCategories(): Promise<{ items: Category[]; total: number }> {
+        const items = await this.categoryRepo.findAll(true);
+        return { items, total: items.length };
     }
 
-    async adminListCollections(): Promise<Collection[]> {
-        return this.collectionRepo.findAll(true);
+    async adminListCollections(): Promise<{ items: Collection[]; total: number }> {
+        const items = await this.collectionRepo.findAll(true);
+        return { items, total: items.length };
     }
 
     async createCategory(dto: CreateCategoryDto, adminId: string): Promise<Category> {
@@ -593,6 +601,35 @@ export class CatalogService {
         });
     }
 
+    async listVariantTemplates(): Promise<{ items: VariantTemplate[]; total: number }> {
+        const cacheKey = 'catalog:variant_templates';
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
+
+        const items = await this.variantTemplateRepo.findAll();
+        const result = { items, total: items.length };
+        await this.redis.setex(cacheKey, 3600, JSON.stringify(result)); // 1 hour TTL
+        return result;
+    }
+
+    async createVariantTemplate(dto: CreateVariantTemplateDto, adminId: string): Promise<VariantTemplate> {
+        const existing = await this.variantTemplateRepo.findByName(dto.name);
+        if (existing) throw new AppError(ErrorCode.RESOURCE_ALREADY_EXISTS, 'Template name already exists');
+
+        const template = await this.variantTemplateRepo.create(dto.name, dto.sizes, dto.colours);
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'variant_template.create',
+            entityType: 'variant_template',
+            entityId: template.id,
+            afterJson: template
+        });
+
+        await this.redis.del('catalog:variant_templates');
+        return template;
+    }
+
     async getCollection(slug: string): Promise<any> {
         const collection = await this.collectionRepo.findBySlug(slug);
         if (!collection) throw new AppError(ErrorCode.NOT_FOUND);
@@ -603,10 +640,23 @@ export class CatalogService {
     }
 
     private async clearCatalogCache(): Promise<void> {
-        const keys = await this.redis.keys('catalog:list:*');
-        if (keys.length > 0) {
-            await this.redis.del(...keys);
-        }
+        return new Promise((resolve, reject) => {
+            const stream = this.redis.scanStream({
+                match: 'catalog:list:*',
+                count: 100
+            });
+            stream.on('data', async (keys: string[]) => {
+                if (keys.length > 0) {
+                    stream.pause();
+                    const pipeline = this.redis.pipeline();
+                    keys.forEach(key => pipeline.del(key));
+                    await pipeline.exec();
+                    stream.resume();
+                }
+            });
+            stream.on('end', () => resolve());
+            stream.on('error', reject);
+        });
     }
 
     private flattenFabricFields(product: Product): any {
@@ -642,7 +692,12 @@ export class CatalogService {
 
         let candidate = `FS-${slugPrefix}-${sizeCode}-${colourCode}`;
         let counter = 1;
+        const MAX_ATTEMPTS = 10;
+        
         while (await this.variantRepo.findBySku(candidate)) {
+            if (counter >= MAX_ATTEMPTS) {
+                throw new AppError(ErrorCode.VALIDATION_ERROR, `Failed to generate a unique SKU after ${MAX_ATTEMPTS} attempts`);
+            }
             candidate = `FS-${slugPrefix}-${sizeCode}-${colourCode}-${counter}`;
             counter += 1;
         }

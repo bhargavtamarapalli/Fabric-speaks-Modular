@@ -93,7 +93,7 @@ export default function ExpectedStockPage() {
 
   const validate = (values: ExpectedForm): ExpectedFormErrors => {
     const next: ExpectedFormErrors = {};
-    if (!values.sku.trim()) next.sku = 'SKU is required';
+    if (!values.variantId.trim()) next.variantId = 'Variant ID is required';
     if (!values.qtyExpected.trim()) next.qtyExpected = 'Qty expected is required';
     if (values.qtyExpected && Number(values.qtyExpected) <= 0) next.qtyExpected = 'Qty expected must be a positive number';
     if (!values.expectedArrival) next.expectedArrival = 'Expected arrival is required';
@@ -130,14 +130,8 @@ export default function ExpectedStockPage() {
       setSaving(true);
       await inventoryApi.addExpected({
         variantId: form.variantId,
-        productName: form.productName,
-        size: form.size,
-        colour: form.colour,
-        sku: form.sku,
-        supplierName: form.supplierName,
         qtyExpected: parseInt(form.qtyExpected, 10),
         expectedArrival: new Date(form.expectedArrival).toISOString(),
-        status: 'ORDERED',
         notes: form.notes || null,
       });
       showToast('Expected stock added', 'success');
@@ -212,8 +206,7 @@ export default function ExpectedStockPage() {
           onChange={e => { e.stopPropagation(); handleStatusUpdate(i.id, e.target.value); }}
           style={{ fontSize: THEME.fontSizes.xs, padding: '3px 8px' }}
         >
-          <option value="ORDERED">Ordered</option>
-          <option value="IN_TRANSIT">In transit</option>
+          <option value="ORDERED" disabled>Ordered</option>
           <option value="RECEIVED">Received</option>
         </Select>
       ),
@@ -249,13 +242,13 @@ export default function ExpectedStockPage() {
 
       <Drawer open={showForm} onClose={() => { setShowForm(false); setErrors({}); }} title="Add expected stock">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <FormField label="SKU" required helper="Exact variant SKU from the system" error={errors.sku} errorId="expected-sku-error">
+          <FormField label="Variant ID" required helper="Use the variant UUID from Inventory table or product detail" error={errors.variantId} errorId="expected-variant-id-error">
             <TextInput
-              value={form.sku}
-              onChange={e => updateField('sku', e.target.value)}
+              value={form.variantId}
+              onChange={e => updateField('variantId', e.target.value)}
               style={{ fontFamily: THEME.fonts.mono }}
-              aria-invalid={!!errors.sku}
-              aria-describedby={errors.sku ? 'expected-sku-error' : undefined}
+              aria-invalid={!!errors.variantId}
+              aria-describedby={errors.variantId ? 'expected-variant-id-error' : undefined}
             />
           </FormField>
           <FormField label="Product name">

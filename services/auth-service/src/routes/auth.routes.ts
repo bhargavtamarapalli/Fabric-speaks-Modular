@@ -32,17 +32,24 @@ router.post('/reset-password', authController.resetPassword);
 router.post('/customer/login-otp', otpRateLimiter, authController.loginOtp);
 router.post('/customer/otp-verify', otpRateLimiter, authController.verifyOtp);
 router.post('/customer/login-verify', otpRateLimiter, authController.verifyFirebaseToken);
-router.post('/logout', authController.logout);
 
 // Protected Routes
 router.use(requireAuth);
-router.use(csrfProtection);
+router.use(csrfProtection); // Re-enabled for permanent security
 
 router.get('/me', authController.me);
+router.post('/logout', authController.logout);
 router.get('/customer/profile', authController.getProfile);
 router.patch('/customer/profile', authController.updateProfile);
 router.patch('/customer/change-password', authController.changePassword);
 router.delete('/delete-account', authController.deleteAccount);
+
+// Session & Activity Management
+router.get('/sessions', authController.getSessions);
+router.get('/audit-logs', authController.getAuditLogs);
+router.post('/sessions/revoke-others', authController.revokeOtherSessions);
+router.post('/sessions/revoke', authController.revokeSession);
+
 // Admin login failure tracking (requires authentication to prevent abuse)
 router.post('/admin/login/failed', otpRateLimiter, authController.recordAdminLoginFailure);
 

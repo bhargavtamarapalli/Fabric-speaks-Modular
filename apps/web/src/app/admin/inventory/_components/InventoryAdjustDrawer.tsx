@@ -7,27 +7,26 @@ import {
   Drawer,
   FormField,
   TextInput,
-  Textarea,
   Select,
   ActionButton,
   MonoText,
 } from '@/components/admin/shared';
-import { PRESET_REASONS } from '../_utils/inventoryHelpers';
+import { ADJUSTMENT_REASON_OPTIONS, type AdjustmentReason } from '../_utils/inventoryHelpers';
 
 interface InventoryAdjustDrawerProps {
   open: boolean;
   item: InventoryItem | null;
   adjType: 'add' | 'remove' | 'set';
   adjQty: string;
-  adjReason: string;
+  adjReason: AdjustmentReason;
   adjErrors: { qty?: string; reason?: string };
   adjLoading: boolean;
   newTotal: () => number;
   onClose: () => void;
   onTypeChange: (type: 'add' | 'remove' | 'set') => void;
   onQtyChange: (qty: string) => void;
-  onReasonChange: (reason: string) => void;
-  onPresetReason: (reason: string) => void;
+  onReasonChange: (reason: AdjustmentReason) => void;
+  onPresetReason: (reason: AdjustmentReason) => void;
   onSubmit: () => void;
 }
 
@@ -102,14 +101,18 @@ export const InventoryAdjustDrawer = memo(function InventoryAdjustDrawer({
 
         {/* Reason */}
         <FormField label="Reason" required error={adjErrors.reason} errorId="adj-reason-error">
-          <Textarea
+          <Select
             value={adjReason}
-            onChange={e => onReasonChange(e.target.value)}
-            placeholder="Explain the adjustment..."
-            rows={3}
+            onChange={e => onReasonChange(e.target.value as AdjustmentReason)}
             aria-invalid={!!adjErrors.reason}
             aria-describedby={adjErrors.reason ? 'adj-reason-error' : undefined}
-          />
+          >
+            {ADJUSTMENT_REASON_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
         </FormField>
 
         {/* Preset Reasons */}
@@ -118,25 +121,25 @@ export const InventoryAdjustDrawer = memo(function InventoryAdjustDrawer({
             Quick reasons
           </div>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            {PRESET_REASONS.map(reason => (
+            {ADJUSTMENT_REASON_OPTIONS.slice(0, 4).map(reason => (
               <button
-                key={reason}
-                onClick={() => onPresetReason(reason)}
+                key={reason.value}
+                onClick={() => onPresetReason(reason.value)}
                 style={{
                   flex: '1 1 calc(50% - 2px)',
                   minWidth: '120px',
                   padding: '6px 10px',
-                  background: adjReason === reason ? 'rgba(126,201,229,0.12)' : 'rgba(201,169,110,0.04)',
-                  border: `1px solid ${adjReason === reason ? 'rgba(126,201,229,0.3)' : 'rgba(201,169,110,0.12)'}`,
+                  background: adjReason === reason.value ? 'rgba(126,201,229,0.12)' : 'rgba(201,169,110,0.04)',
+                  border: `1px solid ${adjReason === reason.value ? 'rgba(126,201,229,0.3)' : 'rgba(201,169,110,0.12)'}`,
                   borderRadius: THEME.radius.sm,
-                  color: adjReason === reason ? THEME.colors.linen : THEME.colors.ash,
+                  color: adjReason === reason.value ? THEME.colors.linen : THEME.colors.ash,
                   fontSize: THEME.fontSizes.xs,
                   fontFamily: THEME.fonts.ui,
                   cursor: 'pointer',
                   transition: 'all 0.12s',
                 }}
               >
-                {reason}
+                {reason.label}
               </button>
             ))}
           </div>

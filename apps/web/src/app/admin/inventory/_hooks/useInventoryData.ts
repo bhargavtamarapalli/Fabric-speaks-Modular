@@ -22,6 +22,7 @@ export function useInventoryData(filter: string, search: string) {
     } catch (e: any) {
       if (isServiceUnavailableError(e)) {
         setServiceUnavailable(true);
+        setError(mapError(e));
       } else {
         setError(mapError(e));
       }

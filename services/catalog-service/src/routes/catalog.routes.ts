@@ -10,6 +10,7 @@ import { BrandRepository } from '../repositories/brand.repository';
 import { CategoryRepository } from '../repositories/category.repository';
 import { CollectionRepository } from '../repositories/collection.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
+import { VariantTemplateRepository } from '../repositories/variant_template.repository';
 import { PriceChangeRepository } from '../repositories/price-change.repository';
 import { Queue } from 'bullmq';
 
@@ -24,6 +25,7 @@ const brandRepo = new BrandRepository(db);
 const categoryRepo = new CategoryRepository(db);
 const collectionRepo = new CollectionRepository(db);
 const auditLogRepo = new AuditLogRepository(db);
+const variantTemplateRepo = new VariantTemplateRepository(db);
 const priceChangeRepo = new PriceChangeRepository(db);
 
 const catalogService = new CatalogService(
@@ -32,6 +34,7 @@ const catalogService = new CatalogService(
     brandRepo,
     categoryRepo,
     collectionRepo,
+    variantTemplateRepo,
     auditLogRepo,
     redis
 );
@@ -69,13 +72,17 @@ catalogRouter.post('/admin/pricing/bulk-update', requireAuth, requireRole('super
 catalogRouter.post('/admin/pricing/schedule', requireAuth, requireRole('superAdmin'), catalogController.schedulePriceChange);
 catalogRouter.get('/admin/pricing/schedule', requireAuth, requireRole('superAdmin'), catalogController.listScheduledPriceChanges);
 catalogRouter.post('/admin/brands', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createBrand);
-catalogRouter.patch('/admin/brands/:id', requireAuth, requireRole('superAdmin'), catalogController.updateBrand);
+catalogRouter.patch('/admin/brands/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateBrand);
 
-catalogRouter.post('/admin/categories', requireAuth, requireRole('superAdmin'), catalogController.createCategory);
-catalogRouter.patch('/admin/categories/:id', requireAuth, requireRole('superAdmin'), catalogController.updateCategory);
+catalogRouter.post('/admin/categories', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createCategory);
+catalogRouter.patch('/admin/categories/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateCategory);
 
 catalogRouter.post('/admin/collections', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createCollection);
 catalogRouter.patch('/admin/collections/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateCollection);
 catalogRouter.post('/admin/collections/:id/products', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.addCollectionProducts);
 catalogRouter.delete('/admin/collections/:id/products/:productId', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.removeCollectionProduct);
 catalogRouter.put('/admin/collections/:id/products/reorder', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.reorderCollectionProducts);
+
+// Variant Template routes
+catalogRouter.get('/admin/catalog/templates', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.listVariantTemplates);
+catalogRouter.post('/admin/catalog/templates', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createVariantTemplate);

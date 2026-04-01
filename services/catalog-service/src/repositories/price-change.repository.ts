@@ -82,7 +82,7 @@ export class PriceChangeRepository extends BaseRepository {
 
   async updateStatus(id: string, status: PriceChangeStatus, data: { appliedAt?: Date | null; errorMessage?: string | null } = {}): Promise<void> {
     const setClauses = ['status = $2', 'updated_at = now()'];
-    const params = [id, status];
+    const params: any[] = [id, status];
 
     // Only include applied_at in SET if explicitly provided
     if ('appliedAt' in data) {

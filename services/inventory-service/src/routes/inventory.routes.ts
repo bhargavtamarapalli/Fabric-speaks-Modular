@@ -10,7 +10,17 @@ import { validateBody } from '../middleware/validate';
 import multer from 'multer';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max upload size for bulk CSV
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.mimetype === 'application/vnd.ms-excel' || file.originalname.toLowerCase().endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'));
+    }
+  }
+});
 
 const db = getDbPool();
 const invRepo = new InventoryRepository(db);
@@ -43,7 +53,7 @@ router.post('/expected', requireWriteAccess, validateBody(ExpectedArrivalSchema)
 router.patch('/expected/:id/receive', requireWriteAccess, inventoryController.markArrivalReceived);
 
 // INV-05: Stock health dashboard — read access (SA + IM can see full data)
-router.get('/health', requireWriteAccess, inventoryController.getHealth);
+router.get('/health', requireReadAccess, inventoryController.getHealth);
 
 // INV-09: Stock velocity details
 router.get('/velocity', requireWriteAccess, inventoryController.getVelocity);

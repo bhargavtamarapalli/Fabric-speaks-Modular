@@ -29,7 +29,7 @@ export class VariantRepository extends BaseRepository implements IVariantReposit
 
     async updateStock(id: string, qty: number): Promise<void> {
         await this.query(
-            'UPDATE variants SET qty = $1, updated_at = now() WHERE id = $2',
+            'UPDATE variants SET qty = $1, updated_at = now() WHERE id = $2 AND is_deleted = false',
             [qty, id]
         );
     }

@@ -93,7 +93,7 @@ export function mapError(error: any): string {
   }
 
   // Handle specific HTTP status codes if available (e.g., from Axios or native fetch response)
-  const status = error.status || (error.response && error.response.status);
+  const status = error.status || error.statusCode || (error.response && error.response.status);
   if (status) {
     if (status === 401) return ERROR_MAP['UNAUTHORIZED'];
     if (status === 403) return ERROR_MAP['FORBIDDEN'];

@@ -35,6 +35,8 @@ export default function ProductDetailPage() {
     errors,
     saving,
     handleBulkUpdate,
+    adjustVariantStock,
+    batchAdjustStock,
     load,
   } = useProductDetail(productId);
 
@@ -78,6 +80,7 @@ export default function ProductDetailPage() {
           <VariantList 
             product={product} 
             onBulkUpdate={() => setDrawerOpen(true)} 
+            onRefresh={load}
           />
         </div>
 
@@ -95,6 +98,8 @@ export default function ProductDetailPage() {
         errors={errors}
         onSave={handleBulkUpdate}
         saving={saving}
+        onAdjustVariantStock={adjustVariantStock}
+        onBatchAdjustStock={batchAdjustStock}
       />
     </div>
   );

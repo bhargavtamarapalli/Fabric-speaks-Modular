@@ -25,10 +25,8 @@ import jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcryptjs';
 import { env } from '../config/env';
 import crypto from 'crypto';
-import { AuditLogRepository } from '../repositories/audit_log.repository';
-import { AUTH_CONSTANTS } from '../config/constants';
-import { AdminLoginAttemptRepository } from '../repositories/admin-login-attempt.repository';
-import { RefreshTokenRepository } from '../repositories/refresh-token.repository';
+import { RefreshTokenRepository, RefreshToken } from '../repositories/refresh-token.repository';
+import { AuditLogRepository, AuditLog } from '../repositories/audit_log.repository';
 import { Queue } from 'bullmq';
 
 export interface AuthResult {
@@ -237,13 +235,25 @@ export class AuthService {
         return { accessToken, refreshToken: refreshToken };
     }
 
-    async registerWithEmail(data: { email: string, name: string, passwordHash: string }): Promise<AuthResult> {
+    async registerWithEmail(data: { email: string, name: string, passwordRaw: string, mobile?: string }): Promise<AuthResult> {
         const existing = await this.userRepo.findByEmail(data.email);
         if (existing) {
             throw new AppError(ErrorCode.VALIDATION_ERROR, 'Email already registered');
         }
 
-        const user = await this.userRepo.createWithEmail(data);
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(data.passwordRaw, salt);
+
+        let user = await this.userRepo.createWithEmail({
+            email: data.email,
+            name: data.name,
+            passwordHash
+        });
+
+        if (data.mobile) {
+            user = await this.userRepo.updateProfile(user.id, { mobile: data.mobile });
+        }
+
         const tokens = await this.generateAuthTokens(user);
 
         return {
@@ -684,5 +694,26 @@ export class AuthService {
         // Invalidate session cache so new role takes effect immediately
         await this.invalidateSessionCache(user.id);
         return { id: updated.id, email: updated.email, name: updated.name, role: updated.role };
+    }
+
+    async getSessions(userId: string): Promise<RefreshToken[]> {
+        return this.refreshTokenRepo.findAllActiveForUser(userId);
+    }
+
+    async getAuditLogs(userId: string, limit: number = 30): Promise<AuditLog[]> {
+        return this.auditLogRepo.findByUser(userId, limit);
+    }
+
+    async revokeOtherSessions(userId: string, currentToken: string): Promise<void> {
+        await this.refreshTokenRepo.revokeOthers(userId, currentToken);
+    }
+
+    async revokeSession(userId: string, token: string): Promise<void> {
+        // Find if session exists for this user
+        const session = await this.refreshTokenRepo.findByToken(token);
+        if (!session || session.user_id !== userId) {
+            throw new AppError(ErrorCode.NOT_FOUND, 'Session not found');
+        }
+        await this.refreshTokenRepo.revokeToken(token);
     }
 }

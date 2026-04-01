@@ -1,4 +1,4 @@
-import { InventoryRepository, VariantStock } from '../repositories/inventory.repository';
+import { InventoryRepository, VariantStock, DeadStockVariant, DemandPattern } from '../repositories/inventory.repository';
 import { ExpectedStockRepository, ExpectedStock } from '../repositories/expected-stock.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { BulkAdjustmentRowSchema } from '../schemas/inventory.schemas';
@@ -104,7 +104,7 @@ export class InventoryService {
 
               const currentVariant = await this.invRepo.getVariant(validated.variant_id);
               if (!currentVariant) {
-                throw new Error(`Variant ${validated.variant_id} not found`);
+                throw new AppError(ErrorCode.NOT_FOUND, `Variant ${validated.variant_id} not found`);
               }
 
               const updated = await this.invRepo.adjustStock(validated.variant_id, validated.new_qty, validated.reason, adminUserId);
@@ -246,11 +246,11 @@ export class InventoryService {
     return this.invRepo.getRestockSuggestions();
   }
 
-  async getDeadStock(days: number = 30) {
+  async getDeadStock(days: number = 30): Promise<DeadStockVariant[]> {
     return this.invRepo.getDeadStock(days);
   }
 
-  async getDemandPatterns(days: number = 30) {
+  async getDemandPatterns(days: number = 30): Promise<{ sizes: DemandPattern[]; colours: DemandPattern[] }> {
     return this.invRepo.getDemandPatterns(days);
   }
 
