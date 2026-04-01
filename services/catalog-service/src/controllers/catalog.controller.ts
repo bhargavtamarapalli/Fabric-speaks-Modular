@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 import { CatalogService } from '../services/catalog.service';
 import { BulkUploadService } from '../services/bulk-upload.service';
 import { PriceChangeService } from '../services/price-change.service';
 import { ProductQuerySchema, CreateProductSchema, UpdateProductSchema, CreateBrandSchema, UpdateBrandSchema, CreateCollectionSchema, BulkUploadRequestSchema, AdminProductQuerySchema, DeactivateProductSchema, CreateCategorySchema, UpdateCategorySchema, UpdateCollectionSchema, ReorderCollectionProductsSchema, IdParamSchema, BulkUpdateVariantsSchema, CreateVariantSchema, UpdateVariantSchema, VariantIdParamSchema, BulkPriceUpdateSchema, SchedulePriceChangeSchema, PriceChangeListQuerySchema, CreateVariantTemplateSchema, AddCollectionProductsSchema, VariantTemplateQuerySchema } from '../schemas/catalog.schemas';
-import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 
 export class CatalogController {
     constructor(
@@ -234,5 +234,26 @@ export class CatalogController {
         const dto = CreateVariantTemplateSchema.parse(req.body);
         const result = await this.catalogService.createVariantTemplate(dto, req.user!.userId);
         res.status(201).json({ success: true, data: result });
+    });
+
+    updateVariantTemplate = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
+        const dto = z.object({
+            sizes: z.array(z.string()).optional(),
+            colours: z.array(z.string()).optional(),
+        }).parse(req.body);
+        const result = await this.catalogService.updateVariantTemplate(id, dto, req.user!.userId);
+        res.json({ success: true, data: result });
+    });
+
+    deleteVariantTemplate = catchAsync(async (req: Request, res: Response) => {
+        const { id } = IdParamSchema.parse(req.params);
+        await this.catalogService.deleteVariantTemplate(id, req.user!.userId);
+        res.status(204).end();
+    });
+
+    cleanupMeterSizes = catchAsync(async (req: Request, res: Response) => {
+        const result = await this.catalogService.cleanupMeterSizes(req.user!.userId);
+        res.json({ success: true, data: result });
     });
 }

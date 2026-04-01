@@ -537,6 +537,23 @@ export const templatesApi = {
     invalidateAdminCache('/admin/catalog/templates');
     return res;
   },
+  update: async (id: string, data: { sizes?: string[]; colours?: string[] }) => {
+    const res = await patch<VariantTemplate>(`/admin/catalog/templates/${id}`, data);
+    invalidateAdminCache('/admin/catalog/templates');
+    return res;
+  },
+  delete: async (id: string) => {
+    const res = await del<void>(`/admin/catalog/templates/${id}`);
+    invalidateAdminCache('/admin/catalog/templates');
+    return res;
+  },
+  cleanupMeterSizes: async () => {
+    const res = await post<{ templatesUpdated: number; templatesDeleted: number; variantsDeleted: number }>('/admin/catalog/cleanup-meter-sizes', {});
+    invalidateAdminCache('/admin/catalog/templates');
+    invalidateAdminCache('/admin/products');
+    invalidateAdminCache('/admin/inventory');
+    return res;
+  },
 };
 
 // ─── Collections ─────────────────────────────────────────────────────────────

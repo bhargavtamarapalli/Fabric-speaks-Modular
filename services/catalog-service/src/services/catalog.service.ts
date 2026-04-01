@@ -20,11 +20,11 @@ import {
     BulkVariantUpdateDto,
     UpdateVariantDto,
 } from '@fs/shared';
+import { logger } from '@fs/shared/logger';
 import { CreateBrandDto, CreateCollectionDto, AdminProductQueryDto, CreateCategoryDto, UpdateCategoryDto, UpdateCollectionDto, CreateVariantInputDto, UpdateVariantInputDto, UpdateBrandDto } from '../schemas/catalog.schemas';
 import { VariantTemplateRepository, VariantTemplate } from '../repositories/variant_template.repository';
 import { CreateVariantTemplateDto } from '../schemas/catalog.schemas';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
-import { logger } from '@fs/shared/logger';
 
 export class CatalogService {
     constructor(
@@ -628,6 +628,77 @@ export class CatalogService {
 
         await this.redis.del('catalog:variant_templates');
         return template;
+    }
+
+    async updateVariantTemplate(id: string, dto: { sizes?: string[], colours?: string[] }, adminId: string): Promise<VariantTemplate> {
+        const before = await this.variantTemplateRepo.findAll().then(items => items.find(i => i.id === id));
+        if (!before) throw new AppError(ErrorCode.NOT_FOUND, 'Template not found');
+
+        const template = await this.variantTemplateRepo.update(
+            id, 
+            dto.sizes ?? before.sizes, 
+            dto.colours ?? before.colours
+        );
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'variant_template.update',
+            entityType: 'variant_template',
+            entityId: id,
+            beforeJson: before,
+            afterJson: template
+        });
+
+        await this.redis.del('catalog:variant_templates');
+        return template;
+    }
+
+    async deleteVariantTemplate(id: string, adminId: string): Promise<void> {
+        await this.variantTemplateRepo.delete(id);
+        
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'variant_template.delete',
+            entityType: 'variant_template',
+            entityId: id
+        });
+
+        await this.redis.del('catalog:variant_templates');
+    }
+
+    async cleanupMeterSizes(adminId: string): Promise<{ templatesUpdated: number, templatesDeleted: number, variantsDeleted: number }> {
+        const meterSizes = ['0.5m', '1m', '1.5m', '2m', '2.5m', '3m', '5m', '10m'];
+        
+        // 1. Templates cleanup
+        const templates = await this.variantTemplateRepo.findAll();
+        let templatesUpdated = 0;
+        let templatesDeleted = 0;
+
+        for (const template of templates) {
+            const filteredSizes = template.sizes.filter(s => !meterSizes.includes(s));
+            if (filteredSizes.length === 0) {
+                await this.variantTemplateRepo.delete(template.id);
+                templatesDeleted++;
+            } else if (filteredSizes.length !== template.sizes.length) {
+                await this.variantTemplateRepo.update(template.id, filteredSizes, template.colours);
+                templatesUpdated++;
+            }
+        }
+
+        // 2. Variants cleanup
+        const variantsDeleted = await this.variantRepo.deleteBySizes(meterSizes);
+
+        // 3. Clear cache
+        await this.redis.del('catalog:variant_templates');
+        await this.clearCatalogCache();
+
+        await this.auditLogRepo.insert({
+            adminId,
+            action: 'catalog.cleanup_meter_sizes',
+            afterJson: { templatesUpdated, templatesDeleted, variantsDeleted }
+        });
+
+        return { templatesUpdated, templatesDeleted, variantsDeleted };
     }
 
     async getCollection(slug: string): Promise<any> {

@@ -227,6 +227,7 @@ export interface IVariantRepository {
   updateById(id: string, dto: UpdateVariantDto, client?: DbClient): Promise<Variant>;
   deactivate(id: string, client?: DbClient): Promise<Variant>;
   bulkAdjustPrices(options: any): Promise<number>;
+  deleteBySizes(sizes: string[]): Promise<number>;
   withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 

@@ -27,6 +27,8 @@ import { env } from '../config/env';
 import crypto from 'crypto';
 import { RefreshTokenRepository, RefreshToken } from '../repositories/refresh-token.repository';
 import { AuditLogRepository, AuditLog } from '../repositories/audit_log.repository';
+import { AdminLoginAttemptRepository } from '../repositories/admin-login-attempt.repository';
+import { AUTH_CONSTANTS } from '../config/constants';
 import { Queue } from 'bullmq';
 
 export interface AuthResult {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { Queue } from 'bullmq';
 import { requireAuth, requireRole, getDbPool, getRedisClient } from '@fs/shared';
 import { CatalogController } from '../controllers/catalog.controller';
 import { CatalogService } from '../services/catalog.service';
@@ -12,7 +13,6 @@ import { CollectionRepository } from '../repositories/collection.repository';
 import { AuditLogRepository } from '../repositories/audit_log.repository';
 import { VariantTemplateRepository } from '../repositories/variant_template.repository';
 import { PriceChangeRepository } from '../repositories/price-change.repository';
-import { Queue } from 'bullmq';
 
 export const catalogRouter = Router();
 
@@ -86,3 +86,7 @@ catalogRouter.put('/admin/collections/:id/products/reorder', requireAuth, requir
 // Variant Template routes
 catalogRouter.get('/admin/catalog/templates', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.listVariantTemplates);
 catalogRouter.post('/admin/catalog/templates', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.createVariantTemplate);
+catalogRouter.patch('/admin/catalog/templates/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.updateVariantTemplate);
+catalogRouter.delete('/admin/catalog/templates/:id', requireAuth, requireRole('superAdmin', 'inventoryManager'), catalogController.deleteVariantTemplate);
+catalogRouter.post('/admin/catalog/cleanup-meter-sizes', requireAuth, requireRole('superAdmin'), catalogController.cleanupMeterSizes);
+

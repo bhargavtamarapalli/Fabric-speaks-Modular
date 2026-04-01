@@ -111,6 +111,7 @@ describe('AuthService', () => {
                 name: null,
                 email: null,
                 whatsapp_enabled: false,
+                preferences: {},
             };
 
 
@@ -182,6 +183,7 @@ describe('AuthService', () => {
                 name: null,
                 email: null,
                 whatsapp_enabled: false,
+                preferences: {},
             };
 
             mockUserRepo.findById.mockResolvedValue(existingUser);

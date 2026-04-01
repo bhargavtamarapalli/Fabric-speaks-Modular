@@ -31,4 +31,16 @@ export class VariantTemplateRepository extends BaseRepository {
     );
     return result.rows[0] ? this.mapToCamelCase<VariantTemplate>(result.rows[0]) : null;
   }
+
+  async update(id: string, sizes: string[], colours: string[]): Promise<VariantTemplate> {
+    const result = await this.query(
+      'UPDATE variant_templates SET sizes = $1, colours = $2, updated_at = now() WHERE id = $3 RETURNING *',
+      [sizes, colours, id]
+    );
+    return this.mapToCamelCase<VariantTemplate>(result.rows[0]);
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.query('DELETE FROM variant_templates WHERE id = $1', [id]);
+  }
 }

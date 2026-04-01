@@ -1090,3 +1090,41 @@ WHAT NOT TO COMMENT ON:
 | 10 - Console error triage | Specific error message in hand |
 | 11 - Performance debugging | Something feels slow |
 | 12 - Code review | Before merging any PR |
+
+---
+## SKILL 10 - Pre-Push Validation
+
+**Trigger:** "push the changes", "push to server", "deploy", "sync changes"
+
+```
+You are performing a pre-push validation to ensure code quality and stability.
+
+Before triggering any push or deployment command, you MUST execute and verify the following steps in order. Do not proceed to the next step if the current one fails.
+
+STEP 1 - TypeScript Validation
+  - Command: `npm run typecheck` (tsc --noEmit)
+  - Success: Zero errors.
+  - Failure: Stop, report errors to the user, and ask for fixes.
+
+STEP 2 - Linting Validation
+  - Command: `npm run lint`
+  - Success: Zero errors (warnings allowed but flagged).
+  - Failure: Stop, report linting issues. Offer `npm run lint -- --fix` if applicable.
+
+STEP 3 - Compilation & Build Validation
+  - Action: Verify successful compilation of all core modules.
+  - Commands:
+    - Shared: `npm --workspace=shared run build`
+    - Modified Services: `npm --workspace=services/[name] run build`
+    - Frontend (if modified): `npm --workspace=apps/web run build`
+  - Success: All builds exit with code 0.
+
+STEP 4 - Push to Server
+  - Only execute after Steps 1-3 pass.
+  - Action: Run the appropriate sync/push command (e.g., git push).
+
+REPORTING:
+- Announce the start: "Initiating pre-push validation sequence..."
+- Provide status updates for each step (✅ Passed / ❌ Failed).
+- Finalize: "🚀 All validations passed. Proceeding with the push." or "🛑 Validation failed. Push aborted."
+```

@@ -259,7 +259,7 @@ export default function NewProductPage() {
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [availableSizes, setAvailableSizes] = useState(DEFAULT_SIZES);
   const [availableColours, setAvailableColours] = useState(DEFAULT_COLOURS);
-  const [selectedSizes, setSelectedSizes] = useState(['1m', '2m', '3m']);
+  const [selectedSizes, setSelectedSizes] = useState(['S', 'M', 'L']);
   const [selectedColours, setSelectedColours] = useState(['White', 'Ecru']);
   const [matrix, setMatrix] = useState<Matrix>({});
   const [form, setForm] = useState<ProductForm>(INITIAL_FORM);
@@ -276,17 +276,17 @@ export default function NewProductPage() {
   const refreshBrands = React.useCallback(async (signal?: AbortSignal) => {
     const data = await brandsApi.list(signal);
     if (process.env.NODE_ENV === 'development') {
-      console.log('[NEW_PRODUCT] refreshBrands result', { count: data.length, sample: data.slice(0, 3) });
+      console.log('[NEW_PRODUCT] refreshBrands result', { count: Array.isArray(data) ? data.length : 0, sample: Array.isArray(data) ? data.slice(0, 3) : [] });
     }
-    setBrands(data);
+    setBrands(Array.isArray(data) ? data : []);
   }, []);
 
   const refreshCategories = React.useCallback(async (signal?: AbortSignal) => {
     const data = await categoriesApi.list(signal);
     if (process.env.NODE_ENV === 'development') {
-      console.log('[NEW_PRODUCT] refreshCategories result', { count: data.length, sample: data.slice(0, 3) });
+      console.log('[NEW_PRODUCT] refreshCategories result', { count: Array.isArray(data) ? data.length : 0, sample: Array.isArray(data) ? data.slice(0, 3) : [] });
     }
-    setCategories(data);
+    setCategories(Array.isArray(data) ? data : []);
   }, []);
 
   useEffect(() => {
@@ -328,7 +328,7 @@ export default function NewProductPage() {
       try {
         const t = await templatesApi.list();
         if (!controller.signal.aborted) {
-          setTemplates(t);
+          setTemplates(Array.isArray(t) ? t : []);
           setTemplatesLoading(false);
         }
       } catch (err) {

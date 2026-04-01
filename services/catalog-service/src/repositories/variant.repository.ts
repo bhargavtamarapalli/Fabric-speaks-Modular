@@ -314,4 +314,14 @@ export class VariantRepository extends BaseRepository implements IVariantReposit
             images: row.images_json ?? [],
         };
     }
+
+    async deleteBySizes(sizes: string[]): Promise<number> {
+        if (sizes.length === 0) return 0;
+        const placeholders = sizes.map((_, i) => `$${i + 1}`).join(', ');
+        const { rowCount } = await this.query(
+            `UPDATE variants SET is_deleted = true, updated_at = now() WHERE size IN (${placeholders}) AND is_deleted = false`,
+            sizes
+        );
+        return rowCount ?? 0;
+    }
 }

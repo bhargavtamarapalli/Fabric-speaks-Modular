@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { VerifyOtpSchema, LoginOtpSchema, VerifyOtpCodeSchema, AdminLoginFailureSchema, RegisterSchema, LoginSchema, GoogleLoginSchema, ForgotPasswordSchema, ResetPasswordSchema, UpdateProfileSchema, ChangePasswordSchema } from '../schemas/auth.schemas';
-import { catchAsync, setAuthCookie, clearAuthCookie, AppError, ErrorCode, responseList } from '@fs/shared';
+import { catchAsync, setAuthCookie, clearAuthCookie, AppError, ErrorCode } from '@fs/shared';
 import * as bcrypt from 'bcryptjs';
 
 export class AuthController {
