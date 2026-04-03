@@ -172,7 +172,8 @@ export interface Collection {
 
 // DTOs
 export interface ProductQueryDto {
-  page: number;
+  cursor?: string;
+  page?: number;
   limit: number;
   search?: string;
   fabric?: string;
@@ -207,7 +208,9 @@ export interface UpdateProductDto extends Partial<Omit<CreateProductDto, 'varian
 export interface IProductRepository {
   findById(id: string): Promise<Product | null>;
   findBySlug(slug: string): Promise<Product | null>;
-  findAll(filters: ProductQueryDto): Promise<{ items: Product[]; total: number }>;
+  findAll(
+    filters: ProductQueryDto
+  ): Promise<{ items: Product[]; total?: number; hasNext?: boolean }>;
   findAllAdmin(filters: any): Promise<{ items: Product[]; total: number }>;
   create(dto: any, client?: DbClient): Promise<Product>;
   update(id: string, dto: any, client?: DbClient): Promise<Product>;
@@ -218,11 +221,20 @@ export interface IProductRepository {
 export interface IVariantRepository {
   findById(id: string): Promise<Variant | null>;
   findByProductId(productId: string): Promise<Variant[]>;
+  findByProductIds(productIds: string[]): Promise<Record<string, Variant[]>>;
   findBySku(sku: string): Promise<Variant | null>;
   updateStock(id: string, qty: number): Promise<void>;
   create(dto: CreateVariantDto & { productId: string }, client?: DbClient): Promise<Variant>;
-  bulkCreate(productId: string, variants: CreateVariantDto[], client?: DbClient): Promise<Variant[]>;
-  verifyBelongToProduct(variantIds: string[], productId: string, client?: DbClient): Promise<boolean>;
+  bulkCreate(
+    productId: string,
+    variants: CreateVariantDto[],
+    client?: DbClient
+  ): Promise<Variant[]>;
+  verifyBelongToProduct(
+    variantIds: string[],
+    productId: string,
+    client?: DbClient
+  ): Promise<boolean>;
   bulkUpdate(updates: BulkVariantUpdateDto[], client?: DbClient): Promise<Variant[]>;
   updateById(id: string, dto: UpdateVariantDto, client?: DbClient): Promise<Variant>;
   deactivate(id: string, client?: DbClient): Promise<Variant>;

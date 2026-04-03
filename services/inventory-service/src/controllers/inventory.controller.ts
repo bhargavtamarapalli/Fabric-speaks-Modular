@@ -2,10 +2,44 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { InventoryService } from '../services/inventory.service';
 import { AppError, ErrorCode, catchAsync } from '@fs/shared';
-import { ManualAdjustmentSchema, ExpectedArrivalSchema, UpdateThresholdSchema, IdParamSchema, VariantIdParamSchema } from '../schemas/inventory.schemas';
+import {
+  ManualAdjustmentSchema,
+  ExpectedArrivalSchema,
+  UpdateThresholdSchema,
+  IdParamSchema,
+  VariantIdParamSchema,
+} from '../schemas/inventory.schemas';
 
 export class InventoryController {
-  constructor(private inventoryService: InventoryService) { }
+  private static rateLimitMap = new Map<string, number>();
+
+  constructor(private inventoryService: InventoryService) {}
+
+  private checkRateLimit(userId: string, maxRequests: number, windowMs: number): void {
+    const key = `bulk_inventory_${userId}`;
+    const now = Date.now();
+    const windowStart = now - windowMs;
+
+    // Clean old entries
+    for (const [k, timestamp] of InventoryController.rateLimitMap.entries()) {
+      if (timestamp < windowStart) {
+        InventoryController.rateLimitMap.delete(k);
+      }
+    }
+
+    const userRequests = Array.from(InventoryController.rateLimitMap.entries()).filter(
+      ([k]) => k === key
+    ).length;
+
+    if (userRequests >= maxRequests) {
+      throw new AppError(
+        ErrorCode.RATE_LIMIT_EXCEEDED,
+        'Too many bulk inventory requests. Please try again later.'
+      );
+    }
+
+    InventoryController.rateLimitMap.set(key, now);
+  }
 
   listInventory = catchAsync(async (req: Request, res: Response) => {
     const { sort } = req.query;
@@ -14,7 +48,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      data: items
+      data: items,
     });
   });
 
@@ -37,7 +71,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      data: updated
+      data: updated,
     });
   });
 
@@ -47,16 +81,23 @@ export class InventoryController {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
+    this.checkRateLimit(adminUserId, 5, 60000); // 5 requests per minute
+
     const file = (req as any).file;
     if (!file || !file.buffer) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'CSV file is required');
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      throw new AppError(ErrorCode.BULK_UPLOAD_LIMIT, 'CSV file size exceeds 10MB limit');
     }
 
     const result = await this.inventoryService.bulkAdjustment(file.buffer, adminUserId);
 
     res.status(200).json({
       success: true,
-      data: result
+      data: result,
     });
   });
 
@@ -68,17 +109,20 @@ export class InventoryController {
 
     const validated = ExpectedArrivalSchema.parse(req.body);
 
-    const arrival = await this.inventoryService.addExpectedArrival({
-      variant_id: validated.variant_id,
-      expected_qty: validated.expected_qty,
-      expected_date: new Date(validated.expected_date),
-      notes: validated.notes,
-      created_by: adminUserId
-    }, adminUserId);
+    const arrival = await this.inventoryService.addExpectedArrival(
+      {
+        variant_id: validated.variant_id,
+        expected_qty: validated.expected_qty,
+        expected_date: new Date(validated.expected_date),
+        notes: validated.notes,
+        created_by: adminUserId,
+      },
+      adminUserId
+    );
 
     res.status(201).json({
       success: true,
-      data: arrival
+      data: arrival,
     });
   });
 
@@ -93,7 +137,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      message: 'Arrival marked as received successfully'
+      message: 'Arrival marked as received successfully',
     });
   });
 
@@ -110,7 +154,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      message: 'Threshold updated successfully'
+      message: 'Threshold updated successfully',
     });
   });
 
@@ -119,7 +163,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      data: arrivals
+      data: arrivals,
     });
   });
 
@@ -128,7 +172,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      data: health
+      data: health,
     });
   });
 
@@ -137,7 +181,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      data
+      data,
     });
   });
 
@@ -146,7 +190,7 @@ export class InventoryController {
 
     res.status(200).json({
       success: true,
-      data
+      data,
     });
   });
 

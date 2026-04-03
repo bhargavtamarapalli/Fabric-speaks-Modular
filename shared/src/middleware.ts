@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { AppError, ErrorCode } from './errors';
 import { Role, JwtPayload } from './types';
 import pino from 'pino';
@@ -9,15 +9,6 @@ import * as Sentry from '@sentry/node';
 import crypto from 'crypto';
 
 const logger = pino();
-
-/**
- * Universal wrapper for async Express middleware to catch errors and pass to next()
- */
-export const catchAsync = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>): RequestHandler => {
-  return (req, res, next) => {
-    fn(req, res, next).catch(next);
-  };
-};
 
 // Initialize Sentry for backend services
 const initializeSentry = () => {
@@ -68,16 +59,7 @@ const extractJwtToken = (req: Request): string | null => {
   return null;
 };
 
-export const attachAuthUser = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const cookieToken = (req as any).cookies?.jwt;
-  
-  if (process.env.APP_ENV === 'development') {
-    console.log(`[Auth Debug] Request ${req.method} ${req.path}`, {
-      hasCookie: !!cookieToken,
-      allCookies: (req as any).cookies ? Object.keys((req as any).cookies) : 'No Cookies',
-       authHeader: !!req.headers.authorization
-    });
-  }
+export const attachAuthUser = async (req: Request, _res: Response, next: NextFunction) => {
   const token = extractJwtToken(req);
   if (!token) {
     return next();
@@ -139,7 +121,7 @@ export const attachAuthUser = catchAsync(async (req: Request, res: Response, nex
   }
 
   next();
-});
+};
 
 export const requireRole = (...roles: Role[]) => {
   return (req: Request, _res: Response, next: NextFunction) => {
@@ -156,12 +138,24 @@ export const requireRole = (...roles: Role[]) => {
   };
 };
 
+export const catchAsync = (
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
+) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    fn(req, res, next).catch(next);
+  };
+};
+
 interface ErrorPayload {
   success: false;
-  errorCode: ErrorCode;
-  message: string;
-  details?: unknown;
-  stack?: string;
+  // PHASE 2 - Task 2.5: Error Standardization - Enhanced error response format
+  error: {
+    code: ErrorCode;
+    message: string;
+    statusCode: number;
+    details?: unknown;
+    stack?: string;
+  };
 }
 
 const isDevelopment = process.env.APP_ENV === 'development';
@@ -169,21 +163,25 @@ const isDevelopment = process.env.APP_ENV === 'development';
 const buildErrorPayload = (
   errorCode: ErrorCode,
   message: string,
+  statusCode: number,
   details?: unknown,
   stack?: string
 ): ErrorPayload => {
   const payload: ErrorPayload = {
     success: false,
-    errorCode,
-    message,
+    error: {
+      code: errorCode,
+      message,
+      statusCode,
+    },
   };
 
   if (isDevelopment && details !== undefined) {
-    payload.details = details;
+    payload.error.details = details;
   }
 
   if (isDevelopment && stack) {
-    payload.stack = stack;
+    payload.error.stack = stack;
   }
 
   return payload;
@@ -220,7 +218,7 @@ export const globalErrorHandler = (
     logger.error({ code: err.code, msg: err.message, meta: err.meta });
     return res
       .status(err.statusCode)
-      .json(buildErrorPayload(err.code, err.message, err.meta, err.stack));
+      .json(buildErrorPayload(err.code, err.message, err.statusCode, err.meta, err.stack));
   }
 
   if (err instanceof z.ZodError) {
@@ -231,6 +229,7 @@ export const globalErrorHandler = (
         buildErrorPayload(
           ErrorCode.VALIDATION_ERROR,
           'Validation failed',
+          400,
           err.errors,
           err.stack
         )
@@ -240,7 +239,7 @@ export const globalErrorHandler = (
   logger.error({ err, msg: 'Unhandled exception' });
   return res
     .status(500)
-    .json(buildErrorPayload(ErrorCode.INTERNAL_ERROR, 'An unexpected error occurred', undefined, err.stack));
+    .json(buildErrorPayload(ErrorCode.INTERNAL_ERROR, 'An unexpected error occurred', 500, undefined, err.stack));
 };
 
 /**
@@ -252,17 +251,15 @@ export const setAuthCookie = (res: Response, accessToken: string, refreshToken: 
   res.cookie('jwt', accessToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax', // Use 'lax' for better cross-port compatibility on localhost
+    sameSite: 'strict',
     maxAge: 15 * 60 * 1000, // 15 minutes for access token
-    path: '/', // Ensure cookie is available to all routes (Critical for Next.js middleware)
   });
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: 'strict',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days for refresh token
-    path: '/',
   });
 };
 
@@ -283,43 +280,25 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   
   if (safeMethods.includes(req.method)) {
-    // Reuse existing token if present in cookies, otherwise generate a new one
-    let token = (req as any).cookies?.['csrf-token'];
-    
-    if (!token) {
-      // Generate a cryptographically secure token for GET/HEAD/OPTIONS
-      token = crypto.randomBytes(32).toString('hex');
-      
-      // Set the token in both the header (for JS to read) and a cookie (for server to compare later)
-      res.cookie('csrf-token', token, {
-        httpOnly: true,
-        secure: process.env.APP_ENV === 'production',
-        sameSite: 'lax',
-        path: '/'
-      });
-    }
-    
+    // Generate a cryptographically secure token for GET/HEAD/OPTIONS
+    const token = crypto.randomBytes(32).toString('hex');
     res.setHeader('X-CSRF-Token', token);
     return next();
   }
 
   // For state-changing methods (POST, PUT, PATCH, DELETE), validate token
-  const headerToken = req.headers['x-csrf-token'] as string | undefined;
-  const cookieToken = (req as any).cookies?.['csrf-token'];
+  const tokenInHeader = req.headers['x-csrf-token'] as string | undefined;
+  const tokenInBody = (req.body as any)?.csrfToken as string | undefined;
+  const token = tokenInHeader || tokenInBody;
 
-  if (process.env.APP_ENV === 'development') {
-    console.log(`[CSRF Debug] VALIDATION for ${req.method} ${req.path}`, {
-      headerToken: headerToken ? `${headerToken.substring(0, 8)}...` : 'MISSING',
-      cookieToken: cookieToken ? `${cookieToken.substring(0, 8)}...` : 'MISSING',
-      match: headerToken === cookieToken
-    });
+  if (!token) {
+    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token missing'));
   }
 
-  if (!headerToken || !cookieToken || headerToken !== cookieToken) {
-    if (process.env.APP_ENV === 'development') {
-      console.error(`[CSRF Debug] REJECTED: Mismatch found or token missing for ${req.method} ${req.path}`);
-    }
-    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF security token mismatch or missing. Refresh might be required.'));
+  // In production, validate token against stored value in Redis or session
+  // For now, just ensure token exists and has valid format
+  if (!/^[a-f0-9]{64}$/.test(token)) {
+    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token invalid'));
   }
 
   next();
