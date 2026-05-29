@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { z } from 'zod';
+import { AppError, ErrorCode, catchAsync, getRedisClient } from '@fs/shared';
 import { InventoryService } from '../services/inventory.service';
-import { AppError, ErrorCode, catchAsync } from '@fs/shared';
 import {
   ManualAdjustmentSchema,
   ExpectedArrivalSchema,
@@ -9,36 +8,42 @@ import {
   IdParamSchema,
   VariantIdParamSchema,
 } from '../schemas/inventory.schemas';
+import { INVENTORY_CONFIG } from '../config/inventory.config';
 
 export class InventoryController {
-  private static rateLimitMap = new Map<string, number>();
-
   constructor(private inventoryService: InventoryService) {}
 
-  private checkRateLimit(userId: string, maxRequests: number, windowMs: number): void {
-    const key = `bulk_inventory_${userId}`;
-    const now = Date.now();
-    const windowStart = now - windowMs;
+  /**
+   * Critical #5: Distributed Redis-based rate limiting.
+   * Replaces the previous in-memory Map which was broken across multiple server instances.
+   * Uses atomic INCR + EXPIRE to safely track request counts per user across all pods.
+   * Fail-open: if Redis is unavailable, the request is allowed through (logged).
+   */
+  private async checkRateLimitRedis(userId: string): Promise<void> {
+    const key = `rate_limit:bulk_inventory:${userId}`;
+    const { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECONDS } = INVENTORY_CONFIG.BULK_UPLOAD;
 
-    // Clean old entries
-    for (const [k, timestamp] of InventoryController.rateLimitMap.entries()) {
-      if (timestamp < windowStart) {
-        InventoryController.rateLimitMap.delete(k);
+    try {
+      const redis = getRedisClient();
+      const current = await redis.incr(key);
+
+      // Only set expiry on the very first increment
+      if (current === 1) {
+        await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
       }
+
+      // High #5: Limit is now 20/min (was 5/min — too strict for bulk operations)
+      if (current > RATE_LIMIT_MAX) {
+        throw new AppError(
+          ErrorCode.RATE_LIMIT_EXCEEDED,
+          `Too many bulk inventory requests. Limit: ${RATE_LIMIT_MAX} per ${RATE_LIMIT_WINDOW_SECONDS}s. Please try again later.`
+        );
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      // Fail-open: Redis unavailable — log and allow request
+      console.error('[InventoryController] Rate limit Redis check failed, failing open:', (err as Error).message);
     }
-
-    const userRequests = Array.from(InventoryController.rateLimitMap.entries()).filter(
-      ([k]) => k === key
-    ).length;
-
-    if (userRequests >= maxRequests) {
-      throw new AppError(
-        ErrorCode.RATE_LIMIT_EXCEEDED,
-        'Too many bulk inventory requests. Please try again later.'
-      );
-    }
-
-    InventoryController.rateLimitMap.set(key, now);
   }
 
   listInventory = catchAsync(async (req: Request, res: Response) => {
@@ -62,16 +67,21 @@ export class InventoryController {
 
     const validated = ManualAdjustmentSchema.parse(req.body);
 
-    const updated = await this.inventoryService.manualAdjustment(
+    // Medium #1: Server-side double-submit prevention via Idempotency-Key header
+    const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
+
+    const result = await this.inventoryService.manualAdjustment(
       variantId,
       validated.newQty,
       validated.reason,
-      adminUserId
+      adminUserId,
+      idempotencyKey
     );
 
     res.status(200).json({
       success: true,
-      data: updated,
+      data: result.variant,
+      ...(result.warning ? { warning: result.warning } : {}),
     });
   });
 
@@ -81,19 +91,25 @@ export class InventoryController {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
     }
 
-    this.checkRateLimit(adminUserId, 5, 60000); // 5 requests per minute
+    // Critical #5: Distributed rate limiting via Redis
+    await this.checkRateLimitRedis(adminUserId);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const file = (req as any).file;
     if (!file || !file.buffer) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'CSV file is required');
     }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      throw new AppError(ErrorCode.BULK_UPLOAD_LIMIT, 'CSV file size exceeds 10MB limit');
+    // Critical #7: Use centralized config constant — synced with Multer limit in routes
+    if (file.size > INVENTORY_CONFIG.BULK_UPLOAD.MAX_FILE_SIZE) {
+      throw new AppError(
+        ErrorCode.BULK_UPLOAD_LIMIT,
+        `CSV file size exceeds ${INVENTORY_CONFIG.BULK_UPLOAD.MAX_FILE_SIZE / 1024 / 1024}MB limit`
+      );
     }
 
-    const result = await this.inventoryService.bulkAdjustment(file.buffer, adminUserId);
+    const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
+    const result = await this.inventoryService.bulkAdjustment(file.buffer, adminUserId, idempotencyKey);
 
     res.status(200).json({
       success: true,

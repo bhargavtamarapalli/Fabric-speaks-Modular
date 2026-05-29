@@ -3,6 +3,7 @@ import { IdempotencyManager } from '../idempotency-manager';
 
 describe('IdempotencyManager (Task 1.4)', () => {
   let idempotencyManager: IdempotencyManager;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockRedisClient: any;
 
   beforeEach(() => {
@@ -107,6 +108,7 @@ describe('IdempotencyManager (Task 1.4)', () => {
 
     it('should handle serialization errors', async () => {
       const key = 'request-123';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const circularResult: any = { self: null };
       circularResult.self = circularResult; // Create circular reference
 
@@ -121,7 +123,7 @@ describe('IdempotencyManager (Task 1.4)', () => {
       const key = 'request-123';
       const errorResponse = { code: 'DUPLICATE_SKU', message: 'SKU already exists' };
 
-      await idempotencyManager.markFailure(key, errorResponse);
+      await idempotencyManager.markFailure(key, errorResponse.code, errorResponse.message);
 
       expect(mockRedisClient.setex).toHaveBeenCalledWith(
         key,
@@ -134,7 +136,7 @@ describe('IdempotencyManager (Task 1.4)', () => {
       const key = 'request-123';
       const errorResponse = { code: 'VALIDATION_ERROR', message: 'Invalid data' };
 
-      await idempotencyManager.markFailure(key, errorResponse);
+      await idempotencyManager.markFailure(key, errorResponse.code, errorResponse.message);
 
       const callArgs = mockRedisClient.setex.mock.calls[0];
       const cachedData = JSON.parse(callArgs[2]);
@@ -198,7 +200,7 @@ describe('IdempotencyManager (Task 1.4)', () => {
       const key = 'failed-request-123';
       const error = { code: 'DUPLICATE_SKU', message: 'Duplicate found' };
 
-      await idempotencyManager.markFailure(key, error);
+      await idempotencyManager.markFailure(key, error.code, error.message);
 
       // Verify error is cached
       mockRedisClient.get.mockResolvedValue(
@@ -217,8 +219,7 @@ describe('IdempotencyManager (Task 1.4)', () => {
       await idempotencyManager.markSuccess(key, {});
       expect(mockRedisClient.setex.mock.calls[0][1]).toBe(3600);
 
-      // Failure cache
-      await idempotencyManager.markFailure(key, {});
+      await idempotencyManager.markFailure(key, 'ERROR_CODE', 'Error message');
       expect(mockRedisClient.setex.mock.calls[1][1]).toBe(3600);
 
       // Processing lock

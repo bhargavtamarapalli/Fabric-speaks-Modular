@@ -1,13 +1,22 @@
 ---
 name: push-validation
-description: Validates the codebase (TS, Lint, Build) before pushing to the server.
+description: Validates the codebase (TS, Lint, Build) and conducts a batch-wise review of uncommitted changes before pushing to the server.
 ---
 
-# Pre-Push Validation Skill
+# Pre-Push Validation & Review Skill
 
-This skill MUST be triggered whenever the user asks to "push changes", "deploy to server", or "commit and push after review".
+This skill MUST be triggered whenever the user asks to "push changes", "deploy to server", "commit and push after review", or explicitly asks to "review" uncommitted changes.
 
-## VALIDATION STEPS (MANDATORY)
+## REVIEW SEQUENCE (IF USER ASKS TO REVIEW)
+
+If the user asks to "review" uncommitted changes, execute the following workflow. Note: these changes have not yet passed linting or typescript validation.
+
+1. **Stage Changes:** Run `git add -A` to stage all uncommitted changes.
+2. **Identify Files:** Run `git diff --name-only --cached` to list the staged files.
+3. **Batch Plan:** Group the staged files into batches of 5. Create an implementation plan or artifact presenting these batches to the user.
+4. **File-by-File Review:** Go through each file one by one in the current batch. Use `git diff --cached <file>` to review the specific changes. Present the review for the file, check for any obvious issues, and await user feedback or approval before moving to the next.
+
+## VALIDATION STEPS (MANDATORY BEFORE PUSH)
 
 Before triggering any push/sync command, you must execute and verify the following steps IN ORDER:
 

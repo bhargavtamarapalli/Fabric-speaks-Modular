@@ -1,8 +1,0 @@
-{
-  "projectId": "fabric-speaks",
-  "appId": "1:843318785572:web:30ed17108e8e52b47e4ab1",
-  "apiKey": "AIzaSyBWP95oeBcEDsjYuIwG5Ro9IxmGAnZH4KY",
-  "authDomain": "fabric-speaks.firebaseapp.com",
-  "messagingSenderId": "843318785572",
-  "storageBucket": "fabric-speaks.firebasestorage.app"
-}

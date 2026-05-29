@@ -1,4 +1,4 @@
-# Fabric Speaks Frontend Production Readiness - Phase 3 Fix Plan
+Now # Fabric Speaks Frontend Production Readiness - Phase 3 Fix Plan
 
 ## Current Progress
 ✅ Phase 1: Audit complete (16 pages)
@@ -30,3 +30,13 @@
 ## Next Action
 **FIX-M1**: layout.tsx parseHexToRgb literals  
 Progress: 4/22 ✅ (CRITICAL done, 7/7 IMPORTANT)
+
+## ReviewAudit Skill Creation (New Task)
+- ✅ Step 1: Create tracking TODO section
+- ✅ Step 2: Update YAML frontmatter description
+- ✅ Step 3: Add Core Review Framework for repo changes to Instructions
+- ✅ Step 4: Add Severity Classification
+- ✅ Step 5: Add Deliverable Format
+- ✅ Step 6: Add Walkthrough Checklist
+- ✅ Step 7: Add Examples section
+- ✅ Step 8: Mark complete and validate

@@ -1,4 +1,5 @@
 import { BaseRepository } from '@fs/shared';
+import { AppError, ErrorCode } from '@fs/shared';
 import { calculateHealthStatus } from '../utils/health.util';
 
 export interface VariantStock {
@@ -119,23 +120,30 @@ export class InventoryRepository extends BaseRepository {
     return this.withTransaction(async (client) => {
       await client.query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
 
-      // 1. Lock variant row for update
-      const oldRes = await client.query('SELECT qty FROM variants WHERE id = $1 FOR UPDATE', [
-        variantId,
-      ]);
-      if (!oldRes.rows.length) throw new Error(`Variant ${variantId} not found`);
+      // 1. Lock variant row for update - CRITICAL #1: Added AND is_deleted = false
+      const oldRes = await client.query(
+        'SELECT qty FROM variants WHERE id = $1 AND is_deleted = false FOR UPDATE',
+        [variantId]
+      );
+      // High #2: Throw proper typed VARIANT_NOT_FOUND error instead of generic Error
+      if (!oldRes.rows.length) {
+        throw new AppError(ErrorCode.VARIANT_NOT_FOUND, `Variant ${variantId} not found or has been deleted`);
+      }
       const oldQty = oldRes.rows[0].qty;
 
-      // 2. Update variant qty
+      // 2. Update variant qty - CRITICAL #1: Added AND is_deleted = false to prevent ghost writes
       const updateQuery = `
                 UPDATE variants 
                 SET qty = $2, updated_at = now() 
-                WHERE id = $1 
+                WHERE id = $1 AND is_deleted = false
                 RETURNING *
             `;
-      await client.query(updateQuery, [variantId, newQty]);
+      const updateResult = await client.query(updateQuery, [variantId, newQty]);
+      if (!updateResult.rowCount) {
+        throw new AppError(ErrorCode.VARIANT_NOT_FOUND, `Variant ${variantId} was deleted mid-transaction`);
+      }
 
-      // 3. Insert into stock_adjustments (INSERT-ONLY table)
+      // 3. Insert into stock_adjustments (INSERT-ONLY audit table) - within same transaction (Critical #6)
       const logQuery = `
                 INSERT INTO stock_adjustments (variant_id, before_qty, after_qty, reason, adjusted_by)
                 VALUES ($1, $2, $3, $4, $5)
@@ -144,7 +152,7 @@ export class InventoryRepository extends BaseRepository {
       await client.query(logQuery, [variantId, oldQty, newQty, reason, adminUserId]);
 
       const variant = await this.getVariant(variantId);
-      if (!variant) throw new Error('Variant not found after update');
+      if (!variant) throw new AppError(ErrorCode.VARIANT_NOT_FOUND, 'Variant not found after update');
       return variant;
     });
   }
