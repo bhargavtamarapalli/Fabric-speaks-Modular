@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import { productsApi } from '@/lib/admin/api';
-import type { Product } from '@/lib/admin/types';
 import { useToast } from '@/components/admin/shared';
 import { mapError } from '@/lib/admin/errors';
 
@@ -20,7 +19,7 @@ export function useProducts(initialFilters: ProductsFilters) {
   
   const [filters, setFilters] = useState<ProductsFilters>(initialFilters);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_LIMIT);
+  const [itemsPerPage] = useState(DEFAULT_LIMIT);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [delLoading, setDelLoading] = useState(false);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -42,7 +41,9 @@ export function useProducts(initialFilters: ProductsFilters) {
     page: currentPage,
     limit: itemsPerPage,
   }), {
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+    errorRetryCount: 0,
     dedupingInterval: 2000,
   });
 

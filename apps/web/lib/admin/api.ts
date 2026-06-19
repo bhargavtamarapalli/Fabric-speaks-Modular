@@ -4,16 +4,20 @@
 // Never use raw fetch in page components.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { apiClient } from '@/lib/apiClient';
+import { ApiError, apiClient } from '@/lib/apiClient';
+import { fetchListWithAuthFallback } from './listFetch';
 import type {
   Order, OrderTimeline, PackingSlip,
-  Product, Brand, Category, Collection,
+  Product, Brand, Category, Collection, VariantTemplate,
   InventoryItem, StockHealth, InventoryAdjustment, ExpectedStock,
   Return, ReturnTimeline, RefundStatus,
   SupportCase, CustomerProfile,
-  Coupon, StoreSettings, AdminUser,
+  Coupon, StoreSettings, AdminUser, AdminRole,
   AuditLogEntry, DashboardData, ContentPage, AnalyticsData,
+  CustomerSummary,
 } from './types';
+
+export type { CustomerProfile };
 
 // ─── Cache & Deduplication ──────────────────────────────────────────────────
 
@@ -26,13 +30,27 @@ const CACHE_KEY = 'fs_admin_api_cache';
  * significantly reducing the exposure window for XSS attacks.
  * This is appropriate for admin data that should not persist indefinitely.
  */
+const CACHE_MAX_AGE = 5 * 60 * 1000; // 5 minutes max for storage-to-memory persistence
+
 // Synchronous initial load from sessionStorage if in browser
 const initialCache = (() => {
   if (typeof window === 'undefined') return [];
   try {
     const stored = sessionStorage.getItem(CACHE_KEY);
-    return stored ? Object.entries(JSON.parse(stored)) : [];
-  } catch {
+    if (!stored) return [];
+    
+    // Parse and filter out stale entries (Issue #8)
+    const parsed = JSON.parse(stored);
+    const now = Date.now();
+    const validEntries = Object.entries(parsed).filter(([_, val]) => {
+      const entry = val as { timestamp: number };
+      // Keep only entries that are recent (e.g., last 5 mins) to prevent stale loads
+      return entry && entry.timestamp && (now - entry.timestamp < CACHE_MAX_AGE);
+    });
+    
+    return validEntries;
+  } catch (err) {
+    console.warn('[Admin API] Failed to load initial cache', err);
     return [];
   }
 })();
@@ -48,6 +66,7 @@ const cache = new Map<string, { data: any; timestamp: number }>(initialCache as 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pendingRequests = new Map<string, Promise<any>>();
 const CACHE_TTL = 30_000; // 30 seconds
+const TAXONOMY_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 /**
  * Persists the current cache to sessionStorage.
@@ -62,7 +81,15 @@ function syncToStorage() {
     const obj = Object.fromEntries(cache);
     sessionStorage.setItem(CACHE_KEY, JSON.stringify(obj));
   } catch (err) {
+    // Issue #11: Silent failure check - provide warning
     console.warn('[Admin API] Failed to persist cache', err);
+    
+    // Self-healing: If storage quota is exceeded, clear the oldest entries
+    if (err instanceof Error && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      console.log('[Admin API] Storage quota exceeded, clearing cache...');
+      cache.clear();
+      try { sessionStorage.removeItem(CACHE_KEY); } catch {}
+    }
   }
 }
 
@@ -93,6 +120,64 @@ function buildQueryString(params?: Record<string, string | number | undefined>):
   return new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
 }
 
+function inferServiceFromAdminApiUrl(url: string): string | null {
+  if (url.startsWith('/admin/orders')) return 'ORDER';
+  if (url.startsWith('/admin/products')) return 'CATALOG';
+  if (url.startsWith('/admin/inventory')) return 'INVENTORY';
+  if (url.startsWith('/admin/returns')) return 'RETURNS';
+  if (url.startsWith('/admin/support')) return 'SUPPORT';
+  if (url.startsWith('/admin/collections')) return 'CATALOG';
+  if (url.startsWith('/admin/categories')) return 'CATALOG';
+  if (url.startsWith('/admin/coupons')) return 'ADMIN';
+  return null;
+}
+
+function normalizeAdminServiceError(url: string, error: unknown): never {
+  if (!(error instanceof ApiError)) throw error;
+
+  const service = inferServiceFromAdminApiUrl(url);
+  if (!service) throw error;
+
+  const status = error.statusCode;
+  const isServiceDownStatus = status === 503 || status === 504;
+  const isSupportRouteMissing = status === 404 && url.startsWith('/admin/support');
+
+  if (isServiceDownStatus || isSupportRouteMissing) {
+    throw new ApiError(
+      'SERVICE_UNAVAILABLE',
+      `${service} service is not running (HTTP ${status})`,
+      status
+    );
+  }
+
+  throw error;
+}
+
+const ADMIN_ROLE_TO_API: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'superAdmin',
+  INVENTORY_MANAGER: 'inventoryManager',
+  SUPPORT_AGENT: 'supportAgent',
+};
+
+const ADMIN_ROLE_FROM_API: Record<string, AdminRole> = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  INVENTORY_MANAGER: 'INVENTORY_MANAGER',
+  SUPPORT_AGENT: 'SUPPORT_AGENT',
+  superAdmin: 'SUPER_ADMIN',
+  inventoryManager: 'INVENTORY_MANAGER',
+  supportAgent: 'SUPPORT_AGENT',
+};
+
+function normalizeAdminUser(user: AdminUser): AdminUser {
+  const role = ADMIN_ROLE_FROM_API[(user.role as unknown as string) ?? ''] ?? 'SUPPORT_AGENT';
+  return {
+    ...user,
+    role,
+    email: user.email ?? null,
+    name: user.name ?? 'Unknown',
+  };
+}
+
 /**
  * Invalidates cache entries matching a prefix (e.g., '/admin/orders')
  */
@@ -120,16 +205,23 @@ export function invalidateAdminCache(prefix?: string) {
 // The return type <T> ensures type safety for callers while allowing the internal response
 // to be passed through without additional type casting.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _get = <T>(url: string, signal?: AbortSignal) => apiClient.get<any, T>(url, { signal });
+const _get = async <T>(url: string, signal?: AbortSignal) => {
+  try {
+    return await apiClient.get<any, T>(url, { signal });
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
+};
 
 /**
  * GET wrapper with TTL caching and request deduplication.
  */
-async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TTL): Promise<T> {
+export async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TTL): Promise<T> {
   const key = normalizeUrl(url);
+  const allowDeduping = !signal;
 
   // 1. Deduplicate concurrent identical requests
-  if (pendingRequests.has(key)) {
+  if (allowDeduping && pendingRequests.has(key)) {
     return pendingRequests.get(key);
   }
 
@@ -150,7 +242,9 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
     throw err;
   });
 
-  pendingRequests.set(key, requestPromise);
+  if (allowDeduping) {
+    pendingRequests.set(key, requestPromise);
+  }
   return requestPromise;
 }
 
@@ -159,20 +253,67 @@ async function getWithCache<T>(url: string, signal?: AbortSignal, ttl = CACHE_TT
 // The generic <T> return type provides type safety for callers while allowing flexibility
 // in the request payload. This is a common pattern for API wrapper functions.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const post = <T>(url: string, data?: any) => apiClient.post<any, T>(url, data);
+export const post = async <T>(url: string, data?: any) => {
+  try {
+    return await apiClient.post<any, T>(url, data);
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
+};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const patch = <T>(url: string, data?: any) => apiClient.patch<any, T>(url, data);
+export const patch = async <T>(url: string, data?: any) => {
+  try {
+    return await apiClient.patch<any, T>(url, data);
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
+};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const del = <T>(url: string) => apiClient.delete<any, T>(url);
+const del = async <T>(url: string) => {
+  try {
+    return await apiClient.delete<any, T>(url);
+  } catch (error) {
+    normalizeAdminServiceError(url, error);
+  }
+};
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export const dashboardApi = {
-  getData: (signal?: AbortSignal) => getWithCache<DashboardData>('/admin/dashboard', signal),
+  getData: async (signal?: AbortSignal) => {
+    const raw = await getWithCache<any>('/admin/dashboard/ops', signal);
+    return normalizeDashboardData(raw);
+  },
   getPendingActions: (signal?: AbortSignal) => getWithCache<DashboardData>('/admin/dashboard/pending-actions', signal),
   getAnalytics: (range: '7d' | '30d' | '90d', signal?: AbortSignal) =>
     getWithCache<AnalyticsData>(`/admin/analytics?range=${range}`, signal),
 };
+
+function normalizeDashboardData(raw: any): DashboardData {
+  const revenue = raw?.revenue ?? {};
+  const comparisons = raw?.comparisons ?? {};
+  const daily = comparisons?.yesterday ?? {};
+  const cod = raw?.cod ?? {};
+
+  return {
+    revenueToday: Number(revenue.totalRevenue ?? 0),
+    revenueDelta: Number(daily.revenueDeltaPct ?? 0),
+    ordersToday: Number(revenue.orderCount ?? 0),
+    ordersDelta: Number(daily.ordersDeltaPct ?? 0),
+    lowStockCount: 0,
+    openReturns: 0,
+    awaitingShiprocket: Number(raw?.shiprocketIssues ?? 0),
+    codPending: Number(cod.pending_confirmation ?? 0),
+    recentOrders: [],
+    stockHealth: {
+      critical: 0,
+      warning: 0,
+      healthy: 0,
+      total: 0,
+      items: [],
+    },
+  };
+}
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
@@ -287,6 +428,20 @@ export const productsApi = {
     return res;
   },
 
+  createVariant: async (productId: string, data: { 
+    size: string; 
+    colour: string; 
+    sku: string; 
+    price: number; 
+    comparePrice?: number; 
+    stockQty?: number;
+  }) => {
+    const res = await post<any>(`/admin/products/${productId}/variants`, data);
+    invalidateAdminCache(`/admin/products/${productId}`);
+    invalidateAdminCache('/admin/products');
+    return res;
+  },
+
   uploadImage: async (file: File): Promise<string> => {
     const form = new FormData();
     form.append('file', file);
@@ -300,15 +455,38 @@ export const productsApi = {
 // ─── Brands ───────────────────────────────────────────────────────────────────
 
 export const brandsApi = {
-  list: (signal?: AbortSignal) => getWithCache<Brand[]>('/admin/brands', signal),
+  list: (signal?: AbortSignal) =>
+    fetchListWithAuthFallback<Brand>({
+      loadAdmin: () => getWithCache('/admin/brands', signal, TAXONOMY_CACHE_TTL),
+      loadPublic: () => getWithCache('/brands', signal, TAXONOMY_CACHE_TTL),
+      debugKey: 'brands',
+      mapItem: (b: unknown) => {
+        const item = b as Partial<Brand>;
+        return {
+          id: String(item.id ?? ''),
+          name: String(item.name ?? ''),
+          slug: String(item.slug ?? ''),
+          logoUrl: item.logoUrl ?? null,
+          isActive: item.isActive !== false,
+        };
+      },
+    }),
   create: async (data: Omit<Brand, 'id'>) => {
     const res = await post<Brand>('/admin/brands', data);
     invalidateAdminCache('/admin/brands');
+    invalidateAdminCache('/brands');
     return res;
   },
   update: async (id: string, data: Partial<Brand>) => {
     const res = await patch<Brand>(`/admin/brands/${id}`, data);
     invalidateAdminCache('/admin/brands');
+    invalidateAdminCache('/brands');
+    return res;
+  },
+  deactivate: async (id: string) => {
+    const res = await patch<Brand>(`/admin/brands/${id}`, { isActive: false });
+    invalidateAdminCache('/admin/brands');
+    invalidateAdminCache('/brands');
     return res;
   },
 };
@@ -316,15 +494,64 @@ export const brandsApi = {
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 export const categoriesApi = {
-  list: (signal?: AbortSignal) => getWithCache<Category[]>('/admin/categories', signal),
+  list: (signal?: AbortSignal) =>
+    fetchListWithAuthFallback<Category>({
+      loadAdmin: () => getWithCache('/admin/categories', signal, TAXONOMY_CACHE_TTL),
+      loadPublic: () => getWithCache('/categories', signal, TAXONOMY_CACHE_TTL),
+      debugKey: 'categories',
+      mapItem: (c: unknown) => {
+        const item = c as Partial<Category>;
+        return {
+          id: String(item.id ?? ''),
+          name: String(item.name ?? ''),
+          slug: String(item.slug ?? ''),
+          parentId: item.parentId ?? null,
+          isActive: item.isActive !== false,
+        };
+      },
+    }),
   create: async (data: Omit<Category, 'id'>) => {
     const res = await post<Category>('/admin/categories', data);
     invalidateAdminCache('/admin/categories');
+    invalidateAdminCache('/categories');
     return res;
   },
   update: async (id: string, data: Partial<Category>) => {
     const res = await patch<Category>(`/admin/categories/${id}`, data);
     invalidateAdminCache('/admin/categories');
+    invalidateAdminCache('/categories');
+    return res;
+  },
+  deactivate: async (id: string) => {
+    const res = await patch<Category>(`/admin/categories/${id}`, { isActive: false });
+    invalidateAdminCache('/admin/categories');
+    invalidateAdminCache('/categories');
+    return res;
+  },
+};
+
+export const templatesApi = {
+  list: (signal?: AbortSignal) => getWithCache<VariantTemplate[]>('/admin/catalog/templates', signal),
+  create: async (data: { name: string; sizes: string[]; colours: string[] }) => {
+    const res = await post<VariantTemplate>('/admin/catalog/templates', data);
+    invalidateAdminCache('/admin/catalog/templates');
+    return res;
+  },
+  update: async (id: string, data: { sizes?: string[]; colours?: string[] }) => {
+    const res = await patch<VariantTemplate>(`/admin/catalog/templates/${id}`, data);
+    invalidateAdminCache('/admin/catalog/templates');
+    return res;
+  },
+  delete: async (id: string) => {
+    const res = await del<void>(`/admin/catalog/templates/${id}`);
+    invalidateAdminCache('/admin/catalog/templates');
+    return res;
+  },
+  cleanupMeterSizes: async () => {
+    const res = await post<{ templatesUpdated: number; templatesDeleted: number; variantsDeleted: number }>('/admin/catalog/cleanup-meter-sizes', {});
+    invalidateAdminCache('/admin/catalog/templates');
+    invalidateAdminCache('/admin/products');
+    invalidateAdminCache('/admin/inventory');
     return res;
   },
 };
@@ -361,35 +588,178 @@ export const collectionsApi = {
 
 export const inventoryApi = {
   list: (params?: { status?: string; search?: string }, signal?: AbortSignal) => {
-    const qs = buildQueryString(params);
-    return getWithCache<InventoryItem[]>(`/admin/inventory?${qs}`, signal);
+    return getWithCache<any[]>('/admin/inventory/velocity', signal).then((rows) => {
+      const mapped = (rows ?? []).map((row): InventoryItem => {
+        const stockQty = Number(row?.stockQty ?? 0);
+        const thresholdQty = Number(row?.thresholdQty ?? 5);
+        const healthStatus = String(row?.healthStatus ?? '').toUpperCase();
+        const status = (healthStatus === 'CRITICAL' || healthStatus === 'WARNING' || healthStatus === 'HEALTHY')
+          ? healthStatus
+          : (stockQty <= 0 ? 'CRITICAL' : stockQty < thresholdQty ? 'WARNING' : 'HEALTHY');
+
+        return {
+          variantId: String(row?.variantId ?? ''),
+          productName: String(row?.productName ?? 'Unknown product'),
+          fabricType: 'N/A',
+          size: String(row?.size ?? '—'),
+          colour: String(row?.colour ?? '—'),
+          sku: String(row?.sku ?? '—'),
+          stockQty,
+          avgDailySales: Number(row?.avgDailySales ?? 0),
+          daysRemaining: row?.daysRemaining === undefined || row?.daysRemaining === null ? null : Number(row.daysRemaining),
+          status,
+        };
+      });
+
+      return mapped.filter((item) => {
+        const statusMatch = !params?.status || item.status === params.status;
+        const search = (params?.search ?? '').trim().toLowerCase();
+        const searchMatch = !search
+          || item.productName.toLowerCase().includes(search)
+          || item.sku.toLowerCase().includes(search)
+          || item.colour.toLowerCase().includes(search)
+          || item.size.toLowerCase().includes(search);
+        return statusMatch && searchMatch;
+      });
+    });
   },
 
-  getHealth: (signal?: AbortSignal) => getWithCache<StockHealth>('/admin/inventory/stock-health', signal),
+  getHealth: async (signal?: AbortSignal) => {
+    const [summaryRows, velocityRows] = await Promise.all([
+      getWithCache<{ status: string; count: number }[]>('/admin/inventory/health', signal),
+      getWithCache<any[]>('/admin/inventory/velocity', signal),
+    ]);
+
+    const items = (velocityRows ?? []).map((row): InventoryItem => {
+      const stockQty = Number(row?.stockQty ?? 0);
+      const thresholdQty = Number(row?.thresholdQty ?? 5);
+      const healthStatus = String(row?.healthStatus ?? '').toUpperCase();
+      const status = (healthStatus === 'CRITICAL' || healthStatus === 'WARNING' || healthStatus === 'HEALTHY')
+        ? healthStatus
+        : (stockQty <= 0 ? 'CRITICAL' : stockQty < thresholdQty ? 'WARNING' : 'HEALTHY');
+
+      return {
+        variantId: String(row?.variantId ?? ''),
+        productName: String(row?.productName ?? 'Unknown product'),
+        fabricType: 'N/A',
+        size: String(row?.size ?? '—'),
+        colour: String(row?.colour ?? '—'),
+        sku: String(row?.sku ?? '—'),
+        stockQty,
+        avgDailySales: Number(row?.avgDailySales ?? 0),
+        daysRemaining: row?.daysRemaining === undefined || row?.daysRemaining === null ? null : Number(row.daysRemaining),
+        status,
+      };
+    });
+
+    const summaryMap = new Map<string, number>();
+    for (const row of summaryRows ?? []) {
+      summaryMap.set(String(row.status).toUpperCase(), Number(row.count ?? 0));
+    }
+
+    const fallbackCritical = items.filter(i => i.status === 'CRITICAL').length;
+    const fallbackWarning = items.filter(i => i.status === 'WARNING').length;
+    const fallbackHealthy = items.filter(i => i.status === 'HEALTHY').length;
+
+    return {
+      critical: summaryMap.get('CRITICAL') ?? fallbackCritical,
+      warning: summaryMap.get('WARNING') ?? fallbackWarning,
+      healthy: summaryMap.get('HEALTHY') ?? fallbackHealthy,
+      total: items.length,
+      items,
+    } satisfies StockHealth;
+  },
 
   adjust: async (variantId: string, data: {
-    adjustmentQty: number;
+    newQty: number;
     reason: string;
   }) => {
-    const res = await post<InventoryItem>('/admin/inventory/adjust', { variantId, ...data });
+    const res = await patch<any>(`/admin/inventory/${variantId}`, data);
     invalidateAdminCache('/admin/inventory');
     invalidateAdminCache('/admin/products'); // Stock adjustments affect products
-    return res;
+    return {
+      variantId: String(res?.variantId ?? variantId),
+      productName: String(res?.productName ?? 'Unknown product'),
+      fabricType: 'N/A',
+      size: String(res?.size ?? '—'),
+      colour: String(res?.colour ?? '—'),
+      sku: String(res?.sku ?? '—'),
+      stockQty: Number(res?.stockQty ?? 0),
+      avgDailySales: Number(res?.avgDailySales ?? 0),
+      daysRemaining: res?.daysRemaining === undefined || res?.daysRemaining === null ? null : Number(res.daysRemaining),
+      status: (String(res?.healthStatus ?? '').toUpperCase() as 'CRITICAL' | 'WARNING' | 'HEALTHY') || 'HEALTHY',
+    } as InventoryItem;
   },
 
-  getAdjustments: (variantId: string, signal?: AbortSignal) =>
-    getWithCache<InventoryAdjustment[]>(`/admin/inventory/${variantId}/adjustments`, signal),
+  getAdjustments: (_variantId: string, _signal?: AbortSignal) =>
+    Promise.resolve<InventoryAdjustment[]>([]),
 
-  getExpected: (signal?: AbortSignal) => getWithCache<ExpectedStock[]>('/admin/inventory/expected-stock', signal),
-  addExpected: async (data: Omit<ExpectedStock, 'id'>) => {
-    const res = await post<ExpectedStock>('/admin/inventory/expected-stock', data);
-    invalidateAdminCache('/admin/inventory/expected-stock');
-    return res;
+  getExpected: (signal?: AbortSignal) =>
+    getWithCache<any[]>('/admin/inventory/expected', signal).then((rows) =>
+      (rows ?? []).map((row): ExpectedStock => ({
+        id: String(row?.id ?? ''),
+        variantId: String(row?.variant_id ?? ''),
+        productName: String(row?.product_name ?? 'Unknown product'),
+        size: String(row?.size ?? '—'),
+        colour: String(row?.colour ?? '—'),
+        sku: String(row?.sku ?? '—'),
+        supplierName: String(row?.supplier_name ?? ''),
+        qtyExpected: Number(row?.expected_qty ?? 0),
+        expectedArrival: row?.expected_date ? new Date(row.expected_date).toISOString() : new Date().toISOString(),
+        status: row?.is_received ? 'RECEIVED' : 'ORDERED',
+        notes: row?.notes ?? null,
+      }))
+    ),
+  addExpected: async (data: {
+    variantId: string;
+    qtyExpected: number;
+    expectedArrival: string;
+    notes?: string | null;
+  }) => {
+    const payload = {
+      variant_id: data.variantId,
+      expected_qty: data.qtyExpected,
+      expected_date: data.expectedArrival.slice(0, 10),
+      notes: data.notes ?? undefined,
+    };
+    const res = await post<any>('/admin/inventory/expected', payload);
+    invalidateAdminCache('/admin/inventory/expected');
+    return {
+      id: String(res?.id ?? ''),
+      variantId: String(res?.variant_id ?? ''),
+      productName: String(res?.product_name ?? 'Unknown product'),
+      size: String(res?.size ?? '—'),
+      colour: String(res?.colour ?? '—'),
+      sku: String(res?.sku ?? '—'),
+      supplierName: String(res?.supplier_name ?? ''),
+      qtyExpected: Number(res?.expected_qty ?? 0),
+      expectedArrival: res?.expected_date ? new Date(res.expected_date).toISOString() : new Date().toISOString(),
+      status: res?.is_received ? 'RECEIVED' : 'ORDERED',
+      notes: res?.notes ?? null,
+    } as ExpectedStock;
   },
   updateExpectedStatus: async (id: string, status: string) => {
-    const res = await patch<ExpectedStock>(`/admin/inventory/expected-stock/${id}/status`, { status });
-    invalidateAdminCache('/admin/inventory/expected-stock');
-    return res;
+    if (status !== 'RECEIVED') {
+      throw new ApiError('VALIDATION_ERROR', 'Only marking a shipment as RECEIVED is supported.');
+    }
+    await patch<void>(`/admin/inventory/expected/${id}/receive`);
+    invalidateAdminCache('/admin/inventory/expected');
+    return;
+  },
+
+  bulkAdjust: async (file: File): Promise<{ success: number; failed: number; errors: Array<{ row: Record<string, unknown>; error: string }> }> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiClient.post<any>('/admin/inventory/adjustment/bulk', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    invalidateAdminCache('/admin/inventory');
+    invalidateAdminCache('/admin/products');
+    return {
+      success: Number(res?.success ?? 0),
+      failed: Number(res?.failed ?? 0),
+      errors: Array.isArray(res?.errors) ? res.errors : [],
+    };
   },
 };
 
@@ -467,16 +837,92 @@ export const supportApi = {
 // ─── Coupons ─────────────────────────────────────────────────────────────────
 
 export const couponsApi = {
-  list: (signal?: AbortSignal) => getWithCache<Coupon[]>('/admin/coupons', signal),
+  list: (params?: { page?: number; limit?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString(params);
+    const endpoint = `/admin/coupons${qs ? `?${qs}` : ''}`;
+    return getWithCache<any>(endpoint, signal).catch(async (error) => {
+      // Compatibility fallback: some environments reject paginated query params.
+      if (error instanceof ApiError && error.statusCode === 400 && qs) {
+        return getWithCache<any>('/admin/coupons', signal);
+      }
+      throw error;
+    }).then((raw) => {
+        const items = (raw?.items ?? []).map((coupon: any): Coupon => ({
+        id: String(coupon?.id ?? ''),
+        code: String(coupon?.code ?? ''),
+          discountType: coupon?.discountType === 'FIXED' ? 'FLAT' : 'PERCENTAGE',
+          discountValue: Number(coupon?.discountValue ?? 0),
+          maxDiscount: coupon?.maxDiscount !== null && coupon?.maxDiscount !== undefined ? Number(coupon.maxDiscount) : null,
+          minOrderValue: Number(coupon?.minOrderAmount ?? 0),
+        usageLimit: Number(coupon?.maxUsesTotal ?? 0),
+        usedCount: Number(coupon?.usesCount ?? 0),
+        perUserLimit: Number(coupon?.maxUsesPerUser ?? 1),
+        expiresAt: String(coupon?.validUntil ?? coupon?.createdAt ?? new Date().toISOString()),
+        isActive: Boolean(coupon?.isActive),
+        createdAt: String(coupon?.createdAt ?? new Date().toISOString()),
+      }));
+
+      const total = Number(raw?.total ?? items.length);
+      const page = Number(raw?.page ?? params?.page ?? 1);
+      const limit = Number(raw?.limit ?? params?.limit ?? 20);
+      const totalPages = Number(raw?.totalPages ?? Math.max(1, Math.ceil(total / Math.max(limit, 1))));
+
+      return { items, total, page, limit, totalPages };
+    });
+  },
   create: async (data: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => {
-    const res = await post<Coupon>('/admin/coupons', data);
+    const nowIso = new Date().toISOString();
+      const payload = {
+        code: data.code,
+        discountType: data.discountType === 'FLAT' ? 'FIXED' : 'PERCENT',
+        discountValue: data.discountValue,
+        maxDiscount: data.discountType === 'PERCENTAGE' && data.maxDiscount && data.maxDiscount > 0 ? data.maxDiscount : undefined,
+        minOrderAmount: data.minOrderValue ?? 0,
+      maxUsesTotal: data.usageLimit > 0 ? data.usageLimit : undefined,
+      maxUsesPerUser: data.perUserLimit > 0 ? data.perUserLimit : 1,
+      validFrom: nowIso,
+      validUntil: data.expiresAt,
+    };
+    const res = await post<any>('/admin/coupons', payload);
     invalidateAdminCache('/admin/coupons');
-    return res;
+    return {
+      id: String(res?.id ?? ''),
+      code: String(res?.code ?? ''),
+        discountType: res?.discountType === 'FIXED' ? 'FLAT' : 'PERCENTAGE',
+        discountValue: Number(res?.discountValue ?? 0),
+        maxDiscount: res?.maxDiscount !== null && res?.maxDiscount !== undefined ? Number(res.maxDiscount) : null,
+        minOrderValue: Number(res?.minOrderAmount ?? 0),
+      usageLimit: Number(res?.maxUsesTotal ?? 0),
+      usedCount: Number(res?.usesCount ?? 0),
+      perUserLimit: Number(res?.maxUsesPerUser ?? 1),
+      expiresAt: String(res?.validUntil ?? nowIso),
+      isActive: Boolean(res?.isActive),
+      createdAt: String(res?.createdAt ?? nowIso),
+    } as Coupon;
   },
   update: async (id: string, data: Partial<Coupon>) => {
-    const res = await patch<Coupon>(`/admin/coupons/${id}`, data);
+    const payload: Record<string, unknown> = {};
+      if (data.isActive !== undefined) payload.isActive = data.isActive;
+      if (data.expiresAt !== undefined) payload.validUntil = data.expiresAt;
+      if (data.usageLimit !== undefined && data.usageLimit > 0) payload.maxUsesTotal = data.usageLimit;
+      if (data.maxDiscount !== undefined) payload.maxDiscount = data.maxDiscount;
+
+    const res = await patch<any>(`/admin/coupons/${id}`, payload);
     invalidateAdminCache('/admin/coupons');
-    return res;
+    return {
+      id: String(res?.id ?? id),
+      code: String(res?.code ?? ''),
+        discountType: res?.discountType === 'FIXED' ? 'FLAT' : 'PERCENTAGE',
+        discountValue: Number(res?.discountValue ?? 0),
+        maxDiscount: res?.maxDiscount !== null && res?.maxDiscount !== undefined ? Number(res.maxDiscount) : null,
+        minOrderValue: Number(res?.minOrderAmount ?? 0),
+      usageLimit: Number(res?.maxUsesTotal ?? 0),
+      usedCount: Number(res?.usesCount ?? 0),
+      perUserLimit: Number(res?.maxUsesPerUser ?? 1),
+      expiresAt: String(res?.validUntil ?? new Date().toISOString()),
+      isActive: Boolean(res?.isActive),
+      createdAt: String(res?.createdAt ?? new Date().toISOString()),
+    } as Coupon;
   },
   deactivate: async (id: string) => {
     const res = await patch<Coupon>(`/admin/coupons/${id}`, { isActive: false });
@@ -500,22 +946,48 @@ export const settingsApi = {
 // ─── Admin Users ──────────────────────────────────────────────────────────────
 
 export const adminUsersApi = {
-  list: (signal?: AbortSignal) => getWithCache<AdminUser[]>('/admin/users', signal),
-  create: async (data: Omit<AdminUser, 'id' | 'lastActiveAt' | 'createdAt'>) => {
-    const res = await post<AdminUser>('/admin/users', data);
+  list: (params?: { role?: string; search?: string; page?: number; limit?: number }, signal?: AbortSignal) => {
+    const qs = buildQueryString({
+      ...(params?.role ? { 'filter[role]': params.role } : {}),
+      ...(params?.search ? { 'filter[search]': params.search } : {}),
+      ...(params?.page ? { page: params.page } : {}),
+      ...(params?.limit ? { limit: params.limit } : {}),
+    } as Record<string, string | number | undefined>);
+    return getWithCache<{ items: AdminUser[]; meta?: { total: number; page: number; limit: number } }>(`/admin/users${qs ? `?${qs}` : ''}`, signal)
+      .then((response) => {
+        const items = (response?.items ?? []).map(normalizeAdminUser);
+        const fallbackPage = params?.page ?? 1;
+        const fallbackLimit = params?.limit ?? 20;
+        return {
+          items,
+          meta: response?.meta ?? { total: items.length, page: fallbackPage, limit: fallbackLimit },
+        };
+      });
+  },
+  create: async (data: { name: string; email?: string; mobile: string; role: AdminRole }) => {
+    const payload = {
+      ...data,
+      role: ADMIN_ROLE_TO_API[data.role],
+    };
+    const res = await post<AdminUser>('/admin/users', payload);
     invalidateAdminCache('/admin/users');
-    return res;
+    return normalizeAdminUser(res);
   },
   updateRole: async (id: string, role: string) => {
-    const res = await patch<AdminUser>(`/admin/users/${id}/role`, { role });
+    const res = await patch<AdminUser>(`/admin/users/${id}/role`, { role: ADMIN_ROLE_TO_API[role as AdminRole] ?? role });
     invalidateAdminCache('/admin/users');
-    return res;
+    return normalizeAdminUser(res);
   },
   deactivate: async (id: string) => {
-    const res = await patch<AdminUser>(`/admin/users/${id}`, { isActive: false });
+    const res = await del<AdminUser>(`/admin/users/${id}`);
     invalidateAdminCache('/admin/users');
-    return res;
+    return normalizeAdminUser(res);
   },
+};
+
+export const customersApi = {
+  search: (query: string, signal?: AbortSignal) =>
+    getWithCache<CustomerSummary[]>(`/admin/customers/lookup?q=${encodeURIComponent(query)}`, signal),
 };
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
@@ -530,29 +1002,34 @@ export const auditApi = {
 // ─── Content Pages ────────────────────────────────────────────────────────────
 
 export const contentApi = {
-  list: (signal?: AbortSignal) => getWithCache<ContentPage[]>('/admin/pages', signal),
-  getById: (id: string, signal?: AbortSignal) => getWithCache<ContentPage>(`/admin/pages/${id}`, signal),
+  list: (signal?: AbortSignal) => getWithCache<ContentPage[]>('/admin/content/pages', signal),
+  getById: (id: string, signal?: AbortSignal) => getWithCache<ContentPage>(`/admin/content/pages/${id}`, signal),
   create: async (data: Omit<ContentPage, 'id' | 'updatedAt'>) => {
-    const res = await post<ContentPage>('/admin/pages', data);
-    invalidateAdminCache('/admin/pages');
+    const res = await post<ContentPage>('/admin/content/pages', data);
+    invalidateAdminCache('/admin/content/pages');
     return res;
   },
   update: async (id: string, data: Partial<ContentPage>) => {
-    const res = await patch<ContentPage>(`/admin/pages/${id}`, data);
-    invalidateAdminCache('/admin/pages');
-    invalidateAdminCache(`/admin/pages/${id}`);
+    const res = await patch<ContentPage>(`/admin/content/pages/${id}`, data);
+    invalidateAdminCache('/admin/content/pages');
+    invalidateAdminCache(`/admin/content/pages/${id}`);
     return res;
   },
   publish: async (id: string) => {
-    const res = await patch<ContentPage>(`/admin/pages/${id}`, { publishedAt: new Date().toISOString() });
-    invalidateAdminCache('/admin/pages');
-    invalidateAdminCache(`/admin/pages/${id}`);
+    const res = await patch<ContentPage>(`/admin/content/pages/${id}`, { publishedAt: new Date().toISOString() });
+    invalidateAdminCache('/admin/content/pages');
+    invalidateAdminCache(`/admin/content/pages/${id}`);
     return res;
   },
   unpublish: async (id: string) => {
-    const res = await patch<ContentPage>(`/admin/pages/${id}`, { publishedAt: null });
-    invalidateAdminCache('/admin/pages');
-    invalidateAdminCache(`/admin/pages/${id}`);
+    const res = await patch<ContentPage>(`/admin/content/pages/${id}`, { publishedAt: null });
+    invalidateAdminCache('/admin/content/pages');
+    invalidateAdminCache(`/admin/content/pages/${id}`);
     return res;
   },
 };
+
+// ─── Profile & Personal ───────────────────────────────────────────────────────
+// Moved to @/lib/authApi.ts per Batch 4 hardening plan.
+import { authApi } from '@/lib/authApi';
+export { authApi as profileApi };

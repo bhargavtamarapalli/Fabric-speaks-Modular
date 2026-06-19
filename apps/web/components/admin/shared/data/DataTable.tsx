@@ -20,6 +20,7 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   rowKey?: keyof T | ((row: T) => string);
   empty?: string;
+  renderEmpty?: () => React.ReactNode;
 }
 
 const DataTableRow = memo(function DataTableRow({ 
@@ -95,10 +96,14 @@ export const DataTable = memo(function DataTable<T>({
   loading, 
   onRowClick, 
   rowKey = 'id' as keyof T, 
-  empty = "No items found." 
+  empty = "No items found.",
+  renderEmpty,
 }: DataTableProps<T>) {
   if (loading) return <DataTableSkeleton />;
-  if (!data?.length) return <div style={{ padding: THEME.spacing.xxl, textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{empty}</div>;
+  if (!data?.length) {
+    if (renderEmpty) return <div style={{ padding: THEME.spacing.xxl }}>{renderEmpty()}</div>;
+    return <div style={{ padding: THEME.spacing.xxl, textAlign: 'center', color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>{empty}</div>;
+  }
 
   const isVirtualized = data.length > 100;
 

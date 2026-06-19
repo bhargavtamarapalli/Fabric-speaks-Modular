@@ -45,3 +45,16 @@ WHERE order_status_history.id = previous_event.id
 
 CREATE INDEX IF NOT EXISTS order_status_history_actor_type_idx
   ON order_status_history(actor_type, created_at DESC);
+
+
+
+
+
+
+
+
+
+
+
+
+

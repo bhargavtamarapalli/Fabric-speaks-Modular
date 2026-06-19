@@ -16,3 +16,16 @@ CREATE INDEX IF NOT EXISTS customer_flags_user_idx
 
 CREATE UNIQUE INDEX IF NOT EXISTS customer_flags_user_type_active_idx
   ON customer_flags(user_id, flag_type) WHERE is_active = true;
+
+
+
+
+
+
+
+
+
+
+
+
+

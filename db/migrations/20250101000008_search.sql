@@ -16,3 +16,16 @@ CREATE TABLE IF NOT EXISTS search_logs (
 -- Index for analytics aggregation
 CREATE INDEX IF NOT EXISTS search_logs_query_idx ON search_logs(query);
 CREATE INDEX IF NOT EXISTS search_logs_created_at_idx ON search_logs(created_at DESC);
+
+
+
+
+
+
+
+
+
+
+
+
+

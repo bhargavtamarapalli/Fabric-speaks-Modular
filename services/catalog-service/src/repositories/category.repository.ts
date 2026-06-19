@@ -49,7 +49,7 @@ export class CategoryRepository extends BaseRepository implements ICategoryRepos
         if (updates.length === 0) return this.findById(id) as Promise<Category>;
 
         const result = await this.query(
-            `UPDATE categories SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+            `UPDATE categories SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $1 AND is_deleted = false RETURNING *`,
             values
         );
         return this.mapToCamelCase<Category>(result.rows[0]);

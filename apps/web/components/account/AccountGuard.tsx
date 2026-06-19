@@ -2,7 +2,7 @@
 
 import { useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth } from '@/context/AuthContext';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
 
 export const AccountGuard = ({ children }: { children: ReactNode }) => {

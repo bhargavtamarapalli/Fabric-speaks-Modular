@@ -29,7 +29,10 @@ export class SupportAlertWorker {
           await this.supportService.createPickupFailedAlert(data.orderId, data.returnId, data.reason);
         }
       },
-      { connection: redis as any }
+      { 
+        connection: redis as any,
+        maxRetriesPerRequest: null
+      }
     );
 
     this.worker.on('completed', (job) => {

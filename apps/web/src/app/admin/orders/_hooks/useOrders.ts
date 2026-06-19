@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import { ordersApi } from '@/lib/admin/api';
 import type { Order } from '@/lib/admin/types';
 import { useToast } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 export interface OrdersFilters {
   search: string;
@@ -55,7 +55,7 @@ export function useOrders(initialSearch: string = '') {
   const page = data?.page ?? currentPage;
   const limit = data?.limit ?? itemsPerPage;
   const totalPages = data?.totalPages ?? Math.ceil(total / limit);
-  const error = swrError ? mapError(swrError) : null;
+  const error = swrError ? (isServiceUnavailableError(swrError) ? null : mapError(swrError)) : null;
 
   const updateFilters = useCallback((patch: Partial<OrdersFilters>) => {
     setFilters(prev => ({ ...prev, ...patch }));
@@ -76,12 +76,28 @@ export function useOrders(initialSearch: string = '') {
   const handleBulkShiprocket = useCallback(async () => {
     try {
       setBulkLoading(true);
-      const res = await ordersApi.bulkPushShiprocket(selected);
+      
+      // Wrap API call with 30-second timeout (I3-2)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Shiprocket request timed out. Please try again.')), 30000)
+      );
+      
+      const res = await Promise.race([
+        ordersApi.bulkPushShiprocket(selected),
+        timeoutPromise,
+      ]) as any;
+      
       showToast(`Pushed ${res.pushed} orders to Shiprocket`, 'success');
       setSelected([]);
       mutate();
     } catch (e: any) {
-      showToast(mapError(e), 'error');
+      const errorMessage = e.message || mapError(e);
+      showToast(errorMessage, 'error');
+      
+      // For timeout errors, suggest retry
+      if (e.message?.includes('timed out')) {
+        showToast('Check your connection. You can retry the push.', 'info');
+      }
     } finally {
       setBulkLoading(false);
     }

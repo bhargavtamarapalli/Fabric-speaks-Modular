@@ -48,11 +48,14 @@ export class AuditLogRepository extends BaseRepository {
 
         if (filters.cursor) {
             const parts = filters.cursor.split('|');
-            if (parts.length !== 2 || isNaN(Date.parse(parts[0]))) {
+            if (parts.length !== 2) {
                 throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid cursor format');
             }
-            const [timestamp, id] = parts;
-            params.push(timestamp, id);
+            const [timestampStr, id] = parts;
+            if (!timestampStr || isNaN(Date.parse(timestampStr))) {
+                throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid cursor timestamp');
+            }
+            params.push(timestampStr, id);
             query += ` AND (created_at < $${params.length - 1} OR (created_at = $${params.length - 1} AND id < $${params.length}))`;
         }
 
@@ -66,9 +69,11 @@ export class AuditLogRepository extends BaseRepository {
         const items = rows.map(r => this.mapToCamelCase<AuditLog>(r));
         
         let nextCursor = null;
-        if (items.length >= limit) {
+        if (items.length > 0 && items.length >= limit) {
             const lastItem = items[items.length - 1];
-            nextCursor = `${lastItem.createdAt.toISOString()}|${lastItem.id}`;
+            if (lastItem) {
+                nextCursor = `${lastItem.createdAt.toISOString()}|${lastItem.id}`;
+            }
         }
 
         return {

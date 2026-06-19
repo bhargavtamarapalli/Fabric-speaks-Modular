@@ -14,3 +14,16 @@ CREATE TABLE IF NOT EXISTS pincodes (
 );
 
 -- Index for fast lookup by pincode, though it's already the primary key
+
+
+
+
+
+
+
+
+
+
+
+
+

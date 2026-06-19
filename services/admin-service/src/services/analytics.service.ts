@@ -22,18 +22,13 @@ export class AnalyticsService {
       throw new AppError(ErrorCode.NOT_FOUND, 'Sale event not found');
     }
 
-    const { joinClause, filterClause, params } = this.buildScopeFilter(
-      saleEvent.scope,
-      Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : [],
-      3
-    );
-
     const performance = await this.dashboardRepo.getSalePerformance(
       saleEvent.starts_at,
       saleEvent.ends_at,
-      joinClause,
-      filterClause,
-      params
+      {
+        type: saleEvent.scope as any,
+        ids: Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : []
+      }
     );
 
     return { saleEvent, performance };
@@ -43,7 +38,7 @@ export class AnalyticsService {
     const { windowMinutes, saleEventId, saleOnly } = options;
 
     if (!saleEventId) {
-      return this.dashboardRepo.getLiveSaleMonitor(windowMinutes, '', '', [], saleOnly ?? false);
+      return this.dashboardRepo.getLiveSaleMonitor(windowMinutes, undefined, saleOnly ?? false);
     }
 
     const saleEvent = await this.saleEventRepo.findById(saleEventId);
@@ -51,45 +46,10 @@ export class AnalyticsService {
       throw new AppError(ErrorCode.NOT_FOUND, 'Sale event not found');
     }
 
-    const { joinClause, filterClause, params } = this.buildScopeFilter(
-      saleEvent.scope,
-      Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : [],
-      2
-    );
-
-    return this.dashboardRepo.getLiveSaleMonitor(windowMinutes, joinClause, filterClause, params, true);
+    return this.dashboardRepo.getLiveSaleMonitor(windowMinutes, {
+      type: saleEvent.scope as any,
+      ids: Array.isArray(saleEvent.scope_ids) ? saleEvent.scope_ids : []
+    }, true);
   }
 
-  private buildScopeFilter(scope: SaleEventScope, scopeIds: string[], startIndex: number) {
-    const params: string[] = [];
-    let joinClause = '';
-    let filterClause = '';
-
-    switch (scope) {
-      case 'collection': {
-        joinClause = 'JOIN collection_products cp ON cp.product_id = p.id';
-        params.push(...scopeIds);
-        const placeholders = scopeIds.map((_, idx) => `$${startIndex + idx}`).join(', ');
-        filterClause = `cp.collection_id IN (${placeholders})`;
-        break;
-      }
-      case 'specific_products': {
-        params.push(...scopeIds);
-        const placeholders = scopeIds.map((_, idx) => `$${startIndex + idx}`).join(', ');
-        filterClause = `p.id IN (${placeholders})`;
-        break;
-      }
-      case 'fabric_type': {
-        params.push(...scopeIds);
-        const placeholders = scopeIds.map((_, idx) => `$${startIndex + idx}`).join(', ');
-        filterClause = `p.attributes->>'fabric_type' IN (${placeholders})`;
-        break;
-      }
-      case 'global':
-      default:
-        break;
-    }
-
-    return { joinClause, filterClause, params };
-  }
 }

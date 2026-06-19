@@ -7,6 +7,8 @@ export * from './redis';
 export * from './types';
 export * from './schemas';
 export * from './config';
+export * from './config/permissions';
+export * from './config/cache';
 export * from './app';
 export * from './repository';
 export * from './media';

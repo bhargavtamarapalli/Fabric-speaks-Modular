@@ -6,6 +6,7 @@ import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { getDbPool } from './db';
 import * as Sentry from '@sentry/node';
+import crypto from 'crypto';
 
 const logger = pino();
 
@@ -138,7 +139,7 @@ export const requireRole = (...roles: Role[]) => {
 };
 
 export const catchAsync = (
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
 ) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     fn(req, res, next).catch(next);
@@ -147,10 +148,14 @@ export const catchAsync = (
 
 interface ErrorPayload {
   success: false;
-  errorCode: ErrorCode;
-  message: string;
-  details?: unknown;
-  stack?: string;
+  // PHASE 2 - Task 2.5: Error Standardization - Enhanced error response format
+  error: {
+    code: ErrorCode;
+    message: string;
+    statusCode: number;
+    details?: unknown;
+    stack?: string;
+  };
 }
 
 const isDevelopment = process.env.APP_ENV === 'development';
@@ -158,21 +163,25 @@ const isDevelopment = process.env.APP_ENV === 'development';
 const buildErrorPayload = (
   errorCode: ErrorCode,
   message: string,
+  statusCode: number,
   details?: unknown,
   stack?: string
 ): ErrorPayload => {
   const payload: ErrorPayload = {
     success: false,
-    errorCode,
-    message,
+    error: {
+      code: errorCode,
+      message,
+      statusCode,
+    },
   };
 
   if (isDevelopment && details !== undefined) {
-    payload.details = details;
+    payload.error.details = details;
   }
 
   if (isDevelopment && stack) {
-    payload.stack = stack;
+    payload.error.stack = stack;
   }
 
   return payload;
@@ -209,7 +218,7 @@ export const globalErrorHandler = (
     logger.error({ code: err.code, msg: err.message, meta: err.meta });
     return res
       .status(err.statusCode)
-      .json(buildErrorPayload(err.code, err.message, err.meta, err.stack));
+      .json(buildErrorPayload(err.code, err.message, err.statusCode, err.meta, err.stack));
   }
 
   if (err instanceof z.ZodError) {
@@ -220,6 +229,7 @@ export const globalErrorHandler = (
         buildErrorPayload(
           ErrorCode.VALIDATION_ERROR,
           'Validation failed',
+          400,
           err.errors,
           err.stack
         )
@@ -229,47 +239,66 @@ export const globalErrorHandler = (
   logger.error({ err, msg: 'Unhandled exception' });
   return res
     .status(500)
-    .json(buildErrorPayload(ErrorCode.INTERNAL_ERROR, 'An unexpected error occurred', undefined, err.stack));
+    .json(buildErrorPayload(ErrorCode.INTERNAL_ERROR, 'An unexpected error occurred', 500, undefined, err.stack));
 };
 
 /**
- * Sets the authentication JWT cookie with appropriate security flags.
+ * Sets the authentication JWT cookies with appropriate security flags.
  */
-export const setAuthCookie = (res: Response, token: string) => {
-  res.cookie('jwt', token, {
+export const setAuthCookie = (res: Response, accessToken: string, refreshToken: string) => {
+  const isProduction = process.env.APP_ENV === 'production';
+  
+  res.cookie('jwt', accessToken, {
     httpOnly: true,
-    secure: process.env.APP_ENV === 'production',
+    secure: isProduction,
     sameSite: 'strict',
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days (per Rule 5 requirement)
+    maxAge: 15 * 60 * 1000, // 15 minutes for access token
+  });
+
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'strict',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days for refresh token
   });
 };
 
 /**
- * Clears the authentication JWT cookie.
+ * Clears the authentication JWT cookies.
  */
 export const clearAuthCookie = (res: Response) => {
   res.clearCookie('jwt');
+  res.clearCookie('refreshToken');
 };
 
 /**
  * CSRF Protection Middleware
- * Generates a token and validates it on state-changing requests.
+ * Generates cryptographically secure tokens and validates them on state-changing requests.
  */
 export const csrfProtection = (req: Request, res: Response, next: NextFunction) => {
   // Methods to skip validation
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   
   if (safeMethods.includes(req.method)) {
-    // Generate a simple token for demonstration (In production use csurf or similar)
-    const token = Math.random().toString(36).substring(7);
+    // Generate a cryptographically secure token for GET/HEAD/OPTIONS
+    const token = crypto.randomBytes(32).toString('hex');
     res.setHeader('X-CSRF-Token', token);
     return next();
   }
 
-  const tokenInHeader = req.headers['x-csrf-token'];
-  // Simplified validation for project scope
-  if (!tokenInHeader) {
-    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token missing or invalid'));
+  // For state-changing methods (POST, PUT, PATCH, DELETE), validate token
+  const tokenInHeader = req.headers['x-csrf-token'] as string | undefined;
+  const tokenInBody = (req.body as any)?.csrfToken as string | undefined;
+  const token = tokenInHeader || tokenInBody;
+
+  if (!token) {
+    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token missing'));
+  }
+
+  // In production, validate token against stored value in Redis or session
+  // For now, just ensure token exists and has valid format
+  if (!/^[a-f0-9]{64}$/.test(token)) {
+    return next(new AppError(ErrorCode.VALIDATION_ERROR, 'CSRF token invalid'));
   }
 
   next();

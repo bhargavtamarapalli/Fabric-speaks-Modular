@@ -59,4 +59,20 @@ export class ExpectedStockRepository extends BaseRepository {
             await client.query('UPDATE expected_stock SET is_received = true, received_at = now() WHERE id = $1', [id]);
         });
     }
+
+    /**
+     * Critical #4: Atomic arrival marking to prevent TOCTOU race condition.
+     * Single SQL statement atomically checks is_received=false AND marks it true.
+     * Only one concurrent caller will get the row back — all others get null.
+     */
+    async receiveArrivalAtomic(id: string): Promise<ExpectedStock | null> {
+        const result = await this.query(
+            `UPDATE expected_stock
+             SET is_received = true, received_at = now()
+             WHERE id = $1 AND is_received = false
+             RETURNING *`,
+            [id]
+        );
+        return result.rows[0] || null;
+    }
 }

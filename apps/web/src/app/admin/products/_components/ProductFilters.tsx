@@ -18,7 +18,7 @@ export const ProductFilters = memo(function ProductFilters({ filters, onFilterCh
       <div 
         role="group" 
         aria-label="Fabric filters"
-        style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}
+        style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', minWidth: 0 }}
       >
         {FABRIC_FILTERS.map(f => (
           <FilterChip 
@@ -32,7 +32,7 @@ export const ProductFilters = memo(function ProductFilters({ filters, onFilterCh
       <div 
         role="group" 
         aria-label="Status filters"
-        style={{ display: 'flex', gap: '5px' }}
+        style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', minWidth: 0 }}
       >
         {STATUS_FILTERS.map(s => (
           <FilterChip 

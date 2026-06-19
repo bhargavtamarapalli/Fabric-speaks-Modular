@@ -39,7 +39,7 @@ export class PriceChangeService {
     return scheduled;
   }
 
-  async listScheduled(filters: { status?: string; limit?: number; offset?: number }) {
+  async listScheduled(filters: any) {
     return this.priceChangeRepo.list(filters);
   }
 

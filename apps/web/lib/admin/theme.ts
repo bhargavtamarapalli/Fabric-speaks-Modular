@@ -17,6 +17,8 @@ const COLORS = {
   muted:      '#8A8A8A',
   ghost:      '#2A2A2A',
   error:      '#E05545',
+  danger:     '#E05545',
+  gold:       '#C9A96E',
   success:    '#4CAF50',
   info:       '#58A6FF',
   warning:    '#D4A017',

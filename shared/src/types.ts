@@ -172,7 +172,8 @@ export interface Collection {
 
 // DTOs
 export interface ProductQueryDto {
-  page: number;
+  cursor?: string;
+  page?: number;
   limit: number;
   search?: string;
   fabric?: string;
@@ -207,40 +208,57 @@ export interface UpdateProductDto extends Partial<Omit<CreateProductDto, 'varian
 export interface IProductRepository {
   findById(id: string): Promise<Product | null>;
   findBySlug(slug: string): Promise<Product | null>;
-  findAll(filters: ProductQueryDto): Promise<{ items: Product[]; total: number }>;
+  findAll(
+    filters: ProductQueryDto
+  ): Promise<{ items: Product[]; total?: number; hasNext?: boolean }>;
   findAllAdmin(filters: any): Promise<{ items: Product[]; total: number }>;
-  create(dto: any): Promise<Product>; // dto will be mapped to snake_case
-  update(id: string, dto: any): Promise<Product>;
+  create(dto: any, client?: DbClient): Promise<Product>;
+  update(id: string, dto: any, client?: DbClient): Promise<Product>;
   softDelete(id: string): Promise<void>;
+  withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 
 export interface IVariantRepository {
   findById(id: string): Promise<Variant | null>;
   findByProductId(productId: string): Promise<Variant[]>;
+  findByProductIds(productIds: string[]): Promise<Record<string, Variant[]>>;
   findBySku(sku: string): Promise<Variant | null>;
   updateStock(id: string, qty: number): Promise<void>;
   create(dto: CreateVariantDto & { productId: string }, client?: DbClient): Promise<Variant>;
-  bulkCreate(productId: string, variants: CreateVariantDto[], client?: DbClient): Promise<Variant[]>;
-  verifyBelongToProduct(variantIds: string[], productId: string, client?: DbClient): Promise<boolean>;
+  bulkCreate(
+    productId: string,
+    variants: CreateVariantDto[],
+    client?: DbClient
+  ): Promise<Variant[]>;
+  verifyBelongToProduct(
+    variantIds: string[],
+    productId: string,
+    client?: DbClient
+  ): Promise<boolean>;
   bulkUpdate(updates: BulkVariantUpdateDto[], client?: DbClient): Promise<Variant[]>;
   updateById(id: string, dto: UpdateVariantDto, client?: DbClient): Promise<Variant>;
   deactivate(id: string, client?: DbClient): Promise<Variant>;
+  bulkAdjustPrices(options: any): Promise<number>;
+  deleteBySizes(sizes: string[]): Promise<number>;
+  withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 
 export interface IBrandRepository {
   findAllActive(): Promise<Brand[]>;
   findAll(includeInactive?: boolean): Promise<Brand[]>;
   findById(id: string): Promise<Brand | null>;
-  create(dto: any): Promise<Brand>;
-  update(id: string, dto: any): Promise<Brand>;
+  create(dto: any, client?: DbClient): Promise<Brand>;
+  update(id: string, dto: any, client?: DbClient): Promise<Brand>;
+  withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 
 export interface ICategoryRepository {
   findAllActive(): Promise<Category[]>;
   findAll(includeInactive?: boolean): Promise<Category[]>;
   findById(id: string): Promise<Category | null>;
-  create(dto: any): Promise<Category>;
-  update(id: string, dto: any): Promise<Category>;
+  create(dto: any, client?: DbClient): Promise<Category>;
+  update(id: string, dto: any, client?: DbClient): Promise<Category>;
+  withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 
 export interface ICollectionRepository {
@@ -249,11 +267,12 @@ export interface ICollectionRepository {
   findBySlug(slug: string): Promise<Collection | null>;
   findById(id: string): Promise<Collection | null>;
   findProductsByCollectionId(collectionId: string): Promise<string[]>;
-  create(dto: any): Promise<Collection>;
-  update(id: string, dto: any): Promise<Collection>;
-  addProducts(collectionId: string, productIds: string[]): Promise<void>;
-  removeProduct(collectionId: string, productId: string): Promise<void>;
-  reorderProducts(collectionId: string, productIds: string[]): Promise<void>;
+  create(dto: any, client?: DbClient): Promise<Collection>;
+  update(id: string, dto: any, client?: DbClient): Promise<Collection>;
+  addProducts(collectionId: string, productIds: string[], client?: DbClient): Promise<void>;
+  removeProduct(collectionId: string, productId: string, client?: DbClient): Promise<void>;
+  reorderProducts(collectionId: string, productIds: string[], client?: DbClient): Promise<void>;
+  withTransaction<T>(fn: (client: DbClient) => Promise<T>): Promise<T>;
 }
 
 // Database Utility Types

@@ -7,3 +7,16 @@ ADD COLUMN IF NOT EXISTS weight NUMERIC(6,2) DEFAULT 0.5;
 
 -- Update existing items if needed
 UPDATE variants SET weight = 0.5 WHERE weight IS NULL;
+
+
+
+
+
+
+
+
+
+
+
+
+

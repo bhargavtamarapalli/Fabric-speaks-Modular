@@ -34,6 +34,7 @@ describe('AuthService', () => {
 
     let mockAuditLogRepo: any;
     let mockAdminLoginRepo: any;
+    let mockRefreshTokenRepo: any;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -50,12 +51,14 @@ describe('AuthService', () => {
             insert: vi.fn(),
         };
 
-        mockAdminLoginRepo = {
-            recordAttempt: vi.fn(),
-            countRecentFailures: vi.fn(),
+        mockRefreshTokenRepo = {
+            create: vi.fn(),
+            findByToken: vi.fn(),
+            revokeToken: vi.fn(),
+            revokeAllForUser: vi.fn(),
         };
 
-        authService = new AuthService(mockUserRepo, mockAuditLogRepo, mockAdminLoginRepo);
+        authService = new AuthService(mockUserRepo, mockAuditLogRepo, mockAdminLoginRepo, mockRefreshTokenRepo);
     });
 
     describe('verifyFirebaseToken', () => {
@@ -79,6 +82,7 @@ describe('AuthService', () => {
                 mobile_hash: 'hashed',
                 firebase_uid: 'test_uid',
                 is_deleted: false,
+                whatsapp_enabled: false,
             } as User);
 
             const result = await authService.verifyFirebaseToken('valid_token');
@@ -86,7 +90,7 @@ describe('AuthService', () => {
             expect(firebaseAuth.verifyIdToken).toHaveBeenCalledWith('valid_token');
             expect(mockUserRepo.createCustomer).toHaveBeenCalled();
             expect(result.user.isNewUser).toBe(true);
-            expect(result.token).toBeDefined(); // JWT is generated
+            expect(result.accessToken).toBeDefined(); // JWT is generated
         });
 
         it('returns existing user if Firebase UID matches an active user', async () => {
@@ -106,7 +110,10 @@ describe('AuthService', () => {
                 is_deleted: false,
                 name: null,
                 email: null,
+                whatsapp_enabled: false,
+                preferences: {},
             };
+
 
             // Simulate existing user
             mockUserRepo.findByFirebaseUid.mockResolvedValue(existingUser);
@@ -175,6 +182,8 @@ describe('AuthService', () => {
                 is_deleted: false,
                 name: null,
                 email: null,
+                whatsapp_enabled: false,
+                preferences: {},
             };
 
             mockUserRepo.findById.mockResolvedValue(existingUser);

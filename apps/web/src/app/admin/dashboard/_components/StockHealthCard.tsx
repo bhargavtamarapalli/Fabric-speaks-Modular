@@ -17,20 +17,22 @@ interface StockHealthCardProps {
  */
 export const StockHealthCard = memo(function StockHealthCard({ data }: StockHealthCardProps) {
   const router = useRouter();
+  const stockHealth = data.stockHealth ?? { critical: 0, warning: 0, healthy: 0, total: 0, items: [] };
+  const total = stockHealth.total || 0;
   // Memoize critical items computation to avoid recalculation on each render
   const criticalItems = useMemo(
-    () => data.stockHealth.items.filter(i => i.status === 'CRITICAL').slice(0, 3),
-    [data.stockHealth.items]
+    () => (stockHealth.items ?? []).filter(i => i.status === 'CRITICAL').slice(0, 3),
+    [stockHealth.items]
   );
 
   // Memoize legend data to avoid recreation on each render
   const legendData = useMemo(
     () => [
-      { color: THEME.colors.error, label: 'Critical (0 stock)', count: data.stockHealth.critical },
-      { color: THEME.colors.warning, label: 'Warning (<5 units)', count: data.stockHealth.warning },
-      { color: THEME.colors.success, label: 'Healthy', count: data.stockHealth.healthy },
+      { color: THEME.colors.error, label: 'Critical (0 stock)', count: stockHealth.critical },
+      { color: THEME.colors.warning, label: 'Warning (<5 units)', count: stockHealth.warning },
+      { color: THEME.colors.success, label: 'Healthy', count: stockHealth.healthy },
     ],
-    [data.stockHealth.critical, data.stockHealth.warning, data.stockHealth.healthy]
+    [stockHealth.critical, stockHealth.warning, stockHealth.healthy]
   );
 
   return (
@@ -55,19 +57,19 @@ export const StockHealthCard = memo(function StockHealthCard({ data }: StockHeal
       }
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: THEME.fontSizes.sm, color: THEME.colors.muted, marginBottom: THEME.spacing.sm, fontFamily: THEME.fonts.ui }}>
-        <span>{data.stockHealth.total} total variants</span>
-        {data.stockHealth.critical > 0 && (
-          <span style={{ color: THEME.colors.error }}>{data.stockHealth.critical} out of stock</span>
+        <span>{stockHealth.total} total variants</span>
+        {stockHealth.critical > 0 && (
+          <span style={{ color: THEME.colors.error }}>{stockHealth.critical} out of stock</span>
         )}
       </div>
 
       {/* Segmented bar */}
       <div style={{ display: 'flex', height: '5px', borderRadius: THEME.radius.sm, overflow: 'hidden', marginBottom: THEME.spacing.md }}>
-        {data.stockHealth.critical > 0 && (
-          <div style={{ background: THEME.colors.error, width: `${(data.stockHealth.critical / data.stockHealth.total) * 100}%` }} />
+        {stockHealth.critical > 0 && total > 0 && (
+          <div style={{ background: THEME.colors.error, width: `${(stockHealth.critical / total) * 100}%` }} />
         )}
-        {data.stockHealth.warning > 0 && (
-          <div style={{ background: THEME.colors.warning, width: `${(data.stockHealth.warning / data.stockHealth.total) * 100}%` }} />
+        {stockHealth.warning > 0 && total > 0 && (
+          <div style={{ background: THEME.colors.warning, width: `${(stockHealth.warning / total) * 100}%` }} />
         )}
         <div style={{ background: THEME.colors.success, flex: 1 }} />
       </div>

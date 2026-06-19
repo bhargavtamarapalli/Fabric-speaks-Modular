@@ -28,6 +28,7 @@ describe('InventoryService', () => {
       getPendingArrivals: vi.fn(),
       getById: vi.fn(),
       receiveArrival: vi.fn(),
+      receiveArrivalAtomic: vi.fn(),
     };
     mockAuditLogRepo = {
       insert: vi.fn(),
@@ -48,7 +49,7 @@ describe('InventoryService', () => {
 
       const result = await inventoryService.manualAdjustment(variantId, 20, 'correction', adminUserId);
 
-      expect(result).toEqual(updatedVariant);
+      expect(result).toEqual({ variant: updatedVariant, warning: undefined });
       expect(mockInvRepo.adjustStock).toHaveBeenCalledWith(variantId, 20, 'correction', adminUserId);
       expect(mockAuditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
         adminId: adminUserId,
@@ -151,16 +152,16 @@ describe('InventoryService', () => {
         id: arrivalId,
         variant_id: 'var-789',
         expected_qty: 10,
-        is_received: false
+        is_received: true,
+        received_at: new Date()
       };
 
-      mockExpectedRepo.getById.mockResolvedValue(arrival);
-      mockExpectedRepo.receiveArrival.mockResolvedValue(undefined);
+      mockExpectedRepo.receiveArrivalAtomic.mockResolvedValue(arrival);
       mockInvRepo.getVariant.mockResolvedValue({ variantId: 'var-789', stockQty: 10, productName: 'Test' });
 
       await inventoryService.markArrivalReceived(arrivalId, adminUserId);
 
-      expect(mockExpectedRepo.receiveArrival).toHaveBeenCalledWith(arrivalId, adminUserId);
+      expect(mockExpectedRepo.receiveArrivalAtomic).toHaveBeenCalledWith(arrivalId);
       expect(mockAuditLogRepo.insert).toHaveBeenCalledWith(expect.objectContaining({
         action: 'MARK_ARRIVAL_RECEIVED',
         entityId: arrivalId
@@ -168,13 +169,15 @@ describe('InventoryService', () => {
     });
 
     it('should throw NOT_FOUND if arrival does not exist', async () => {
+      mockExpectedRepo.receiveArrivalAtomic.mockResolvedValue(null);
       mockExpectedRepo.getById.mockResolvedValue(null);
       await expect(inventoryService.markArrivalReceived('invalid', 'admin'))
         .rejects.toThrow(AppError);
     });
 
     it('should throw VALIDATION_ERROR if already received', async () => {
-      mockExpectedRepo.getById.mockResolvedValue({ id: '1', is_received: true });
+      mockExpectedRepo.receiveArrivalAtomic.mockResolvedValue(null);
+      mockExpectedRepo.getById.mockResolvedValue({ id: '1', is_received: true, variant_id: 'var-789', expected_qty: 10, expected_date: new Date(), created_by: 'admin' });
       await expect(inventoryService.markArrivalReceived('1', 'admin'))
         .rejects.toThrow(AppError);
     });

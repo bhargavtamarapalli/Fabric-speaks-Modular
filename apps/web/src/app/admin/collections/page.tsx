@@ -7,7 +7,7 @@ import { THEME } from '@/lib/admin/theme';
 import { collectionsApi } from '@/lib/admin/api';
 import type { Collection } from '@/lib/admin/types';
 import { PageHeader, Badge, DataTable, ActionButton, FilterChip, ErrorBanner, Drawer, FormField, TextInput, Textarea, useToast } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 export default function CollectionsPage() {
   const router = useRouter();
@@ -23,7 +23,7 @@ export default function CollectionsPage() {
 
   const load = useCallback(async () => {
     try { setError(null); setLoading(true); setCols(await collectionsApi.list()); }
-    catch (e: any) { setError(mapError(e)); }
+    catch (e: any) { setError(isServiceUnavailableError(e) ? null : mapError(e)); }
     finally { setLoading(false); }
   }, []);
 
@@ -66,7 +66,21 @@ export default function CollectionsPage() {
     { key: 'name', label: 'Collection', render: (c: Collection) => (
       <div>
         <div style={{ color: THEME.colors.ivory, fontFamily: THEME.fonts.ui }}>{c.name}</div>
-        <div style={{ color: THEME.colors.muted, fontSize: THEME.fontSizes.xs, fontFamily: THEME.fonts.ui, marginTop: '1px' }}>{c.description?.slice(0, 60)}...</div>
+        <div 
+          style={{ 
+            color: THEME.colors.muted, 
+            fontSize: THEME.fontSizes.xs, 
+            fontFamily: THEME.fonts.ui, 
+            marginTop: '1px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '300px',
+          }} 
+          title={c.description || undefined}
+        >
+          {c.description || '—'}
+        </div>
       </div>
     )},
     { key: 'products', label: 'Products', width: '90px', render: (c: Collection) => <span style={{ color: THEME.colors.ash, fontFamily: THEME.fonts.ui }}>{c.productCount}</span> },

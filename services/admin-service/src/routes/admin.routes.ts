@@ -83,7 +83,7 @@ router.get('/content/banners/active', bannerController.listActiveBanners);
 router.use(requireAuth);
 
 // ADM-01 - ADM-06
-router.get('/users', requireRole('superAdmin'), adminController.listAdminUsers);
+router.get('/users', requireRole('superAdmin', 'inventoryManager', 'supportAgent'), adminController.listAdminUsers);
 router.post('/users', requireRole('superAdmin'), adminController.createAdminUser);
 router.patch('/users/:id/role', requireRole('superAdmin'), adminController.updateAdminRole);
 router.delete('/users/:id', requireRole('superAdmin'), adminController.deleteAdminUser);
@@ -94,7 +94,7 @@ router.get('/dashboard/reports/coupons', requireRole('superAdmin'), analyticsCon
 router.get('/dashboard/reports/returns', requireRole('superAdmin'), analyticsController.getReturnRateByProduct);
 router.get('/dashboard/reports/sales/:id', requireRole('superAdmin'), analyticsController.getSalePerformance);
 router.get('/dashboard/sales/live', requireRole('superAdmin'), analyticsController.getLiveSaleMonitor);
-router.get('/customers/lookup', requireRole('superAdmin', 'supportAgent'), adminController.lookupCustomers);
+router.get('/customers/lookup', requireRole('superAdmin', 'supportAgent', 'inventoryManager'), adminController.lookupCustomers);
 
 // ADM-07 - ADM-09 (Coupons)
 router.get('/coupons', requireRole('superAdmin'), couponController.listCoupons);

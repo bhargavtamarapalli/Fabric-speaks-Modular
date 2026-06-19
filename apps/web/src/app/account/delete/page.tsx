@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/lib/apiClient';
 import { AlertTriangle, Lock, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';

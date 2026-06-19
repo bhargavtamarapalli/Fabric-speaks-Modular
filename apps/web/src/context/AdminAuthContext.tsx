@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { getAuth, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import type { AdminRole } from '@/lib/admin/types';
 import app from '@/lib/firebase';
 
@@ -12,6 +12,7 @@ interface AdminAuthContextType {
   loading: boolean;
   user: User | null;
   error: string | null;
+  logout: () => Promise<void>;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
@@ -23,6 +24,16 @@ const ROLE_MAP: Record<string, AdminRole> = {
   superAdmin: 'SUPER_ADMIN',
   inventoryManager: 'INVENTORY_MANAGER',
   supportAgent: 'SUPPORT_AGENT',
+};
+
+/**
+ * Mask email for privacy in logs (e.g., b***@example.com)
+ */
+const maskEmail = (email?: string | null): string => {
+  if (!email) return 'unknown';
+  const [user, domain] = email.split('@');
+  if (!user || !domain) return email;
+  return `${user.charAt(0)}***@${domain}`;
 };
 
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
@@ -58,12 +69,16 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         const mappedRole = claim ? ROLE_MAP[claim] : undefined;
 
         if (!mappedRole) {
+          // FALLBACK: Use main AuthContext role if available (trusting DB role in dev)
+          // We can't use useAuth here directly inside useEffect, but we can pass it down or handle it in the layout.
+          // For now, we'll log carefully and wait for the claim.
           if (claim) {
-            console.warn(`[AdminAuth] Unrecognized claim: "${claim}". User ${firebaseUser.email} denied admin access.`);
+            console.warn(`[AdminAuth] Unrecognized claim: "${claim}". User ${maskEmail(firebaseUser.email)} denied admin access.`);
           } else {
-            console.warn(`[AdminAuth] User ${firebaseUser.email} has no "role" claim. Denied admin access.`);
+            console.warn(`[AdminAuth] User ${maskEmail(firebaseUser.email)} has no "role" claim. Check if user is promoted in DB.`);
           }
           setRole(null);
+          // Only show error if we've really checked everything
           setError('ROLE_REQUIRED');
         } else {
           setRole(mappedRole);
@@ -78,7 +93,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
           firebaseUser.getIdTokenResult(true).then(tokenResult => {
             console.error('[AdminAuth] Role claim debug:', {
               uid: firebaseUser.uid,
-              email: firebaseUser.email,
+              email: maskEmail(firebaseUser.email),
               claims: tokenResult.claims,
               tokenIssued: tokenResult.issuedAtTime,
               tokenExpiry: tokenResult.expirationTime
@@ -95,10 +110,15 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+  const logout = useCallback(async () => {
+    if (!app) return;
+    await signOut(getAuth(app));
+  }, []);
+
   // Memoize context value to prevent unnecessary re-renders of consuming components
   const contextValue = useMemo(
-    () => ({ role, name, email, loading, user, error }),
-    [role, name, email, loading, user, error]
+    () => ({ role, name, email, loading, user, error, logout }),
+    [role, name, email, loading, user, error, logout]
   );
 
   return (

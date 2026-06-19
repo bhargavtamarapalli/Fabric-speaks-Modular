@@ -3,6 +3,9 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async headers() {
+    return [];
+  },
   images: {
     remotePatterns: [
       {
@@ -12,6 +15,9 @@ const nextConfig = {
         pathname: '/**',
       },
     ],
+  },
+  experimental: {
+    instrumentationHook: true,
   },
 };
 

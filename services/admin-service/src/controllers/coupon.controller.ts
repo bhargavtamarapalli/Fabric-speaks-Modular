@@ -13,7 +13,17 @@ export class CouponController {
   listCoupons = catchAsync(async (req: Request, res: Response) => {
     const filters = CouponListQuerySchema.parse(req.query);
     const result = await this.couponService.listCoupons(filters);
-    res.json({ success: true, data: { items: result.items }, meta: result.meta });
+    const totalPages = Math.max(1, Math.ceil(result.meta.total / Math.max(result.meta.limit, 1)));
+    res.json({
+      success: true,
+      data: {
+        items: result.items,
+        total: result.meta.total,
+        page: result.meta.page,
+        limit: result.meta.limit,
+        totalPages,
+      }
+    });
   });
 
   createCoupon = catchAsync(async (req: Request, res: Response) => {

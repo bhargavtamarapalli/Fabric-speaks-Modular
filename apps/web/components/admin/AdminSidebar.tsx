@@ -7,7 +7,7 @@ import {
   Activity, Tag, Layers, Ticket, Monitor, FileText, 
   Users, Headset, LogOut 
 } from 'lucide-react';
-import { useAuth } from '@/lib/hooks/useAuth';
+import { useAdminAuth } from '@/context/AdminAuthContext';
 import type { AdminRole } from '@/lib/admin/types';
 
 interface NavItem {
@@ -31,21 +31,22 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pages', href: '/admin/pages', icon: FileText, roles: ['SUPER_ADMIN'] },
   { label: 'Admin Users', href: '/admin/users', icon: Users, roles: ['SUPER_ADMIN'] },
   { label: 'Support Queue', href: '/admin/support', icon: Headset, roles: ['SUPER_ADMIN', 'SUPPORT_AGENT'] },
+  { label: 'Dev Tools', href: '/admin/dev/promote-user', icon: Layers, roles: ['SUPER_ADMIN'] },
 ];
 
 export const AdminSidebar = () => {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { role, user, logout } = useAdminAuth();
   
-  if (!user || !user.role) return null;
+  if (!user || !role) return null;
 
-  const allowedItems = NAV_ITEMS.filter(item => item.roles.includes(user.role as AdminRole));
+  const allowedItems = NAV_ITEMS.filter(item => item.roles.includes(role));
 
   return (
     <aside className="w-64 flex-shrink-0 bg-gray-950 border-r border-gray-800 flex flex-col h-full sticky top-0">
       <div className="p-6">
         <h1 className="text-xl font-medium tracking-widest text-[var(--fs-linen)] uppercase">Fabric Speaks</h1>
-        <div className="mt-2 text-xs text-gray-400 font-mono">Panel • {user.role}</div>
+        <div className="mt-2 text-xs text-gray-400 font-mono">Panel • {role}</div>
       </div>
       
       <nav className="flex-1 overflow-y-auto py-4">

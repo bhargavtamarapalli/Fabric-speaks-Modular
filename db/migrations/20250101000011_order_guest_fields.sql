@@ -22,9 +22,15 @@ ALTER TABLE orders
 
 -- Step 3: Add CHECK constraint to ensure either user_id or guest_mobile is set
 -- This prevents fully anonymous orders (must have either authenticated user or guest identifier)
-ALTER TABLE orders
-  ADD CONSTRAINT IF NOT EXISTS orders_user_or_guest_check
-  CHECK (user_id IS NOT NULL OR guest_mobile IS NOT NULL);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_user_or_guest_check') THEN
+    ALTER TABLE orders
+      ADD CONSTRAINT orders_user_or_guest_check
+      CHECK (user_id IS NOT NULL OR guest_mobile IS NOT NULL);
+  END IF;
+END
+$$;
 
 -- Step 4: Create partial index on guest_mobile for guest order lookups (faster for tracking)
 CREATE INDEX IF NOT EXISTS orders_guest_mobile_idx
@@ -52,3 +58,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS orders_guest_tracking_ref_idx
 -- ALTER TABLE orders DROP COLUMN IF EXISTS guest_address;
 -- ALTER TABLE orders DROP COLUMN IF EXISTS guest_tracking_ref;
 -- =============================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+

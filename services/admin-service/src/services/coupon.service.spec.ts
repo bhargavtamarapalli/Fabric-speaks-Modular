@@ -21,7 +21,22 @@ describe('CouponService', () => {
 
   it('should create a coupon and log audit', async () => {
     const dto = { code: 'SAVE10', discountType: 'PERCENT' as const, discountValue: 10, minOrderAmount: 100, validFrom: new Date().toISOString(), validUntil: new Date().toISOString(), maxUsesPerUser: 1 };
-    const mockCoupon = { id: 'c1', ...dto, isActive: true, createdAt: new Date(), updatedAt: new Date() };
+    const mockCoupon = {
+      id: 'c1',
+      code: dto.code,
+      discountType: dto.discountType,
+      discountValue: dto.discountValue,
+      minOrderAmount: dto.minOrderAmount,
+      maxDiscount: null,
+      maxUsesTotal: null,
+      maxUsesPerUser: dto.maxUsesPerUser,
+      usesCount: 0,
+      validFrom: new Date(dto.validFrom),
+      validUntil: new Date(dto.validUntil),
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
     
     vi.mocked(repo.findByCode).mockResolvedValue(null);
     vi.mocked(repo.create).mockResolvedValue(mockCoupon);

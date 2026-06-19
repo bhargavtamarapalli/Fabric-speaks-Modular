@@ -2,8 +2,10 @@
 // app/admin/inventory/expected/page.tsx
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { THEME } from '@/lib/admin/theme';
 import { inventoryApi } from '@/lib/admin/api';
+import { useAdminAuth } from '@/context/AdminAuthContext';
 import type { ExpectedStock, ExpectedStockStatus } from '@/lib/admin/types';
 import {
   PageHeader, Badge, DataTable, FilterChip, ActionButton, ErrorBanner,
@@ -13,9 +15,9 @@ import {
 import { mapError } from '@/lib/admin/errors';
 
 const STATUS_BADGE: Record<ExpectedStockStatus, string> = {
-  ORDERED:     'pending',
-  IN_TRANSIT:  'processing',
-  RECEIVED:    'delivered',
+  ORDERED: 'pending',
+  IN_TRANSIT: 'processing',
+  RECEIVED: 'delivered',
 };
 
 const INITIAL_FORM = {
@@ -34,16 +36,20 @@ type ExpectedForm = typeof INITIAL_FORM;
 type ExpectedFormErrors = Partial<Record<keyof ExpectedForm, string>>;
 
 export default function ExpectedStockPage() {
+  // ===== ALL HOOKS MUST BE AT THE TOP, BEFORE ANY CONDITIONAL LOGIC =====
+
+  const router = useRouter();
+  const { role, loading: authLoading } = useAdminAuth();
   const { showToast, ToastComponent } = useToast();
 
-  const [items,    setItems]    = useState<ExpectedStock[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [filter,   setFilter]   = useState('');
+  const [items, setItems] = useState<ExpectedStock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [form,     setForm]     = useState<ExpectedForm>(INITIAL_FORM);
-  const [errors,   setErrors]   = useState<ExpectedFormErrors>({});
-  const [saving,   setSaving]   = useState(false);
+  const [form, setForm] = useState<ExpectedForm>(INITIAL_FORM);
+  const [errors, setErrors] = useState<ExpectedFormErrors>({});
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -59,9 +65,35 @@ export default function ExpectedStockPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ===== NOW SAFE TO DO CONDITIONAL LOGIC =====
+
+  // Role gate: only INVENTORY_MANAGER and SUPER_ADMIN can access
+  const isAuthorized = role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
+
+  if (!authLoading && !isAuthorized) {
+    return (
+      <div style={{ padding: THEME.spacing.lg, textAlign: 'center' }}>
+        <p style={{ color: THEME.colors.error, fontFamily: THEME.fonts.ui }}>
+          You do not have permission to access this page.
+        </p>
+        <ActionButton onClick={() => router.push('/admin/dashboard')} style={{ marginTop: THEME.spacing.md }}>
+          Back to Dashboard
+        </ActionButton>
+      </div>
+    );
+  }
+
+  if (authLoading) {
+    return (
+      <div style={{ padding: THEME.spacing.lg, textAlign: 'center' }}>
+        <p style={{ color: THEME.colors.muted, fontFamily: THEME.fonts.ui }}>Loading...</p>
+      </div>
+    );
+  }
+
   const validate = (values: ExpectedForm): ExpectedFormErrors => {
     const next: ExpectedFormErrors = {};
-    if (!values.sku.trim()) next.sku = 'SKU is required';
+    if (!values.variantId.trim()) next.variantId = 'Variant ID is required';
     if (!values.qtyExpected.trim()) next.qtyExpected = 'Qty expected is required';
     if (values.qtyExpected && Number(values.qtyExpected) <= 0) next.qtyExpected = 'Qty expected must be a positive number';
     if (!values.expectedArrival) next.expectedArrival = 'Expected arrival is required';
@@ -73,6 +105,21 @@ export default function ExpectedStockPage() {
     setErrors(prev => (prev[key] ? { ...prev, [key]: '' } : prev));
   };
 
+  const validateQtyExpected = (value: string) => {
+    if (!value?.trim()) {
+      setErrors(p => ({ ...p, qtyExpected: 'Qty expected is required' }));
+      return;
+    }
+
+    const numValue = Number(value);
+    if (!Number.isInteger(numValue) || numValue <= 0) {
+      setErrors(p => ({ ...p, qtyExpected: 'Qty expected must be a positive integer' }));
+      return;
+    }
+
+    setErrors(p => ({ ...p, qtyExpected: '' }));
+  };
+
   const handleCreate = async () => {
     const validationErrors = validate(form);
     if (Object.values(validationErrors).some(Boolean)) {
@@ -82,16 +129,10 @@ export default function ExpectedStockPage() {
     try {
       setSaving(true);
       await inventoryApi.addExpected({
-        variantId:       form.variantId,
-        productName:     form.productName,
-        size:            form.size,
-        colour:          form.colour,
-        sku:             form.sku,
-        supplierName:    form.supplierName,
-        qtyExpected:     parseInt(form.qtyExpected, 10),
+        variantId: form.variantId,
+        qtyExpected: parseInt(form.qtyExpected, 10),
         expectedArrival: new Date(form.expectedArrival).toISOString(),
-        status:          'ORDERED',
-        notes:           form.notes || null,
+        notes: form.notes || null,
       });
       showToast('Expected stock added', 'success');
       setShowForm(false);
@@ -119,7 +160,7 @@ export default function ExpectedStockPage() {
 
   const daysUntil = (date: string) => {
     const diff = new Date(date).getTime() - Date.now();
-    const d    = Math.ceil(diff / 86400000);
+    const d = Math.ceil(diff / 86400000);
     return d;
   };
 
@@ -165,8 +206,7 @@ export default function ExpectedStockPage() {
           onChange={e => { e.stopPropagation(); handleStatusUpdate(i.id, e.target.value); }}
           style={{ fontSize: THEME.fontSizes.xs, padding: '3px 8px' }}
         >
-          <option value="ORDERED">Ordered</option>
-          <option value="IN_TRANSIT">In transit</option>
+          <option value="ORDERED" disabled>Ordered</option>
           <option value="RECEIVED">Received</option>
         </Select>
       ),
@@ -191,7 +231,7 @@ export default function ExpectedStockPage() {
       )}
 
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-        {[{l:'All',v:''},{l:'Ordered',v:'ORDERED'},{l:'In transit',v:'IN_TRANSIT'},{l:'Received',v:'RECEIVED'}].map(f => (
+        {[{ l: 'All', v: '' }, { l: 'Ordered', v: 'ORDERED' }, { l: 'In transit', v: 'IN_TRANSIT' }, { l: 'Received', v: 'RECEIVED' }].map(f => (
           <FilterChip key={f.v} label={f.l} active={filter === f.v} onClick={() => setFilter(f.v)} />
         ))}
       </div>
@@ -202,13 +242,13 @@ export default function ExpectedStockPage() {
 
       <Drawer open={showForm} onClose={() => { setShowForm(false); setErrors({}); }} title="Add expected stock">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <FormField label="SKU" required helper="Exact variant SKU from the system" error={errors.sku} errorId="expected-sku-error">
+          <FormField label="Variant ID" required helper="Use the variant UUID from Inventory table or product detail" error={errors.variantId} errorId="expected-variant-id-error">
             <TextInput
-              value={form.sku}
-              onChange={e => updateField('sku', e.target.value)}
+              value={form.variantId}
+              onChange={e => updateField('variantId', e.target.value)}
               style={{ fontFamily: THEME.fonts.mono }}
-              aria-invalid={!!errors.sku}
-              aria-describedby={errors.sku ? 'expected-sku-error' : undefined}
+              aria-invalid={!!errors.variantId}
+              aria-describedby={errors.variantId ? 'expected-variant-id-error' : undefined}
             />
           </FormField>
           <FormField label="Product name">
@@ -225,9 +265,9 @@ export default function ExpectedStockPage() {
             <FormField label="Qty expected" required error={errors.qtyExpected} errorId="expected-qty-error">
               <TextInput
                 type="number"
-                min="1"
                 value={form.qtyExpected}
                 onChange={e => updateField('qtyExpected', e.target.value)}
+                onBlur={() => validateQtyExpected(form.qtyExpected)}
                 aria-invalid={!!errors.qtyExpected}
                 aria-describedby={errors.qtyExpected ? 'expected-qty-error' : undefined}
               />

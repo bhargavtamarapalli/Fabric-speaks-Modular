@@ -11,3 +11,16 @@ ADD COLUMN IF NOT EXISTS guest_address TEXT;
 
 -- Index for guest tracking
 CREATE INDEX IF NOT EXISTS orders_guest_mobile_idx ON orders(guest_mobile) WHERE user_id IS NULL;
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -18,6 +18,7 @@ export const ERROR_MAP: Record<string, string> = {
   'TIMEOUT': 'The request timed out. The server might be busy, please try again in a moment.',
   'API_COMMUNICATION_ERROR': 'A problem occurred while communicating with our services. Please try again.',
   'GATEWAY_TIMEOUT': 'Server gateway timeout. We are experiencing high traffic, please wait.',
+  'SERVICE_UNAVAILABLE': 'A required backend service is currently unavailable. Please start the service and retry.',
 
   // ─── Data & Validation ─────────────────────────────────────────────────────
   'BAD_REQUEST': 'Invalid request. Please ensure all required fields are correctly filled.',
@@ -74,6 +75,9 @@ export function mapError(error: any): string {
   // Handle nested technical messages
   const message = (error.message || '').toString();
 
+  if (/service is not running/i.test(message)) return ERROR_MAP['SERVICE_UNAVAILABLE'];
+  if (/http 503/i.test(message)) return ERROR_MAP['SERVICE_UNAVAILABLE'];
+
   // High-level patterns
   if (message.includes('ECONNREFUSED') || message.includes('5432')) return ERROR_MAP['5432'];
   if (message.includes('timeout')) return ERROR_MAP['TIMEOUT'];
@@ -89,11 +93,12 @@ export function mapError(error: any): string {
   }
 
   // Handle specific HTTP status codes if available (e.g., from Axios or native fetch response)
-  const status = error.status || (error.response && error.response.status);
+  const status = error.status || error.statusCode || (error.response && error.response.status);
   if (status) {
     if (status === 401) return ERROR_MAP['UNAUTHORIZED'];
     if (status === 403) return ERROR_MAP['FORBIDDEN'];
     if (status === 404) return ERROR_MAP['NOT_FOUND'];
+    if (status === 503) return ERROR_MAP['SERVICE_UNAVAILABLE'];
     if (status === 429) return ERROR_MAP['RATE_LIMITED'];
     if (status >= 500) return ERROR_MAP['INTERNAL_SERVER_ERROR'];
   }
@@ -109,4 +114,11 @@ export function mapError(error: any): string {
     console.error('[mapErrorToUserMessage] Unmapped error:', error);
   }
   return ERROR_MAP['UNKNOWN_ERROR'];
+}
+
+export function isServiceUnavailableError(error: any): boolean {
+  if (!error) return false;
+  const message = String(error?.message ?? error);
+  const status = error?.status || error?.response?.status;
+  return status === 503 || /service is not running/i.test(message) || /http 503/i.test(message);
 }

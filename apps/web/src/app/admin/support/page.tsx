@@ -13,7 +13,7 @@ import {
   TextInput, Timeline, MonoText, useToast,
   formatDateTime, formatCurrency, maskMobile,
 } from '@/components/admin/shared';
-import { mapError } from '@/lib/admin/errors';
+import { isServiceUnavailableError, mapError } from '@/lib/admin/errors';
 
 export default function SupportPage() {
   const router = useRouter();
@@ -30,6 +30,22 @@ export default function SupportPage() {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [showLookup, setShowLookup] = useState(false);
+
+  // Responsive drawer width - safe for SSR and resize
+  const [drawerWidth, setDrawerWidth] = useState('520px');
+
+  useEffect(() => {
+    const updateWidth = () => {
+      const w = Math.min(520, window.innerWidth * 0.9);
+      setDrawerWidth(`${w}px`);
+    };
+    // Initialize with current width
+    updateWidth();
+    // Listen for resize events
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
+
   const [newTag, setNewTag] = useState('');
   const [newNote, setNewNote] = useState('');
 
@@ -40,7 +56,7 @@ export default function SupportPage() {
       const res = await supportApi.list({ status: filter || undefined });
       setCases(res.items);
     } catch (e: any) {
-      setError(mapError(e));
+      setError(isServiceUnavailableError(e) ? null : mapError(e));
     } finally {
       setLoading(false);
     }
@@ -185,19 +201,32 @@ export default function SupportPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: THEME.colors.surface3, border: `1px solid ${THEME.colors.border}`, borderRadius: THEME.radius.lg, overflow: 'hidden' }}>
-        <DataTable
-          columns={columns}
-          data={filtered}
-          loading={loading}
-          empty="No support cases"
-          onRowClick={c => router.push(`/admin/support/${c.id}`)}
-          rowKey={c => c.id}
-        />
+      <div style={{ 
+        background: THEME.colors.surface3, 
+        border: `1px solid ${THEME.colors.border}`, 
+        borderRadius: THEME.radius.lg, 
+        overflow: 'hidden',
+        maxWidth: '100%'
+      }}>
+        <div style={{ 
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'thin',
+          scrollbarColor: `${THEME.colors.muted} transparent`
+        }}>
+          <DataTable
+            columns={columns}
+            data={filtered}
+              loading={loading}
+              empty="No support cases"
+              onRowClick={c => router.push(`/admin/support/${c.id}`)}
+              rowKey={c => c.id}
+            />
+        </div>
       </div>
 
       {/* Customer Lookup Drawer */}
-      <Drawer open={showLookup} onClose={() => setShowLookup(false)} title="Customer lookup" width="520px">
+      <Drawer open={showLookup} onClose={() => setShowLookup(false)} title="Customer lookup" width={drawerWidth}>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
           <TextInput
             placeholder="Enter mobile number (e.g. 9876543210)"

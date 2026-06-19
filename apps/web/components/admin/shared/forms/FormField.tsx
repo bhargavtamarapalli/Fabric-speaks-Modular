@@ -25,20 +25,20 @@ export const FormField = memo(function FormField({ label, error, helper, require
   // Enhance children with id and error indicators
   const id = children && React.isValidElement(children) ? (children.props as any).id || `input-${generatedId}` : `input-${generatedId}`;
   
+  const childProps: any = {
+    id,
+    'aria-invalid': hasError ? 'true' : 'false',
+    'aria-describedby': hasError ? effectiveErrorId : (helper ? `help-${generatedId}` : undefined),
+    'aria-required': required ? 'true' : undefined,
+  };
+
+  // Only pass hasError to custom components that might use it for styling
+  if (typeof (children as any).type !== 'string') {
+    childProps.hasError = hasError;
+  }
+
   const childWithProps = React.isValidElement(children)
-    ? React.cloneElement(children as React.ReactElement<{
-      id?: string;
-      'aria-invalid'?: string;
-      'aria-describedby'?: string;
-      'aria-required'?: string;
-      hasError?: boolean;
-    }>, {
-      id,
-      'aria-invalid': hasError ? 'true' : 'false',
-      'aria-describedby': hasError ? effectiveErrorId : (helper ? `help-${generatedId}` : undefined),
-      'aria-required': required ? 'true' : undefined,
-      hasError,
-    })
+    ? React.cloneElement(children as React.ReactElement, childProps)
     : children;
 
   return (

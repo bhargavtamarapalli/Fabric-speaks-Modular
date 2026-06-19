@@ -15,9 +15,23 @@ export class AdminController {
   constructor(private adminService: AdminService) {}
 
   listAdminUsers = catchAsync(async (req: Request, res: Response) => {
-    const filters = AdminListQuerySchema.parse(req.query);
-    const result = await this.adminService.listAdminUsers(filters);
-    res.json({ success: true, data: { items: result.items }, meta: result.meta });
+    const query = req.query as Record<string, unknown> & {
+      filter?: { role?: string; search?: string };
+    };
+
+    // Express can parse filter[role] as either literal key or nested filter.role.
+    const normalizedQuery = {
+      page: query.page,
+      limit: query.limit,
+      'filter[role]': (query['filter[role]'] as string | undefined) ?? query.filter?.role,
+      'filter[search]': (query['filter[search]'] as string | undefined) ?? query.filter?.search,
+    };
+
+    const filters = AdminListQuerySchema.parse(normalizedQuery);
+    const requesterRole = req.user?.role;
+    if (!requesterRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+    const result = await this.adminService.listAdminUsers(filters, requesterRole);
+    res.json({ success: true, data: { items: result.items, meta: result.meta }, meta: result.meta });
   });
 
   createAdminUser = catchAsync(async (req: Request, res: Response) => {
@@ -78,7 +92,9 @@ export class AdminController {
 
   lookupCustomers = catchAsync(async (req: Request, res: Response) => {
     const { q } = CustomerLookupSchema.parse(req.query);
-    const result = await this.adminService.lookupCustomers(q);
+    const requesterRole = req.user?.role;
+    if (!requesterRole) throw new AppError(ErrorCode.UNAUTHORIZED, 'Unauthorized');
+    const result = await this.adminService.lookupCustomers(q, requesterRole);
     res.json({ success: true, data: result });
   });
 }

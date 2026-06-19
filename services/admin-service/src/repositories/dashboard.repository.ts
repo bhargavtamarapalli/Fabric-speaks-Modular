@@ -394,7 +394,7 @@ export class DashboardRepository extends BaseRepository {
   async getSalePerformance(
     startsAt: Date,
     endsAt: Date,
-    scope?: { type: 'fabric_type' | 'product_type' | 'collection'; ids: string[] },
+    scope?: { type: 'fabric_type' | 'product_type' | 'collection' | 'specific_products'; ids: string[] },
     params: unknown[] = []
   ): Promise<SalePerformance> {
     // Build safe joins and filters based on scope type
@@ -415,6 +415,9 @@ export class DashboardRepository extends BaseRepository {
         case 'collection':
           joins = 'JOIN collection_products cp ON cp.product_id = p.id';
           filters = `AND cp.collection_id IN (${placeholders})`;
+          break;
+        case 'specific_products':
+          filters = `AND p.id IN (${placeholders})`;
           break;
       }
     }
@@ -446,7 +449,7 @@ export class DashboardRepository extends BaseRepository {
 
   async getLiveSaleMonitor(
     windowMinutes: number = 30,
-    scope?: { type: 'fabric_type' | 'product_type' | 'collection'; ids: string[] },
+    scope?: { type: 'fabric_type' | 'product_type' | 'collection' | 'specific_products'; ids: string[] },
     saleOnly: boolean = false
   ): Promise<LiveSaleMonitor> {
     // Build safe joins and filters based on scope type
@@ -468,6 +471,9 @@ export class DashboardRepository extends BaseRepository {
         case 'collection':
           joins = 'JOIN collection_products cp ON cp.product_id = p.id';
           filters = `AND cp.collection_id IN (${placeholders})`;
+          break;
+        case 'specific_products':
+          filters = `AND p.id IN (${placeholders})`;
           break;
       }
     }

@@ -115,14 +115,25 @@ export function OrdersDataGrid({
       background: THEME.colors.surface3, 
       border: `1px solid ${THEME.colors.border}`, 
       borderRadius: THEME.radius.lg, 
-      overflow: 'hidden' 
+      overflow: 'hidden',
+      maxWidth: '100%',
+      WebkitOverflowScrolling: 'touch'
     }}>
-      <DataTable
-        columns={columns}
-        data={orders}
-        loading={loading}
-        onRowClick={handleRowClick}
-      />
+      <div style={{ 
+        overflowX: 'auto', 
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'thin',
+        scrollbarColor: `${THEME.colors.muted} transparent`
+      }}>
+        <div style={{ minWidth: '800px' }}> {/* Ensure table has scrollable content */}
+          <DataTable
+            columns={columns}
+            data={orders}
+            loading={loading}
+            onRowClick={handleRowClick}
+          />
+        </div>
+      </div>
     </div>
   );
 }

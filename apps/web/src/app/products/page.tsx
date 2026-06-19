@@ -5,6 +5,7 @@ import { ProductCard } from '@/components/molecules/ProductCard';
 import { Filter, ChevronDown, Loader2 } from 'lucide-react';
 import { getProducts, Product } from '@/lib/api/products';
 import { MagneticButton } from '@/components/atoms/MagneticButton';
+import { EmptyState } from '@/components/atoms/EmptyState';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -22,8 +23,8 @@ export default function ProductsPage() {
         fabric: selectedFabrics.length > 0 ? selectedFabrics.join(',') : undefined,
         limit: 12
       });
-      setProducts(res.items);
-      setTotal(res.total);
+      setProducts(res?.items ?? []);
+      setTotal(res?.total ?? 0);
     } catch (err: any) {
       setError(err.message || 'Failed to load products');
     } finally {
@@ -133,16 +134,12 @@ export default function ProductsPage() {
                 <p className="text-[var(--fs-error)] mb-4">{error}</p>
                 <MagneticButton onClick={fetchProducts}>Retry</MagneticButton>
              </div>
-          ) : products.length === 0 ? (
-             <div className="h-64 flex flex-col items-center justify-center text-center">
-                <p className="text-[var(--fs-ash)] mb-4">No fabrics found matching your criteria.</p>
-                <button 
-                  onClick={() => { setSelectedFabrics([]); }}
-                  className="text-[var(--fs-linen)] border-b border-[var(--fs-linen)]"
-                >
-                  Clear all filters
-                </button>
-             </div>
+          ) : (products?.length ?? 0) === 0 ? (
+             <EmptyState
+               variant={selectedFabrics.length > 0 ? 'no-results' : 'restocking'}
+               onAction={selectedFabrics.length > 0 ? () => setSelectedFabrics([]) : undefined}
+               actionLabel={selectedFabrics.length > 0 ? 'Clear all filters' : undefined}
+             />
           ) : (
              <>
                 <div className="hidden md:flex justify-between items-center mb-8">

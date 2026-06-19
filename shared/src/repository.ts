@@ -50,4 +50,32 @@ export abstract class BaseRepository {
       return fn(this.db as PoolClient);
     }
   }
+
+  /**
+   * PHASE 2 - Task 2.7: Isolation Verification
+   * Execute function within SERIALIZABLE transaction for maximum isolation
+   * Used for stock-critical operations to prevent race conditions
+   */
+  public async withSerializableTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    if ('connect' in this.db) {
+      const client = await (this.db as Pool).connect();
+      try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        const result = await fn(client);
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        // SERIALIZABLE can cause serialization conflicts
+        // These are automatically retried by the application layer
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    } else {
+      // If already in transaction, use SERIALIZABLE deferrable on read-only ops
+      await (this.db as PoolClient).query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+      return fn(this.db as PoolClient);
+    }
+  }
 }

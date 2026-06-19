@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { motion } from 'framer-motion';
 import { SpiderLoader } from '@/components/atoms/SpiderLoader';
@@ -30,22 +30,37 @@ export default function WishlistPage() {
   const { showToast } = useToast();
   const [items, setItems] = useState<WishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | string | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await apiFetch<{ items: WishlistItem[] }>('/customer/wishlist');
-      setItems(res.items || (res as any));
+      // Type-safe validation: ensure response has correct structure
+      if (res && typeof res === 'object' && Array.isArray(res.items)) {
+        setItems(res.items);
+      } else {
+        console.warn('Invalid wishlist response format:', res);
+        setItems([]);
+      }
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : 'Failed to load wishlist');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const retryFetch = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    loadData();
+  }, [loadData]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleRemove = async (productId: string) => {
     try {
@@ -74,6 +89,16 @@ export default function WishlistPage() {
 
       {loading ? (
         <div className="py-20 flex justify-center"><SpiderLoader size="md" /></div>
+      ) : error ? (
+        <div className="py-12 border border-dashed border-[var(--fs-wire)] rounded flex flex-col items-center justify-center text-center">
+          <p className="text-[var(--fs-error)]">{error instanceof Error ? error.message : String(error)}</p>
+          <button
+            onClick={retryFetch}
+            className="mt-4 py-2 px-4 text-sm uppercase tracking-widest bg-[var(--fs-linen)] text-[var(--fs-void)] font-medium transition hover:bg-gray-200"
+          >
+            Retry
+          </button>
+        </div>
       ) : items.length === 0 ? (
         <div className="py-12 border border-dashed border-[var(--fs-wire)] rounded flex flex-col items-center justify-center text-center">
           <p className="text-[var(--fs-ash)]">Your wishlist is currently empty.</p>
@@ -82,9 +107,9 @@ export default function WishlistPage() {
           </Link>
         </div>
       ) : (
-        <motion.div 
-          variants={containerVars} 
-          initial="hidden" 
+        <motion.div
+          variants={containerVars}
+          initial="hidden"
           animate="visible"
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
         >
@@ -96,7 +121,7 @@ export default function WishlistPage() {
                   {item.imageUrl ? 'Image' : 'No Cover'}
                 </div>
               </Link>
-              
+
               <div className="mt-4 space-y-1">
                 <Link href={`/product/${item.slug}`} className="block text-sm font-medium hover:text-[var(--fs-linen)] transition">
                   {item.name}
@@ -105,13 +130,13 @@ export default function WishlistPage() {
               </div>
 
               <div className="flex items-center gap-2 mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button 
+                <button
                   onClick={() => handleMoveToCart(item.productId)}
                   className="flex-1 py-2 text-xs uppercase tracking-widest bg-[var(--fs-linen)] text-[var(--fs-void)] font-medium transition hover:bg-gray-200 flex items-center justify-center gap-2"
                 >
                   <ShoppingCart className="w-3 h-3" /> Cart
                 </button>
-                <button 
+                <button
                   onClick={() => handleRemove(item.productId)}
                   className="p-2 border border-[var(--fs-wire)] text-[var(--fs-ash)] hover:text-red-400 hover:border-red-900 transition flex items-center justify-center"
                   aria-label="Remove from wishlist"

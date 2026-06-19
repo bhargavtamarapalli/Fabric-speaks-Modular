@@ -33,3 +33,16 @@ CREATE INDEX IF NOT EXISTS addresses_guest_session_retention_idx
 -- ALTER TABLE addresses DROP COLUMN IF EXISTS guest_session_id;
 -- ALTER TABLE addresses DROP COLUMN IF EXISTS retention_deadline;
 -- DROP INDEX IF EXISTS addresses_guest_session_retention_idx;
+
+
+
+
+
+
+
+
+
+
+
+
+

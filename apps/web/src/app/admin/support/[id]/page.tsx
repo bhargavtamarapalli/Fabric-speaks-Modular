@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supportApi } from '@/lib/admin/api';
+import { useAdminAuth } from '@/context/AdminAuthContext';
 import type { SupportCase, CaseStatus } from '@/lib/admin/types';
 import { THEME } from '@/lib/admin/theme';
 import {
@@ -30,7 +31,10 @@ const STATUS_BADGE: Record<string, string> = {
 const NOTE_INITIAL = { note: '' };
 
 export default function SupportDetailPage() {
+  // ===== ALL HOOKS MUST BE AT THE TOP, BEFORE ANY CONDITIONAL LOGIC =====
+
   const router = useRouter();
+  const { role, loading: authLoading } = useAdminAuth();
   const params = useParams();
   const { showToast, ToastComponent } = useToast();
 
@@ -66,6 +70,28 @@ export default function SupportDetailPage() {
   }, [caseId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // ===== NOW SAFE TO DO CONDITIONAL LOGIC =====
+
+  // Role gate: SUPER_ADMIN and SUPPORT_AGENT can view support cases
+  const isAuthorized = role === 'SUPER_ADMIN' || role === 'SUPPORT_AGENT';
+
+  if (authLoading) {
+    return <Loader />;
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div style={{ padding: THEME.spacing.lg, textAlign: 'center' }}>
+        <p style={{ color: THEME.colors.error, fontFamily: THEME.fonts.ui }}>
+          You do not have permission to view this support case.
+        </p>
+        <ActionButton onClick={() => router.push('/admin/dashboard')} style={{ marginTop: THEME.spacing.md }}>
+          Back to Dashboard
+        </ActionButton>
+      </div>
+    );
+  }
 
   const handleStatusUpdate = async () => {
     if (!supportCase) return;
@@ -116,7 +142,7 @@ export default function SupportDetailPage() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1.4fr 1fr',
+        gridTemplateColumns: 'minmax(0, 1fr)',
         gap: THEME.spacing.lg,
         alignItems: 'start',
       }}>

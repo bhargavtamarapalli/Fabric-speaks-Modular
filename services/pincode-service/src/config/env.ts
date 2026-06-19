@@ -1,16 +1,11 @@
 import { loadEnv } from '@fs/shared';
 import { z } from 'zod';
 
-const EnvSchema = z.object({
-  APP_PORT: z.string().default('8011'),
-  APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
-  DB_HOST: z.string(),
-  DB_PORT: z.string().default('5432'),
-  DB_USER: z.string(),
-  DB_PASSWORD: z.string(),
-  DB_NAME: z.string(),
-  REDIS_HOST: z.string(),
-  REDIS_PORT: z.string().default('6379'),
-});
+const envSchema = {
+  DB_HOST: z.string().min(1, 'DB_HOST is required'),
+  DB_USER: z.string().min(1, 'DB_USER is required'),
+  DB_PASSWORD: z.string().min(1, 'DB_PASSWORD is required'),
+  DB_NAME: z.string().min(1, 'DB_NAME is required'),
+};
 
-export const env = EnvSchema.parse(loadEnv({}));
+export const env = loadEnv(envSchema);

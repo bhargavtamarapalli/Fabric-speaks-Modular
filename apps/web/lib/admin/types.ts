@@ -9,11 +9,22 @@ export type AdminRole = 'SUPER_ADMIN' | 'INVENTORY_MANAGER' | 'SUPPORT_AGENT';
 export interface AdminUser {
   id:          string;
   name:        string;
-  email:       string;
+  email:       string | null;
+  mobile?:     string;
   role:        AdminRole;
   isActive:    boolean;
   lastActiveAt: string | null;
   createdAt:   string;
+}
+
+export interface CustomerSummary {
+  id: string;
+  name: string;
+  email: string | null;
+  mobile: string | null;
+  firebaseUid: string;
+  role: string;
+  createdAt: string;
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
@@ -150,6 +161,15 @@ export interface Collection {
   imageUrl:    string | null;
   isActive:    boolean;
   productCount: number;
+}
+
+export interface VariantTemplate {
+  id: string;
+  name: string;
+  sizes: string[];
+  colours: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Inventory ────────────────────────────────────────────────────────────────
@@ -314,6 +334,7 @@ export interface Coupon {
   code:          string;
   discountType:  DiscountType;
   discountValue: number;
+  maxDiscount?:  number | null;
   minOrderValue: number;
   usageLimit:    number;
   usedCount:     number;

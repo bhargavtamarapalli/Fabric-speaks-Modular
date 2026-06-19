@@ -36,6 +36,8 @@ export const cartItemSchema = z.object({
 // --- Pagination Schema ---
 
 export const paginationSchema = z.object({
-    page: z.number().int().nonnegative().optional().default(1),
-    limit: z.number().int().positive().max(100).optional().default(20),
+    page: z.coerce.number().int().positive().optional().default(1),
+    limit: z.coerce.number().int().positive().max(100).optional().default(20),
 });
+
+export const PaginationSchema = paginationSchema;

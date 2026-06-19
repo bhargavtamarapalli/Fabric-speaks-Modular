@@ -4,7 +4,7 @@ import { env } from './config/env';
 
 const app = createBaseApp({ serviceName: 'cart-service' });
 
-app.use('/api', cartRoutes);
+app.use('/api/v1/cart', cartRoutes);
 
 app.use(globalErrorHandler);
 

@@ -3,12 +3,16 @@ import crypto from 'crypto';
 
 export interface User {
     id: string;
-    mobile: string;
-    mobile_hash: string;
+    mobile: string | null;
+    mobile_hash: string | null;
     name: string | null;
     email: string | null;
-    firebase_uid: string;
+    password_hash?: string | null;
+    email_verified?: boolean;
+    firebase_uid?: string | null;
     role: string;
+    whatsapp_enabled: boolean;
+    preferences: Record<string, any>;
     is_deleted: boolean;
     session_version?: number;
     session_revoked_at?: Date | null;
@@ -18,7 +22,12 @@ export interface IUserRepository {
     findById(id: string): Promise<User | null>;
     findByMobileHash(hash: string): Promise<User | null>;
     findByFirebaseUid(firebaseUid: string): Promise<User | null>;
+    findByEmail(email: string): Promise<User | null>;
     createCustomer(mobile: string, hash: string, firebaseUid: string): Promise<User>;
+    createWithEmail(data: { email: string, name?: string, passwordHash: string }): Promise<User>;
+    updateProfile(id: string, data: Partial<User>): Promise<User>;
+    updateRole(id: string, role: string): Promise<User>;
+    touchLastActive(id: string): Promise<User>;
     softDeleteCustomer(id: string): Promise<void>;
 }
 
@@ -47,6 +56,14 @@ export class UserRepository extends BaseRepository implements IUserRepository {
         return result.rows[0] ?? null;
     }
 
+    async findByEmail(email: string): Promise<User | null> {
+        const result = await this.db.query<User>(
+            'SELECT * FROM users WHERE email = $1 AND is_deleted = false',
+            [email]
+        );
+        return result.rows[0] ?? null;
+    }
+
     async createCustomer(mobile: string, hash: string, firebaseUid: string): Promise<User> {
         const result = await this.db.query<User>(
             `INSERT INTO users (mobile, mobile_hash, firebase_uid, role) 
@@ -54,6 +71,48 @@ export class UserRepository extends BaseRepository implements IUserRepository {
             [mobile, hash, firebaseUid]
         );
         return result.rows[0]!;
+    }
+
+    async createWithEmail(data: { email: string, name?: string, passwordHash: string }): Promise<User> {
+        const result = await this.db.query<User>(
+            `INSERT INTO users (email, name, password_hash, role) 
+       VALUES ($1, $2, $3, 'customer') RETURNING *`,
+            [data.email, data.name || null, data.passwordHash]
+        );
+        return result.rows[0]!;
+    }
+
+    async updateProfile(id: string, data: Partial<User>): Promise<User> {
+        const keys = Object.keys(data).filter(k => data[k as keyof User] !== undefined);
+        if (keys.length === 0) return (await this.findById(id))!;
+
+        const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+        const values = keys.map(k => data[k as keyof User]);
+
+        const result = await this.db.query<User>(
+            `UPDATE users SET ${setClause}, updated_at = now() WHERE id = $1 RETURNING *`,
+            [id, ...values]
+        );
+        return result.rows[0]!;
+    }
+
+    async updateRole(id: string, role: string): Promise<User> {
+        const result = await this.db.query<User>(
+            `UPDATE users SET role = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+            [id, role]
+        );
+        return result.rows[0]!;
+    }
+
+    async touchLastActive(id: string): Promise<User> {
+        const result = await this.db.query<User>(
+            `UPDATE users SET updated_at = now() WHERE id = $1 AND is_deleted = false RETURNING *`,
+            [id]
+        );
+        if (!result.rows[0]) {
+            throw new Error(`User not found: ${id}`);
+        }
+        return result.rows[0];
     }
 
     async softDeleteCustomer(id: string): Promise<void> {

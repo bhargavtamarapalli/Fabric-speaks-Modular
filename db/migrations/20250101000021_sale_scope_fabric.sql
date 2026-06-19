@@ -11,3 +11,16 @@ BEGIN
     ALTER TYPE sale_scope ADD VALUE 'fabric_type';
   END IF;
 END $$;
+
+
+
+
+
+
+
+
+
+
+
+
+

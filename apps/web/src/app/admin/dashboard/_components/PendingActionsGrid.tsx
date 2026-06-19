@@ -16,20 +16,23 @@ interface PendingActionsGridProps {
  */
 export const PendingActionsGrid = memo(function PendingActionsGrid({ data }: PendingActionsGridProps) {
   const router = useRouter();
+  const recentOrders = data.recentOrders ?? [];
+  const awaitingShiprocket = Number(data.awaitingShiprocket ?? 0);
+  const codPending = Number(data.codPending ?? 0);
 
   const shiprocketRows = React.useMemo(() => 
-    data.recentOrders
+    recentOrders
       .filter(o => o.status === 'CONFIRMED' && !o.awbNumber)
       .slice(0, 2)
       .map(o => ({ left: `${o.orderNumber} · ${o.customer.name}`, right: formatCurrency(o.total) }))
-  , [data.recentOrders]);
+  , [recentOrders]);
 
   const codRows = React.useMemo(() => 
-    data.recentOrders
+    recentOrders
       .filter(o => o.paymentMethod === 'COD' && o.status === 'PENDING_PAYMENT')
       .slice(0, 2)
       .map(o => ({ left: `${o.orderNumber} · ${o.customer.name}`, right: o.customer.mobile }))
-  , [data.recentOrders]);
+  , [recentOrders]);
 
   const handleShiprocketClick = React.useCallback(() => {
     router.push('/admin/orders?filter=awaiting_shiprocket');
@@ -41,18 +44,18 @@ export const PendingActionsGrid = memo(function PendingActionsGrid({ data }: Pen
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: THEME.spacing.sm, marginBottom: THEME.spacing.lg }}>
-      {data.awaitingShiprocket > 0 && (
+      {awaitingShiprocket > 0 && (
         <PendingWidget
-          label="Awaiting Shiprocket"
-          count={data.awaitingShiprocket}
+          label='Awaiting Shiprocket'
+          count={awaitingShiprocket}
           rows={shiprocketRows}
           onClick={handleShiprocketClick}
         />
       )}
-      {data.codPending > 0 && (
+      {codPending > 0 && (
         <PendingWidget
-          label="COD pending confirmation"
-          count={data.codPending}
+          label='COD pending confirmation'
+          count={codPending}
           rows={codRows}
           onClick={handleCodClick}
         />

@@ -19,8 +19,9 @@ export async function otpRateLimiter(req: Request, res: Response, next: NextFunc
     const ip = req.ip || req.connection.remoteAddress || 'unknown';
 
     // Allow configuration via environment variables with sensible defaults
-    const MOBILE_LIMIT = parseInt(process.env.OTP_MOBILE_LIMIT || '3', 10);
-    const IP_LIMIT = parseInt(process.env.OTP_IP_LIMIT || '5', 10);
+    // DEV NOTE: Increased limits for development to prevent accidental lockouts during testing.
+    const MOBILE_LIMIT = parseInt(process.env.OTP_MOBILE_LIMIT || '10', 10);
+    const IP_LIMIT = parseInt(process.env.OTP_IP_LIMIT || '20', 10);
     const WINDOW_SECONDS = parseInt(process.env.OTP_WINDOW_SECONDS || '600', 10);
 
     // Check mobile-based rate limit

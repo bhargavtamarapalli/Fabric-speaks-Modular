@@ -6,8 +6,8 @@ export interface AuditLog {
   action: string;
   entityType: string;
   entityId: string;
-  beforeJson?: any;
-  afterJson?: any;
+  beforeJson?: unknown;
+  afterJson?: unknown;
   ipAddress?: string;
   createdAt: Date;
 }
@@ -28,5 +28,13 @@ export class AuditLogRepository extends BaseRepository {
       data.afterJson || null,
       data.ipAddress || null,
     ]);
+  }
+
+  async findByUser(userId: string, limit: number = 30): Promise<AuditLog[]> {
+    const result = await this.db.query<AuditLog>(
+      `SELECT * FROM admin_audit_log WHERE admin_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [userId, limit]
+    );
+    return result.rows.map(row => this.mapToCamelCase<AuditLog>(row));
   }
 }
